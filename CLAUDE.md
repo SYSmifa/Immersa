@@ -18,7 +18,8 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Test su visore solo dall'utente (riporta errori/comportamento)
 
 ## Struttura
-- `index.html`, `src/main.ts` — entry point
+- `index.html`, `src/main.ts` — entry point (collega stage, modello, stats)
+- `src/scene/stage.ts` renderer/scena/AR button; `src/scene/testModel.ts` carica `/models/test.glb` o mesh procedurale; `src/ui/stats.ts` fps+tris (DOM e pannello 3D in XR)
 - `src/` — moduli piccoli, una responsabilità per file (cartelle per area: `xr/`, `scene/`, `room/`, `ui/`)
 - `public/models/` — GLB di test, ignorati da git
 
@@ -38,4 +39,6 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Due modalità di serving: LAN HTTPS (principale) e USB/adb
 
 ## Stato
-- Scaffold Vite pronto. Prossimo: Fase 1 (fps + modello pesante, piani/mesh, anchor persistenti)
+- Fase 1, passi 1-2 fatti (non testati su Quest): AR passthrough + fps + modello pesante
+- Test: `?tris=300000` (mesh procedurale), `?size=<m>` (default 1.5); o metti `public/models/test.glb`
+- Space Setup/piani/mesh stanza e anchor (passi 3-4) rimandati su richiesta utente
