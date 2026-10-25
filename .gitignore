@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.local
+.env*
+!.env.example
+
+# Heavy 3D / CAD assets (kept out of git)
+*.glb
+*.gltf
+*.bin
+*.fbx
+*.obj
+*.step
+*.stp
+*.ktx2
+public/models/*
+!public/models/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
