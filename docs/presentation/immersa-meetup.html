@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Immersa Meetup</title>
+<style>
+  @page { size: 297mm 210mm; margin: 0; }
+  :root {
+    --bg: #11151d; --bg2: #171c27; --card: #1a2030; --card2: #1e2537;
+    --line: #2b3448; --text: #e8ebf2; --muted: #9ba4b8; --dim: #6b7489;
+    --violet: #a78bfa; --violet-d: #7c3aed; --cyan: #38bdf8; --emerald: #34d399;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text);
+    font-family: "Inter", "DejaVu Sans", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 297mm; height: 210mm; position: relative; overflow: hidden;
+    page-break-after: always; break-after: page; padding: 20mm 22mm;
+    background:
+      radial-gradient(circle at 88% 8%, rgba(124,58,237,.22), transparent 42%),
+      radial-gradient(circle at 6% 96%, rgba(56,189,248,.14), transparent 40%),
+      radial-gradient(circle at 60% 110%, rgba(52,211,153,.10), transparent 40%),
+      linear-gradient(160deg, var(--bg2), var(--bg));
+    display: flex; flex-direction: column; }
+  .slide:last-child { page-break-after: auto; break-after: auto; }
+  .slide::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 12mm 12mm;
+    -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.9), rgba(0,0,0,.2));
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.9), rgba(0,0,0,.2)); }
+  .slide::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.6mm;
+    background: linear-gradient(90deg, var(--violet-d), var(--cyan), var(--emerald)); }
+  .slide > * { position: relative; z-index: 1; }
+
+  /* Slide headings */
+  .head { display: flex; align-items: center; gap: 5mm; margin-bottom: 11mm; }
+  .head .bar { width: 1.6mm; height: 13mm; border-radius: 1mm;
+    background: linear-gradient(180deg, var(--violet), var(--cyan)); }
+  .head h2 { font-size: 30pt; font-weight: 700; letter-spacing: -.01em; }
+
+  /* Cards */
+  .card { background: linear-gradient(160deg, var(--card2), var(--card));
+    border: 1px solid var(--line); border-radius: 5mm; padding: 9mm 10mm;
+    position: relative; overflow: hidden; }
+  .card .accent { position: absolute; top: 0; left: 0; right: 0; height: 1.2mm; }
+  .card .dot { width: 9mm; height: 9mm; border-radius: 2.5mm; margin-bottom: 6mm;
+    display: block; border: 1px solid; }
+  .card h3 { font-size: 17pt; font-weight: 650; margin-bottom: 4mm; letter-spacing: -.005em; }
+  .card p { font-size: 12.5pt; line-height: 1.55; color: var(--muted); }
+  .v .accent { background: var(--violet); } .v .dot { background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.5); } .v h3 { color: #d4c6ff; }
+  .c .accent { background: var(--cyan); }   .c .dot { background: rgba(56,189,248,.14); border-color: rgba(56,189,248,.5); }   .c h3 { color: #bfe7fb; }
+  .e .accent { background: var(--emerald);} .e .dot { background: rgba(52,211,153,.14); border-color: rgba(52,211,153,.5); } .e h3 { color: #bdf2dc; }
+
+  .grid2x2 { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7mm; }
+  .grid2x2 .card { padding: 8mm 10mm; }
+  .grid2x2 .dot { margin-bottom: 4mm; }
+  .row2 { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 9mm; align-content: center; }
+  .row2 .card { padding: 13mm 12mm; min-height: 88mm; }
+  .row2 h3 { font-size: 20pt; margin-bottom: 6mm; }
+  .row2 p { font-size: 14pt; }
+
+  /* Slide 1 */
+  .s1 { justify-content: center; }
+  .badge { display: inline-block; align-self: flex-start; font-size: 10pt; font-weight: 600;
+    letter-spacing: .18em; color: #d4c6ff; padding: 2.6mm 5mm; border-radius: 10mm;
+    border: 1px solid rgba(167,139,250,.55); background: rgba(124,58,237,.16); margin-bottom: 8mm; }
+  .title { font-size: 76pt; font-weight: 800; letter-spacing: .06em; line-height: 1; margin-bottom: 6mm; }
+  .subtitle { font-size: 21pt; font-weight: 600; color: var(--text); margin-bottom: 5mm; max-width: 250mm; }
+  .desc { font-size: 13pt; line-height: 1.6; color: var(--muted); max-width: 200mm; margin-bottom: 12mm; }
+  .specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; }
+  .spec { border: 1px solid var(--line); border-radius: 4mm; padding: 5.5mm 7mm;
+    background: rgba(26,32,48,.85); border-left: 1.4mm solid; }
+  .spec.v { border-left-color: var(--violet); } .spec.c { border-left-color: var(--cyan); } .spec.e { border-left-color: var(--emerald); }
+  .spec .k { font-size: 8.5pt; letter-spacing: .16em; font-weight: 600; color: var(--dim); margin-bottom: 2mm; }
+  .spec .val { font-size: 14pt; font-weight: 650; }
+
+  /* Slide 4 */
+  .video { flex: 1; border-radius: 6mm; border: 1px dashed rgba(56,189,248,.55);
+    background: radial-gradient(circle at 50% 40%, rgba(56,189,248,.12), transparent 60%), rgba(20,25,37,.9);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 12mm 30mm; }
+  .play { width: 26mm; height: 26mm; border-radius: 50%; margin-bottom: 9mm;
+    background: linear-gradient(135deg, var(--violet-d), var(--cyan)); display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 18mm rgba(56,189,248,.35); }
+  .play::after { content: ""; margin-left: 2mm; border-style: solid; border-width: 5.5mm 0 5.5mm 9mm;
+    border-color: transparent transparent transparent #fff; }
+  .video h3 { font-size: 20pt; letter-spacing: .14em; font-weight: 700; color: #bfe7fb; margin-bottom: 6mm; }
+  .video p { font-size: 14pt; line-height: 1.6; color: var(--muted); max-width: 175mm; }
+
+  /* Slide 6 */
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .center .ring { width: 30mm; height: 30mm; border-radius: 50%; margin-bottom: 10mm;
+    border: 1.2mm solid transparent;
+    background: linear-gradient(var(--bg2), var(--bg2)) padding-box,
+                linear-gradient(135deg, var(--violet), var(--cyan), var(--emerald)) border-box; position: relative; }
+  .center .ring::after { content: "?"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 40pt; font-weight: 800; color: var(--cyan); }
+  .thanks { font-size: 48pt; font-weight: 800; letter-spacing: -.01em; margin-bottom: 7mm; }
+  .center p { font-size: 15pt; line-height: 1.6; color: var(--muted); max-width: 190mm; }
+</style>
+</head>
+<body>
+
+<section class="slide s1">
+  <span class="badge">UNREAL ENGINE MEETUP — 31 OTTOBRE</span>
+  <h1 class="title"><span style="color:#c4b5fd">I</span><span style="color:#9ab7fb">M</span><span style="color:#6fbafa">M</span><span style="color:#45bcf8">E</span><span style="color:#37c3df">R</span><span style="color:#35cbbc">S</span><span style="color:#34d399">A</span></h1>
+  <p class="subtitle">Shape Your Space: Come Arredare e Progettare in Realtà Mista</p>
+  <p class="desc">Come ho creato un'applicazione VR/MR che riconosce la tua stanza reale e ti permette di posizionare oggetti 3D e salvare i tuoi progetti online.</p>
+  <div class="specs">
+    <div class="spec v"><div class="k">MOTORE GRAFICO</div><div class="val">Unreal Engine 5</div></div>
+    <div class="spec c"><div class="k">TECNOLOGIA VISORE</div><div class="val">Meta Quest 3 (MR)</div></div>
+    <div class="spec e"><div class="k">SALVATAGGIO DATI</div><div class="val">Database Cloud</div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>2. Come funziona Immersa</h2></div>
+  <div class="grid2x2">
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>1. Configurazione &amp; Arredamento</h3><p>Posizionamento e configurazione di modelli 3D in tempo reale all'interno degli spazi reali scansionati.</p></div>
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>2. SDK Meta &amp; Ancore Spaziali</h3><p>Scansione della stanza con ancore spaziali salvate nel visore per orientare e riallineare perfettamente il progetto 3D.</p></div>
+    <div class="card e"><span class="accent"></span><span class="dot"></span><h3>3. Doppia App (Windows + VR)</h3><p>Comunicazione bidirezionale in tempo reale tra applicazione PC desktop e visore VR sincronizzate tramite cloud.</p></div>
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>4. Gestione Utenti &amp; Cloud</h3><p>Registrazione personalizzata degli utenti, salvataggio dei progetti e catalogo completo dei modelli 3D sul database cloud.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>3. Architettura &amp; Sincronizzazione</h2></div>
+  <div class="row2">
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>Riconoscimento Muri &amp; Layout</h3><p>Gestione delle pareti e delle superfici irregolari mediante calcolo geometrico dei perimetri e ancoraggio dinamico.</p></div>
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Sincronizzazione Cloud Istantanea</h3><p>Flusso dati bidirezionale tra PC e Meta Quest 3 per aggiornare istantaneamente la posizione degli oggetti nel visore.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>4. Video Demo &amp; Showcase</h2></div>
+  <div class="video">
+    <div class="play"></div>
+    <h3>[ ANTEPRIMA VIDEO DEMO ]</h3>
+    <p>Proiezione del video registrato e stabilizzato in post-produzione per mostrare la fluidità della scansione e il posizionamento degli oggetti in tempo reale.</p>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>5. Sviluppi Futuri &amp; Roadmap</h2></div>
+  <div class="row2">
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Colocation Multi-Utente</h3><p>Condivisione dello stesso spazio fisico tra più visori per permettere a più persone di collaborare allo stesso progetto 3D.</p></div>
+    <div class="card e"><span class="accent"></span><span class="dot"></span><h3>Casi d'Uso Professionali</h3><p>Espansione verso studi di architettura, interior design, cantieri e showroom virtuali interattivi.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>6. Domande &amp; Prova Visore</h2></div>
+  <div class="center">
+    <div class="ring"></div>
+    <div class="thanks"><span style="color:#c4b5fd">G</span><span style="color:#b9b6fd">r</span><span style="color:#aeb6fc">a</span><span style="color:#a3b7fc">z</span><span style="color:#98b8fb">i</span><span style="color:#8db8fb">e</span> <span style="color:#77b9fa">p</span><span style="color:#6bbafa">e</span><span style="color:#60bbf9">r</span> <span style="color:#4abcf9">l</span><span style="color:#3fbdf8">'</span><span style="color:#38bef5">a</span><span style="color:#37c0ec">t</span><span style="color:#37c2e2">t</span><span style="color:#37c4d9">e</span><span style="color:#36c6d0">n</span><span style="color:#36c8c7">z</span><span style="color:#36cabe">i</span><span style="color:#35cdb5">o</span><span style="color:#35cfab">n</span><span style="color:#34d1a2">e</span><span style="color:#34d399">!</span></div>
+    <p>Spazio aperto a domande, curiosità tecniche o prova diretta della demo sul visore Meta Quest 3.</p>
+  </div>
+</section>
+
+</body>
+</html>
