@@ -136,7 +136,16 @@
 </section>
 
 <section class="slide">
-  <div class="head"><span class="bar"></span><h2>2. Come funziona Immersa</h2></div>
+  <div class="head"><span class="bar"></span><h2>2. Un motore, due app</h2></div>
+  <div class="duo">
+    <div class="card v"><span class="accent"></span><span class="tag">PC</span><h3>App Desktop (Windows)</h3><p>Si carica la stanza scansionata, si importano i modelli 3D, si posizionano e configurano con mouse e tastiera, poi si salva il progetto.</p></div>
+    <div class="link"><span class="link-k">CLOUD</span><span class="link-v">API REST · VaRest</span></div>
+    <div class="card c"><span class="accent"></span><span class="tag">VISORE</span><h3>App Meta Quest 3 (MR)</h3><p>Si scansiona la stanza, si apre il progetto e i modelli compaiono nella stanza reale, manipolabili con le mani grazie all'hand tracking.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>3. Come funziona Immersa</h2></div>
   <div class="grid2x2">
     <div class="card v"><span class="accent"></span><span class="dot"></span><h3>1. Scansione della Stanza</h3><p>Tramite l'SDK di Meta è possibile utilizzare il visore per scansionare una stanza reale che può essere salvata nel database cloud.</p></div>
     <div class="card c"><span class="accent"></span><span class="dot"></span><h3>2. Progettazione su PC</h3><p>Dall'app desktop si apre la stanza scansionata, si importano i modelli 3D, si posizionano e configurano liberamente e si salva il progetto nel cloud.</p></div>
@@ -146,21 +155,12 @@
 </section>
 
 <section class="slide">
-  <div class="head"><span class="bar"></span><h2>3. Lo stack in Unreal Engine</h2></div>
+  <div class="head"><span class="bar"></span><h2>4. Lo stack in Unreal Engine</h2></div>
   <div class="grid2x2">
     <div class="card v"><span class="accent"></span><span class="tag">SDK</span><h3>Meta XR SDK</h3><p>Passthrough, scansione della stanza, ancore spaziali e hand tracking: tutta la parte di realtà mista sul Meta Quest 3.</p></div>
     <div class="card c"><span class="accent"></span><span class="tag">PLUGIN</span><h3>glTFRuntime</h3><p>Importazione dei modelli GLB/glTF a runtime: i modelli non sono inclusi nella build, ma scaricati dal catalogo cloud e costruiti al volo.</p></div>
     <div class="card e"><span class="accent"></span><span class="tag">PLUGIN</span><h3>VaRest</h3><p>Chiamate REST e gestione JSON verso il database cloud: login degli utenti, stanze, progetti e catalogo dei modelli.</p></div>
     <div class="card v"><span class="accent"></span><span class="tag">SCRIPTING</span><h3>Blueprint</h3><p>Tutta la logica dell'applicazione è scritta in Blueprint, senza una riga di C++: dalla UI alla sincronizzazione con il cloud.</p></div>
-  </div>
-</section>
-
-<section class="slide">
-  <div class="head"><span class="bar"></span><h2>4. Un motore, due app</h2></div>
-  <div class="duo">
-    <div class="card v"><span class="accent"></span><span class="tag">PC</span><h3>App Desktop (Windows)</h3><p>Si carica la stanza scansionata, si importano i modelli 3D, si posizionano e configurano con mouse e tastiera, poi si salva il progetto.</p></div>
-    <div class="link"><span class="link-k">CLOUD</span><span class="link-v">API REST · VaRest</span></div>
-    <div class="card c"><span class="accent"></span><span class="tag">VISORE</span><h3>App Meta Quest 3 (MR)</h3><p>Si scansiona la stanza, si apre il progetto e i modelli compaiono nella stanza reale, manipolabili con le mani grazie all'hand tracking.</p></div>
   </div>
 </section>
 
