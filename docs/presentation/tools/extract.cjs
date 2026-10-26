@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
-const SELECTORS = ['.badge', '.title', '.subtitle', '.desc', '.spec .k', '.spec .val', '.head h2',
+const SELECTORS = ['.badge', '.tag', '.link-k', '.link-v', '.title', '.subtitle', '.desc', '.spec .k', '.spec .val', '.head h2',
   '.card h3', '.card p', '.video h3', '.video p', '.thanks', '.center p'];
 
 (async () => {
