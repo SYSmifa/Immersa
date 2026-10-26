@@ -20,6 +20,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 ## Struttura
 - `index.html`, `src/main.ts` — entry point (collega stage, modello, stats)
 - `src/scene/stage.ts` renderer/scena/AR button; `src/scene/testModel.ts` carica `/models/test.glb` o mesh procedurale; `src/ui/stats.ts` fps+tris (DOM e pannello 3D in XR)
+- `src/xr/probe.ts` diagnostica `?probe`: piani/mesh Space Setup + anchor persistente, confronto con sessioni precedenti (localStorage); `src/ui/textPanel.ts` pannello 3D multi-riga
 - `src/` — moduli piccoli, una responsabilità per file (cartelle per area: `xr/`, `scene/`, `room/`, `ui/`)
 - `public/models/` — GLB di test, ignorati da git
 
@@ -46,4 +47,5 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Test: `?tris=300000` (mesh procedurale), `?size=<m>` (default 1.5); o `public/models/test.glb` (nome fisso)
 - `dev:usb` lega 127.0.0.1 (su Windows localhost=IPv6 rompe adb reverse); `adb reverse` va rifatto dopo standby/cavo
 - Aperto: `npm run dev` (HTTPS LAN) non stampa nulla su PC Windows dell'utente → da indagare (cert basic-ssl)
+- `?probe` (da testare su Quest): al primo avvio salva baseline; trigger/pinch crea anchor persistente. Test: riapri, standby, riavvio, giorno dopo
 - Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione; passi 3-4 (piani/mesh stanza, anchor)

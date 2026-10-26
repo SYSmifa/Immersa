@@ -12,7 +12,7 @@ const DESKTOP_BG = 0x15171c;
 
 // Renderer + scene + camera. Desktop: orbit view on a dark background.
 // AR session: transparent clear colour so the Quest passthrough shows through.
-export function createStage() {
+export function createStage(optionalFeatures: string[] = []) {
   const renderer = new WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -44,7 +44,7 @@ export function createStage() {
   });
 
   document.body.appendChild(
-    ARButton.createButton(renderer, { optionalFeatures: ['local-floor'] }),
+    ARButton.createButton(renderer, { optionalFeatures: ['local-floor', ...optionalFeatures] }),
   );
 
   window.addEventListener('resize', () => {
