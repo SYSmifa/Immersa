@@ -12,7 +12,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Un'unica app: editor su PC + modalità XR nel browser del Quest
 
 ## Vincoli
-- Quest 3: budget 100-300k triangoli a 72 fps
+- Quest 3: budget iniziale 100-300k tris a 72 fps (prudente, vedi Stato: misure reali molto più alte)
 - Formato stanza (JSON) nostro; la scansione Meta è solo un adattatore sostituibile
 - Piano B: allineamento manuale a 2-3 punti
 - Test su visore solo dall'utente (riporta errori/comportamento)
@@ -39,8 +39,11 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Due modalità di serving: LAN HTTPS (principale) e USB/adb
 
 ## Stato
-- Fase 1, passi 1-2 testati su Quest 3 via USB: AR passthrough OK, mesh procedurale 300k tris = 90 fps, 11.1 ms
-- Test: `?tris=300000` (mesh procedurale), `?size=<m>` (default 1.5); o metti `public/models/test.glb`
-- Nota: `dev:usb` lega 127.0.0.1 (su Windows localhost=IPv6 rompe adb reverse)
+- Fase 1, passi 1-2 testati su Quest 3 via USB (render semplice, 2 luci, niente ombre):
+  - mesh procedurale 300k tris: 90 fps (cap del display, non indica il margine reale)
+  - cucina GLB 130k tris, più materiali: 90 fps stabili
+  - macchinario GLB 3,9M tris: 25-45 fps (peggiora avvicinandosi → limite = pixel/overdraw, non solo tris)
+- Test: `?tris=300000` (mesh procedurale), `?size=<m>` (default 1.5); o `public/models/test.glb` (nome fisso)
+- `dev:usb` lega 127.0.0.1 (su Windows localhost=IPv6 rompe adb reverse); `adb reverse` va rifatto dopo standby/cavo
 - Aperto: `npm run dev` (HTTPS LAN) non stampa nulla su PC Windows dell'utente → da indagare (cert basic-ssl)
-- Da fare: test con 500k/1M tris e GLB reale (più materiali/texture); passi 3-4 (piani/mesh stanza, anchor)
+- Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione; passi 3-4 (piani/mesh stanza, anchor)
