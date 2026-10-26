@@ -47,27 +47,79 @@ function save(key: string, value: unknown) {
 }
 const dist = (a: Vec, b: Vec) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-// Mean distance between planes of the previous snapshot and the nearest
-// current plane with the same label; null if nothing to compare.
+// Each session has its own origin (position + yaw at session start), so raw
+// coordinates are not comparable. Find the yaw + translation that best maps the
+// previous plane centres onto the current ones (ICP seeded with 24 yaw guesses,
+// pairing planes with the same label) and report the residual error.
 function compare(prev: Snapshot | null, now: PlaneRec[]) {
-  if (!prev) return null;
-  let sum = 0;
-  let n = 0;
-  for (const p of prev.planes) {
-    let best = Infinity;
-    for (const c of now) if (c.label === p.label) best = Math.min(best, dist(p.pos, c.pos));
-    if (best < Infinity) {
-      sum += best;
-      n++;
+  if (!prev || !prev.planes.length || !now.length) return null;
+  const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+  let best: { resid: number; yaw: number; dy: number; matched: number } | null = null;
+
+  for (let deg = 0; deg < 360; deg += 15) {
+    let th = (deg * Math.PI) / 180;
+    const ca: Vec = [mean(prev.planes.map((p) => p.pos[0])), 0, mean(prev.planes.map((p) => p.pos[2]))];
+    const cb: Vec = [mean(now.map((p) => p.pos[0])), 0, mean(now.map((p) => p.pos[2]))];
+    let tx = 0;
+    let tz = 0;
+    let dy = 0;
+    const apply = (p: Vec): Vec => {
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      return [c * p[0] - s * p[2] + tx, p[1] + dy, s * p[0] + c * p[2] + tz];
+    };
+    tx = cb[0] - (Math.cos(th) * ca[0] - Math.sin(th) * ca[2]);
+    tz = cb[2] - (Math.sin(th) * ca[0] + Math.cos(th) * ca[2]);
+
+    let pairs: [Vec, Vec][] = [];
+    for (let it = 0; it < 12; it++) {
+      pairs = [];
+      for (const p of prev.planes) {
+        const t = apply(p.pos);
+        let bestC: PlaneRec | null = null;
+        let bestD = Infinity;
+        for (const c of now) {
+          const d = c.label === p.label ? dist(t, c.pos) : Infinity;
+          if (d < bestD) {
+            bestD = d;
+            bestC = c;
+          }
+        }
+        if (bestC) pairs.push([p.pos, bestC.pos]);
+      }
+      if (pairs.length < 2) break;
+      const ma = [mean(pairs.map((q) => q[0][0])), mean(pairs.map((q) => q[0][2]))];
+      const mb = [mean(pairs.map((q) => q[1][0])), mean(pairs.map((q) => q[1][2]))];
+      let cross = 0;
+      let dot = 0;
+      for (const [a, b] of pairs) {
+        const ax = a[0] - ma[0];
+        const az = a[2] - ma[1];
+        const bx = b[0] - mb[0];
+        const bz = b[2] - mb[1];
+        cross += ax * bz - az * bx;
+        dot += ax * bx + az * bz;
+      }
+      th = Math.atan2(cross, dot);
+      tx = mb[0] - (Math.cos(th) * ma[0] - Math.sin(th) * ma[1]);
+      tz = mb[1] - (Math.sin(th) * ma[0] + Math.cos(th) * ma[1]);
+      dy = mean(pairs.map(([a, b]) => b[1] - a[1]));
+    }
+    if (!pairs.length) continue;
+    const resid = mean(pairs.map(([a, b]) => dist(apply(a), b)));
+    if (!best || resid < best.resid) {
+      best = { resid, yaw: (th * 180) / Math.PI, dy, matched: pairs.length };
     }
   }
-  return n ? { mean: sum / n, matched: n, total: prev.planes.length } : null;
+  return best && { ...best, total: prev.planes.length };
 }
 
 const fmt = (c: ReturnType<typeof compare>) =>
-  c ? `${(c.mean * 100).toFixed(1)}cm (${c.matched}/${c.total})` : 'n/a';
+  c
+    ? `${(c.resid * 100).toFixed(1)}cm yaw ${c.yaw.toFixed(0)} dy ${(c.dy * 100).toFixed(0)}cm`
+    : 'n/a';
 const ago = (s: Snapshot | null) =>
-  s ? `${((Date.now() - s.t) / 60000).toFixed(0)} min ago` : 'none';
+  s ? `${((Date.now() - s.t) / 60000).toFixed(0)}m` : 'none';
 
 export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera) {
   const panel = createTextPanel(camera, 0.3, -0.1, -0.9);
@@ -236,8 +288,8 @@ export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: Persp
         `feat: ${features}`.slice(0, 44),
         `planes ${planes.length}  meshes ${meshes} (${(tris / 1000).toFixed(0)}k tris)`,
         [...labels].map(([k, v]) => `${k}:${v}`).join(' ').slice(0, 44),
-        `vs base (${ago(base)}): ${fmt(compare(base, planes))}`,
-        `vs last (${ago(prev)}): ${fmt(compare(prev, planes))}`,
+        `vs base ${ago(base)}: ${fmt(compare(base, planes))}`,
+        `vs last ${ago(prev)}: ${fmt(compare(prev, planes))}`,
         `anchor: ${anchorMsg}${anchorDelta}`,
         ...status,
       ];
