@@ -214,18 +214,15 @@ export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: Persp
 
       // Anchor pose vs stored
       let anchorDelta = '';
-      if (anchor && storedAnchor) {
+      if (anchor) {
         const pose = frame.getPose(anchor.anchorSpace, ref);
+        marker.visible = !!pose;
         if (pose) {
           const p = pose.transform.position;
-          marker.visible = true;
           marker.matrix.fromArray(pose.transform.matrix as unknown as number[]);
-          if (!anchorMsg.startsWith('placed')) {
+          if (storedAnchor && anchorMsg.startsWith('restored')) {
             anchorDelta = ` d=${(dist([p.x, p.y, p.z], storedAnchor.pos) * 100).toFixed(1)}cm`;
-            anchorMsg = 'restored';
           }
-        } else {
-          marker.visible = false;
         }
       }
 
