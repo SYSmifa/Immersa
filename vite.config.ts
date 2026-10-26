@@ -7,6 +7,8 @@ export default defineConfig(({ mode }) => {
   const usb = mode === 'usb';
   return {
     plugins: usb ? [] : [basicSsl()],
-    server: { host: !usb, port: 5173, strictPort: true },
+    // USB mode binds IPv4 explicitly: on Windows "localhost" can resolve to ::1 only,
+    // which adb reverse (127.0.0.1) cannot reach.
+    server: { host: usb ? '127.0.0.1' : true, port: 5173, strictPort: true },
   };
 });
