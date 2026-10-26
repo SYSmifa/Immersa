@@ -39,6 +39,8 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Due modalità di serving: LAN HTTPS (principale) e USB/adb
 
 ## Stato
-- Fase 1, passi 1-2 fatti (non testati su Quest): AR passthrough + fps + modello pesante
+- Fase 1, passi 1-2 testati su Quest 3 via USB: AR passthrough OK, mesh procedurale 300k tris = 90 fps, 11.1 ms
 - Test: `?tris=300000` (mesh procedurale), `?size=<m>` (default 1.5); o metti `public/models/test.glb`
-- Space Setup/piani/mesh stanza e anchor (passi 3-4) rimandati su richiesta utente
+- Nota: `dev:usb` lega 127.0.0.1 (su Windows localhost=IPv6 rompe adb reverse)
+- Aperto: `npm run dev` (HTTPS LAN) non stampa nulla su PC Windows dell'utente → da indagare (cert basic-ssl)
+- Da fare: test con 500k/1M tris e GLB reale (più materiali/texture); passi 3-4 (piani/mesh stanza, anchor)
