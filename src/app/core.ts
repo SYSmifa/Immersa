@@ -1,12 +1,12 @@
 import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
-import type { Alignment } from '../room/align';
+import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
-import { createModelLayer } from '../room/modelLayer';
-import { roomAround } from '../room/around';
-import { isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Project, Room, RoomBox, RoomPlane } from '../room/types';
+import { createModelLayer, type ModelLayer } from '../room/modelLayer';
+import { roomAround, roomClusters } from '../room/around';
+import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
+import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
@@ -55,11 +55,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const outline = new Group();
   outline.visible = true;
   roomRoot.add(outline);
-  // The open project's frame: the project's own room frame, placed by `placement()`.
-  const projectRoot = new Group();
-  projectRoot.matrixAutoUpdate = false;
-  scene.add(projectRoot);
-  const layer = createModelLayer(projectRoot, (t) => say(`Modello: ${t}`));
+  // The open project: one group per room, each in that room's own frame. A room is placed
+  // by the alignment of its saved planes to what the headset reports now; rooms that cannot be
+  // aligned are hidden (better than showing their models in the wrong place).
+  interface House {
+    root: Group;
+    layer: ModelLayer;
+  }
+  const houses = new Map<string, House>();
 
   const view: MenuView = {
     tab: 'scan',
@@ -70,6 +73,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     resid: null,
     liveReady: false,
     captureAvailable: false,
+    projectName: null,
     projects: null,
     currentProjectId: null,
     page: 0,
@@ -81,10 +85,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let recognised: Recognised | null = null;
   let candidate: Recognised | null = null; // matches the live scan but the user is not inside
   const ignored = new Set<string>(); // rooms the user said are not the one they are in
-  let allProjects: Project[] = []; // every project of the account, in any room
+  let allProjects: Project[] = []; // every project of the account
   let projectsLoaded = false;
   let current: Project | null = null;
-  let nativeRoomId: string | null = null; // set when the open project sits in its own, recognised room
+  const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
+  let foreign: { key: string; roomId: string; matrix: Matrix4 } | null = null; // project shown away from its rooms
+  let lastFar = 0;
+  let farIndex = 0;
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
   let rawBoxes: RoomBox[] = [];
   let live: RoomPlane[] = []; // only the room you are standing in
@@ -94,7 +101,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let lastTry = 0;
   let switching = 0; // consecutive checks that found another saved room under the head
   let lost = 0; // consecutive checks that found none
-  let resume: { roomId: string; projectId: string } | null = null; // project to reopen if we come back
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
@@ -128,12 +134,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     view.captureAvailable = !!capture?.available;
     const roomName = (id: string) => rooms.find((r) => r.id === id)?.name ?? '?';
-    const here = (p: Project) => p.roomId === recognised?.room.id;
+    const here = (p: Project) => !!recognised && p.roomIds.includes(recognised.room.id);
     view.projects = projectsLoaded
       ? [...allProjects]
           .sort((a, b) => Number(here(b)) - Number(here(a)) || b.updatedAt.localeCompare(a.updatedAt))
-          .map((p) => ({ id: p.id, name: p.name, models: p.models.length, room: roomName(p.roomId), here: here(p) }))
+          .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
       : null;
+    view.projectName = current?.name ?? null;
     view.currentProjectId = current?.id ?? null;
     render();
   }
@@ -176,36 +183,95 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   // ---- rooms and projects
-  function closeCurrent() {
-    current = null;
-    nativeRoomId = null;
-    layer.sync([]);
+  const alignMatrix = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
+  const modelsOf = (roomId: string) => current?.models.filter((m) => m.roomId === roomId) ?? [];
+
+  function houseFor(roomId: string): House {
+    let h = houses.get(roomId);
+    if (!h) {
+      const root = new Group();
+      root.matrixAutoUpdate = false;
+      root.visible = false;
+      scene.add(root);
+      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)) };
+      houses.set(roomId, h);
+    }
+    return h;
   }
 
-  // Where the project's own frame goes. In its own room: exactly as laid out on the PC.
-  // In another room (or none): its floor centre goes to this room's floor centre (or under
-  // your feet), orientation as saved, so the models keep their layout relative to each other.
-  function placement(p: Project): { matrix: Matrix4; native: boolean } {
-    const align = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
-    if (recognised && recognised.room.id === p.roomId) return { matrix: align(recognised.alignment), native: true };
-    const home = rooms.find((r) => r.id === p.roomId);
+  function closeCurrent() {
+    current = null;
+    foreign = null;
+    for (const h of houses.values()) {
+      h.layer.sync([]);
+      scene.remove(h.root);
+    }
+    houses.clear();
+  }
+
+  // The project's floor centre goes to the recognised room's floor centre (or under your feet),
+  // orientation as saved, so the models keep their layout relative to each other.
+  function foreignMatrix(roomId: string): Matrix4 {
+    const home = rooms.find((r) => r.id === roomId);
     const pivot = home ? floorCentre(home.scan.planes) : ([0, 0, 0] as const);
     if (recognised) {
       const t = floorCentre(recognised.room.scan.planes);
       const shift = new Matrix4().makeTranslation(t[0] - pivot[0], t[1] - pivot[1], t[2] - pivot[2]);
-      return { matrix: align(recognised.alignment).multiply(shift), native: false };
+      return alignMatrix(recognised.alignment).multiply(shift);
     }
     const h = lastHead?.pos;
     const floorY = live.find((x) => x.label === 'floor')?.pos[1] ?? (h ? h.y - 1.5 : 0);
-    return { matrix: new Matrix4().makeTranslation((h?.x ?? 0) - pivot[0], floorY - pivot[1], (h?.z ?? 0) - pivot[2]), native: false };
+    return new Matrix4().makeTranslation((h?.x ?? 0) - pivot[0], floorY - pivot[1], (h?.z ?? 0) - pivot[2]);
   }
 
-  function placeProject(p: Project) {
-    const { matrix, native } = placement(p);
-    current = p;
-    nativeRoomId = native ? p.roomId : null;
-    projectRoot.matrix.copy(matrix);
-    layer.sync(p.models);
+  // Bring the scene in line with the open project and the alignments found so far.
+  function syncHouses() {
+    if (!current) return;
+    const ids = current.roomIds.filter((id) => rooms.some((r) => r.id === id));
+    for (const id of [...houses.keys()]) {
+      if (!ids.includes(id)) {
+        houses.get(id)!.layer.sync([]);
+        scene.remove(houses.get(id)!.root);
+        houses.delete(id);
+      }
+    }
+    const aligned = ids.filter((id) => aligns.has(id));
+    // No room of the project can be placed for real: show its first room with models
+    // anywhere sensible, so the project can still be looked at.
+    const away = aligned.length ? null : (ids.find((id) => modelsOf(id).length) ?? ids[0] ?? null);
+    const key = away ? `${away}|${recognised?.room.id ?? ''}` : '';
+    if (!away) foreign = null;
+    else if (foreign?.key !== key) foreign = { key, roomId: away, matrix: foreignMatrix(away) };
+    for (const id of ids) {
+      const h = houseFor(id);
+      const a = aligns.get(id);
+      if (a) h.root.matrix.copy(alignMatrix(a));
+      else if (foreign?.roomId === id) h.root.matrix.copy(foreign.matrix);
+      h.root.visible = !!a || foreign?.roomId === id;
+      h.layer.sync(modelsOf(id));
+    }
+  }
+
+  // Rooms of the open project other than the one under your head: align them to the planes the
+  // headset reports for them (it reports every stored room), one room per call.
+  function alignFar(now: number) {
+    if (!current || now - lastFar < 3000 || rawLive.length < MIN_PLANES) return;
+    lastFar = now;
+    const todo = current.roomIds.filter((id) => !aligns.has(id) && rooms.some((r) => r.id === id));
+    if (!todo.length) return;
+    const room = rooms.find((r) => r.id === todo[farIndex++ % todo.length])!;
+    // Try each room the headset reports on its own, so another room's planes cannot confuse the fit.
+    let a: Alignment | null = null;
+    for (const group of roomClusters(rawLive)) {
+      if (group.length < MIN_PLANES) continue;
+      const fit = alignPlanes(room.scan.planes, group);
+      if (isGoodFit(fit) && (!a || fit.matched / fit.total - fit.resid > a.matched / a.total - a.resid)) a = fit;
+    }
+    if (a) {
+      aligns.set(room.id, a);
+      syncHouses();
+      refreshView();
+    }
   }
 
   function loadProjects() {
@@ -214,26 +280,19 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       .then((list) => {
         allProjects = list;
         projectsLoaded = true;
-        // We left this project's room and came back: reopen it.
-        const back = !current && recognised && resume?.roomId === recognised.room.id ? list.find((p) => p.id === resume!.projectId) : undefined;
-        if (back) placeProject(back);
+        if (current) current = list.find((p) => p.id === current!.id) ?? current;
         refreshView();
       })
       .catch((e) => say(`Errore: ${errText(e)}`));
   }
 
   function setRecognised(r: Recognised | null) {
-    // A project laid out in the old room's frame stays behind with that room; one placed
-    // freely (opened from another room) goes with you.
-    if (current && nativeRoomId) {
-      resume = { roomId: nativeRoomId, projectId: current.id };
-      closeCurrent();
-    }
     recognised = r;
     outline.clear();
     roomRoot.visible = !!r;
     if (r) {
       const a = r.alignment;
+      aligns.set(r.room.id, a); // stays valid after we walk out of the room
       // three's Y rotation is the opposite sense of our xz yaw.
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
       drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? []);
@@ -241,6 +300,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       outline.visible = view.outline;
       if (autoTab) view.tab = 'load';
     }
+    syncHouses();
     loadProjects();
     refreshView();
   }
@@ -359,11 +419,12 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   function openProject(p: Project) {
-    placeProject(p);
+    closeCurrent();
+    current = p;
+    syncHouses();
     closeMenu();
     refreshView();
-    const away = !recognised || recognised.room.id !== p.roomId;
-    say(away ? `Aperto: ${p.name} (di un'altra stanza, posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, away ? 9000 : 7000);
+    say(foreign ? `Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, foreign ? 9000 : 7000);
   }
 
   const actions: MenuActions = {
@@ -408,7 +469,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     },
     closeProject() {
       closeCurrent();
-      resume = null;
       refreshView();
     },
     signOut,
@@ -418,29 +478,30 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // Left pinch: move the model the user is looking at to the pinch point.
   function moveGazedModel(point: Vector3, head: Head) {
     if (!current) return say('Apri un progetto dal menu (Load)');
-    let best: Project['models'][number] | null = null;
+    let best: { model: RoomModel; house: House } | null = null;
     let bestDot = -2;
     for (const m of current.models) {
-      const holder = layer.holders.get(m.id);
-      if (!holder) continue;
+      const house = houses.get(m.roomId);
+      const holder = house?.layer.holders.get(m.id);
+      if (!house || !holder || !house.root.visible) continue;
       holder.updateWorldMatrix(true, true);
       const box = new Box3().setFromObject(holder);
       const c = box.isEmpty() ? holder.getWorldPosition(new Vector3()) : box.getCenter(new Vector3());
       const dot = head.fwd.dot(c.sub(head.pos).normalize());
       if (dot > bestDot) {
         bestDot = dot;
-        best = m;
+        best = { model: m, house };
       }
     }
-    if (!best) return say('Il progetto non ha modelli');
-    projectRoot.updateWorldMatrix(true, false);
-    const local = projectRoot.worldToLocal(point.clone());
-    best.pos = [local.x, local.y, local.z];
-    layer.sync(current.models);
-    const target = best;
+    if (!best) return say('Il progetto non ha modelli qui');
+    const { model, house } = best;
+    house.root.updateWorldMatrix(true, false);
+    const local = house.root.worldToLocal(point.clone());
+    model.pos = [local.x, local.y, local.z];
+    house.layer.sync(modelsOf(model.roomId));
     backend
       .saveProject(current.id, { models: current.models })
-      .then(() => say(`Spostato: ${target.name}`, 3000))
+      .then(() => say(`Spostato: ${model.name}`, 3000))
       .catch((e) => say(`Salvataggio fallito: ${errText(e)}`));
   }
 
@@ -468,9 +529,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   render();
   return {
     host,
-    layer,
     roomRoot,
-    projectRoot,
+    // Test hook: every model's scene object, whichever room it is in.
+    holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -488,8 +549,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       readyAt = 0;
       candidate = null;
       switching = lost = 0;
-      resume = null;
       ignored.clear();
+      aligns.clear(); // a new session has a new origin
       closeCurrent();
       setRecognised(null);
       void reloadRooms();
@@ -507,6 +568,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         recompute(); // you may have walked into another room
       }
       tryRecognise(now);
+      alignFar(now);
       checkPending();
       followHead(head, dt);
       host.update();
@@ -514,7 +576,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     moveGazedModel,
     say,
     // Test hook.
-    debug: () => ({ rooms, recognised, projects: allProjects, current, nativeRoomId, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
+    debug: () => ({ rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
   };
 }
 

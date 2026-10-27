@@ -11,7 +11,8 @@ export interface MenuView {
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
-  projects: { id: string; name: string; models: number; room: string; here: boolean }[] | null; // all of them, this room's first
+  projectName: string | null; // the open project
+  projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   page: number;
   outline: boolean;
@@ -63,13 +64,14 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     ...o,
   });
 
+  const project = v.projectName ? ` · Progetto: ${v.projectName}` : '';
   const where = v.roomName
-    ? `Stanza: ${v.roomName}`
+    ? `Stanza: ${v.roomName}${project}`
     : v.candidate
       ? 'Stanza non confermata'
       : v.liveReady
-        ? 'Stanza non salvata'
-        : 'Nessuna stanza scansionata';
+        ? `Stanza non salvata${project}`
+        : `Nessuna stanza scansionata${project}`;
   out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 300, h: 46 }, text: 'Immersa', size: 38 });
   out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
   out.push(label(where, 58, 36, 24, '#9fb0d0'));
@@ -99,7 +101,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
           kind: 'row',
           rect: { x: PAD, y: top + i * 76, w: MENU_W - 2 * PAD, h: 68 },
           text: p.name,
-          sub: `${p.room}${p.here ? '' : ' (altra stanza)'} · ${count}${p.id === v.currentProjectId ? ' · aperto' : ''}`,
+          sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${count}${p.id === v.currentProjectId ? ' · aperto' : ''}`,
           active: p.id === v.currentProjectId,
           onClick: () => a.selectProject(p.id),
         });

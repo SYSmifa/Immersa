@@ -1,19 +1,21 @@
 // DOM side panel of the PC editor (Italian labels, like the login box).
 export interface EditorHandlers {
-  onRoom(id: string): void;
-  onRenameRoom(): void;
-  onShell(visible: boolean): void;
-  onDeleteRoom(): void;
   onProject(id: string): void;
   onNewProject(): void;
   onRenameProject(): void;
   onDeleteProject(): void;
+  onProjectRoom(id: string): void;
+  onAddRoom(id: string): void;
+  onRemoveRoom(): void;
+  onShell(visible: boolean): void;
   onUpload(file: File): void;
   onSelect(id: string): void;
   onMode(mode: 'translate' | 'rotate'): void;
   onScale(value: number): void;
   onDeleteModel(): void;
   onSave(): void;
+  onRenameRoom(id: string): void;
+  onDeleteRoom(id: string): void;
 }
 
 export interface SelectionInfo {
@@ -26,7 +28,7 @@ type Option = { id: string; name: string };
 export function createEditorUi(h: EditorHandlers) {
   const box = document.createElement('div');
   box.style.cssText =
-    'position:fixed;top:8px;left:8px;width:280px;max-height:calc(100vh - 16px);overflow:auto;padding:10px;' +
+    'position:fixed;top:8px;left:8px;width:290px;max-height:calc(100vh - 16px);overflow:auto;padding:10px;' +
     'background:#000c;color:#fff;font:13px sans-serif;z-index:10;display:flex;flex-direction:column;gap:8px';
   document.body.appendChild(box);
 
@@ -51,10 +53,10 @@ export function createEditorUi(h: EditorHandlers) {
     t.style.cssText = 'color:#9fb0d0;margin-top:4px';
     return t;
   };
-  const select = (onChange: (id: string) => void) => {
+  const select = (onChange?: (id: string) => void) => {
     const s = el('select');
     s.style.cssText = 'width:100%';
-    s.onchange = () => onChange(s.value);
+    if (onChange) s.onchange = () => onChange(s.value);
     return s;
   };
   const fill = (s: HTMLSelectElement, items: Option[], selected: string | null, placeholder: string) => {
@@ -68,9 +70,18 @@ export function createEditorUi(h: EditorHandlers) {
   const status = el('div');
   status.style.cssText = 'color:#8f8;min-height:1.2em;white-space:pre-wrap';
 
-  const rooms = select(h.onRoom);
-  const renameRoom = button('Rinomina', h.onRenameRoom);
-  const deleteRoom = button('Elimina', h.onDeleteRoom);
+  const projects = select(h.onProject);
+  const projectButtons = [
+    button('Nuovo', h.onNewProject),
+    button('Rinomina', h.onRenameProject),
+    button('Elimina', h.onDeleteProject),
+  ];
+
+  const projectRooms = select(h.onProjectRoom);
+  const addable = select();
+  const addButton = button('Aggiungi', () => addable.value && h.onAddRoom(addable.value));
+  const removeButton = button('Togli dal progetto', h.onRemoveRoom);
+
   const shell = el('input');
   shell.type = 'checkbox';
   shell.checked = true;
@@ -78,12 +89,6 @@ export function createEditorUi(h: EditorHandlers) {
   const shellRow = el('label');
   shellRow.style.cssText = 'display:flex;gap:6px;align-items:center';
   shellRow.append(shell, document.createTextNode('Mostra le pareti'));
-  const projects = select(h.onProject);
-  const projectButtons = [
-    button('Nuovo', h.onNewProject),
-    button('Rinomina', h.onRenameProject),
-    button('Elimina', h.onDeleteProject),
-  ];
 
   const file = el('input');
   file.type = 'file';
@@ -94,7 +99,7 @@ export function createEditorUi(h: EditorHandlers) {
   };
 
   const list = el('div');
-  list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:25vh;overflow:auto';
+  list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:22vh;overflow:auto';
 
   const scale = el('input');
   scale.type = 'number';
@@ -115,27 +120,41 @@ export function createEditorUi(h: EditorHandlers) {
   selection.style.display = 'none';
 
   const save = button('Salva progetto', h.onSave);
-  const projectControls = [...projectButtons, file, save];
+
+  const accountRooms = select();
+  const accountButtons = [
+    button('Rinomina', () => accountRooms.value && h.onRenameRoom(accountRooms.value)),
+    button('Elimina', () => accountRooms.value && h.onDeleteRoom(accountRooms.value)),
+  ];
 
   box.append(
     el('b', 'Editor Immersa'),
     status,
-    section('Stanza'),
-    rooms,
-    row(renameRoom, deleteRoom),
-    shellRow,
     section('Progetto'),
     projects,
     row(...projectButtons),
-    section('Modelli (.glb)'),
+    section('Stanze del progetto'),
+    projectRooms,
+    row(addable, addButton),
+    removeButton,
+    shellRow,
+    section('Modelli di questa stanza (.glb)'),
     file,
     list,
     selection,
     save,
+    section("Tutte le tue stanze"),
+    accountRooms,
+    row(...accountButtons),
   );
-  const enableProject = (on: boolean) => projectControls.forEach((c) => ((c as HTMLButtonElement).disabled = !on));
-  renameRoom.disabled = deleteRoom.disabled = true;
-  enableProject(false);
+
+  const set = (els: HTMLElement[], on: boolean) => els.forEach((e) => ((e as HTMLButtonElement).disabled = !on));
+  const setState = (project: boolean, room: boolean) => {
+    set([projectButtons[1], projectButtons[2], addButton, addable, projectRooms], project);
+    set([removeButton, file, save], project && room);
+    set([file], project && room);
+  };
+  setState(false, false);
 
   return {
     setStatus(text: string) {
@@ -145,16 +164,17 @@ export function createEditorUi(h: EditorHandlers) {
       save.textContent = dirty ? 'Salva progetto *' : 'Salva progetto';
       save.style.fontWeight = dirty ? 'bold' : 'normal';
     },
-    setRooms(items: Option[], selected: string | null) {
-      fill(rooms, items, selected, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
-      renameRoom.disabled = deleteRoom.disabled = !selected;
-    },
-    // `enabled`: a room is chosen, so projects can be created.
-    setProjects(items: Option[], selected: string | null, enabled: boolean) {
+    setProjects(items: Option[], selected: string | null) {
       fill(projects, items, selected, items.length ? '— scegli un progetto —' : '(nessun progetto)');
-      projectButtons[0].disabled = !enabled;
-      for (const b of [projectButtons[1], projectButtons[2], file, save]) (b as HTMLButtonElement).disabled = !selected;
     },
+    setProjectRooms(items: Option[], selected: string | null, addableRooms: Option[]) {
+      fill(projectRooms, items, selected, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
+      fill(addable, addableRooms, null, addableRooms.length ? '— aggiungi una stanza —' : '(nessun\'altra stanza)');
+    },
+    setAccountRooms(items: Option[]) {
+      fill(accountRooms, items, null, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
+    },
+    setState,
     setModels(models: Option[], selectedId: string | null) {
       list.replaceChildren(
         ...models.map((m) => {

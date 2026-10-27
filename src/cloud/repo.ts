@@ -10,23 +10,28 @@ interface RoomRow {
 }
 interface ProjectRow {
   id: string;
-  room_id: string;
+  room_id: string | null; // the first room (kept for the foreign key)
+  room_ids: string[] | null;
   name: string;
   models: RoomModel[];
   updated_at: string;
 }
 
 const ROOM_COLS = 'id,name,data,updated_at';
-const PROJECT_COLS = 'id,room_id,name,models,updated_at';
+const PROJECT_COLS = 'id,room_id,room_ids,name,models,updated_at';
 
 const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, updatedAt: r.updated_at, scan: r.data });
-const toProject = (r: ProjectRow): Project => ({
-  id: r.id,
-  roomId: r.room_id,
-  name: r.name,
-  updatedAt: r.updated_at,
-  models: r.models ?? [],
-});
+const toProject = (r: ProjectRow): Project => {
+  const roomIds = r.room_ids?.length ? r.room_ids : r.room_id ? [r.room_id] : [];
+  return {
+    id: r.id,
+    name: r.name,
+    updatedAt: r.updated_at,
+    roomIds,
+    // Projects saved before multi-room had no roomId on their models.
+    models: (r.models ?? []).map((m) => ({ ...m, roomId: m.roomId ?? roomIds[0] ?? '' })),
+  };
+};
 
 function client() {
   if (!supabase) throw new Error('Supabase non configurato (.env.local)');
@@ -61,24 +66,29 @@ export function createSupabaseBackend(): Backend {
       const { error } = await client().from('rooms').delete().eq('id', id);
       check(error);
     },
-    async listProjects(roomId) {
-      let query = client().from('projects').select(PROJECT_COLS);
-      if (roomId) query = query.eq('room_id', roomId);
-      const { data, error } = await query.order('updated_at', { ascending: false });
+    async listProjects() {
+      const { data, error } = await client().from('projects').select(PROJECT_COLS).order('updated_at', { ascending: false });
       check(error);
       return (data as ProjectRow[]).map(toProject);
     },
-    async createProject(roomId, name, models) {
+    async createProject(name, roomIds, models) {
       const { data, error } = await client()
         .from('projects')
-        .insert({ room_id: roomId, name, models })
+        .insert({ name, room_id: roomIds[0] ?? null, room_ids: roomIds, models })
         .select(PROJECT_COLS)
         .single();
       check(error);
       return toProject(data as ProjectRow);
     },
     async saveProject(id, patch) {
-      const { error } = await client().from('projects').update({ ...patch, updated_at: now() }).eq('id', id);
+      const row: Record<string, unknown> = { updated_at: now() };
+      if (patch.name !== undefined) row.name = patch.name;
+      if (patch.models !== undefined) row.models = patch.models;
+      if (patch.roomIds !== undefined) {
+        row.room_ids = patch.roomIds;
+        row.room_id = patch.roomIds[0] ?? null;
+      }
+      const { error } = await client().from('projects').update(row).eq('id', id);
       check(error);
     },
     async deleteProject(id) {

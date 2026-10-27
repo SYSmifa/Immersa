@@ -17,11 +17,13 @@ create policy "rooms: owner only" on public.rooms
   using (owner = (select auth.uid()))
   with check (owner = (select auth.uid()));
 
--- A project = a named set of models placed in one room (many projects per room).
+-- A project = a named set of models placed in one or more rooms (e.g. a whole house).
+-- room_ids lists its rooms (JSON array of room ids); room_id is just the first one.
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   owner uuid not null default auth.uid() references auth.users (id) on delete cascade,
-  room_id uuid not null references public.rooms (id) on delete cascade,
+  room_id uuid references public.rooms (id) on delete set null,
+  room_ids jsonb not null default '[]'::jsonb,
   name text not null,
   models jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
@@ -35,6 +37,14 @@ create policy "projects: owner only" on public.projects
   for all to authenticated
   using (owner = (select auth.uid()))
   with check (owner = (select auth.uid()));
+
+-- Migration to multi-room projects (safe to re-run).
+alter table public.projects add column if not exists room_ids jsonb not null default '[]'::jsonb;
+update public.projects set room_ids = jsonb_build_array(room_id::text) where room_ids = '[]'::jsonb and room_id is not null;
+alter table public.projects alter column room_id drop not null;
+alter table public.projects drop constraint if exists projects_room_id_fkey;
+alter table public.projects
+  add constraint projects_room_id_fkey foreign key (room_id) references public.rooms (id) on delete set null;
 
 -- Migration from the first single-room format (models used to live inside rooms.data).
 insert into public.projects (owner, room_id, name, models)

@@ -19,9 +19,10 @@ export interface RoomBox {
 // A 3D model placed in a project. Real-world size: `scale` multiplies the file's own metres.
 export interface RoomModel {
   id: string;
+  roomId: string; // the room whose frame `pos` and `yaw` are in
   name: string; // display name
   path: string; // "<user id>/<file>" in the Supabase "models" bucket, or "local:<file>" for public/models/
-  pos: Vec3; // base centre of the model, in the room's frame
+  pos: Vec3; // base centre of the model, in that room's frame
   yaw: number; // rotation about Y, radians
   scale: number;
 }
@@ -41,10 +42,11 @@ export interface Room {
   scan: RoomScan;
 }
 
+// A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.
 export interface Project {
   id: string;
-  roomId: string;
   name: string;
   updatedAt: string;
+  roomIds: string[];
   models: RoomModel[];
 }

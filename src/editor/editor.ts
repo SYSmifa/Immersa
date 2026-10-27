@@ -42,19 +42,19 @@ export function createEditorPage(backend: Backend = createSupabaseBackend(), upl
   return createEditor({ renderer, scene, camera, controls, backend, upload });
 }
 
-// PC editor: pick a room (named scans from the headset), pick or create a project,
-// add .glb models, move / rotate / scale them in real size, save the project.
+// PC editor: pick or create a project, add the rooms it covers (named scans from the headset),
+// then for each room add .glb models and move / rotate / scale them in real size.
 export async function createEditor({ renderer, scene, camera, controls, backend, upload = uploadModel }: Deps) {
   let rooms: Room[] = [];
-  let room: Room | null = null;
   let projects: Project[] = [];
   let project: Project | null = null;
+  let room: Room | null = null; // the room of the project being edited
   let selectedId: string | null = null;
   let dirty = false;
   let lastDrag = 0;
 
   const planesGroup = new Group();
-  let shell: Group | null = null; // walls, ceiling, doors, windows of the open room
+  let shell: Group | null = null; // walls, doors, windows of the open room
   let shellVisible = true;
   const modelsGroup = new Group();
   scene.add(planesGroup, modelsGroup);
@@ -67,7 +67,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     lastDrag = Date.now();
   });
 
-  const models = () => project?.models ?? [];
+  const projectRoomsList = () => (project?.roomIds ?? []).map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
+  const models = () => project?.models.filter((m) => m.roomId === room?.id) ?? [];
   const find = (id: string | null) => models().find((m) => m.id === id) ?? null;
 
   function refresh() {
@@ -111,23 +112,32 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
 
+  function refreshLists() {
+    ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name })), project?.id ?? null);
+    const mine = projectRoomsList();
+    ui.setProjectRooms(
+      mine,
+      room?.id ?? null,
+      rooms.filter((r) => !project?.roomIds.includes(r.id)),
+    );
+    ui.setAccountRooms(rooms);
+    ui.setState(!!project, !!room);
+  }
+
+  // Draw one room of the project and its models.
   function showRoom(r: Room | null) {
     room = r;
     planesGroup.clear();
     shell = null;
-    project = null;
-    projects = [];
-    layer.sync([]);
     select(null);
-    markDirty(false);
-    ui.setRooms(rooms, r?.id ?? null);
+    layer.sync(models());
+    refreshLists();
+    refresh();
     if (!r) {
-      ui.setProjects([], null, false);
+      ui.setStatus(project ? 'Questo progetto non ha stanze: aggiungine una.' : 'Scegli o crea un progetto.');
       return;
     }
-    ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
     const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? []);
-    const drawn = plan.drawn;
     shell = plan.shell;
     shell.visible = shellVisible;
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true);
@@ -139,108 +149,85 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     controls.target.copy(centre);
     camera.position.set(centre.x, centre.y + span * 0.7, centre.z + span * 0.9);
     controls.update();
-    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${drawn} con contorno), ${volumes} volumi`);
+    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${plan.drawn} con contorno), ${volumes} volumi`);
   }
 
   function showProject(p: Project | null) {
     project = p;
-    layer.sync(models());
-    select(null);
     markDirty(false);
-    ui.setProjects(projects, p?.id ?? null, !!room);
+    showRoom(projectRoomsList()[0] ?? null);
   }
 
-  async function chooseRoom(id: string) {
-    if (!confirmLeave()) return ui.setRooms(rooms, room?.id ?? null);
-    const r = rooms.find((x) => x.id === id) ?? null;
-    showRoom(r);
-    if (!r) return;
+  async function run(what: () => Promise<void>) {
     try {
-      projects = await backend.listProjects(r.id);
+      await what();
     } catch (e) {
-      return ui.setStatus(`Errore: ${errText(e)}`);
+      ui.setStatus(`Errore: ${errText(e)}`);
     }
-    showProject(projects[0] ?? null); // the most recently saved one
-    if (!projects.length) ui.setStatus(`Stanza "${r.name}": nessun progetto, creane uno con "Nuovo".`);
   }
 
   const ui = createEditorUi({
-    onRoom: (id) => void chooseRoom(id),
-    async onRenameRoom() {
-      if (!room) return;
-      const name = prompt('Nome della stanza', room.name)?.trim();
-      if (!name || name === room.name) return;
-      try {
-        await backend.renameRoom(room.id, name);
-        room.name = name;
-        ui.setRooms(rooms, room.id);
-      } catch (e) {
-        ui.setStatus(`Errore: ${errText(e)}`);
-      }
+    onProject(id) {
+      if (!confirmLeave()) return refreshLists();
+      showProject(projects.find((p) => p.id === id) ?? null);
     },
-    async onDeleteRoom() {
-      if (!room || !confirm(`Eliminare la stanza "${room.name}" e tutti i suoi progetti?`)) return;
-      try {
-        await backend.deleteRoom(room.id);
-        rooms = rooms.filter((r) => r !== room);
-        dirty = false;
-        showRoom(null);
-        ui.setStatus('Stanza eliminata.');
-      } catch (e) {
-        ui.setStatus(`Errore: ${errText(e)}`);
-      }
+    onNewProject: () =>
+      run(async () => {
+        if (!confirmLeave()) return;
+        const name = prompt('Nome del progetto')?.trim();
+        if (!name) return;
+        // With a single room in the account the project starts in it.
+        const p = await backend.createProject(name, rooms.length === 1 ? [rooms[0].id] : [], []);
+        projects.unshift(p);
+        showProject(p);
+        ui.setStatus(`Progetto "${name}" creato${p.roomIds.length ? '' : ': aggiungi le sue stanze'}`);
+      }),
+    onRenameProject: () =>
+      run(async () => {
+        if (!project) return;
+        const name = prompt('Nome del progetto', project.name)?.trim();
+        if (!name || name === project.name) return;
+        await backend.saveProject(project.id, { name });
+        project.name = name;
+        refreshLists();
+      }),
+    onDeleteProject: () =>
+      run(async () => {
+        if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
+        await backend.deleteProject(project.id);
+        projects = projects.filter((p) => p !== project);
+        showProject(null);
+      }),
+    onProjectRoom(id) {
+      showRoom(rooms.find((r) => r.id === id) ?? null);
+    },
+    onAddRoom(id) {
+      const r = rooms.find((x) => x.id === id);
+      if (!project || !r) return;
+      project.roomIds.push(id);
+      markDirty();
+      showRoom(r);
+    },
+    onRemoveRoom() {
+      if (!project || !room || !confirm(`Togliere la stanza "${room.name}" dal progetto? Anche i suoi modelli vengono tolti.`)) return;
+      const id = room.id;
+      project.roomIds = project.roomIds.filter((x) => x !== id);
+      project.models = project.models.filter((m) => m.roomId !== id);
+      markDirty();
+      showRoom(projectRoomsList()[0] ?? null);
     },
     onShell(visible) {
       shellVisible = visible;
       if (shell) shell.visible = visible;
     },
-    onProject(id) {
-      if (!confirmLeave()) return ui.setProjects(projects, project?.id ?? null, !!room);
-      showProject(projects.find((p) => p.id === id) ?? null);
-    },
-    async onNewProject() {
-      if (!room || !confirmLeave()) return;
-      const name = prompt('Nome del progetto')?.trim();
-      if (!name) return;
-      try {
-        const p = await backend.createProject(room.id, name, []);
-        projects.unshift(p);
-        showProject(p);
-        ui.setStatus(`Progetto "${name}" creato`);
-      } catch (e) {
-        ui.setStatus(`Errore: ${errText(e)}`);
-      }
-    },
-    async onRenameProject() {
-      if (!project) return;
-      const name = prompt('Nome del progetto', project.name)?.trim();
-      if (!name || name === project.name) return;
-      try {
-        await backend.saveProject(project.id, { name });
-        project.name = name;
-        ui.setProjects(projects, project.id, true);
-      } catch (e) {
-        ui.setStatus(`Errore: ${errText(e)}`);
-      }
-    },
-    async onDeleteProject() {
-      if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
-      try {
-        await backend.deleteProject(project.id);
-        projects = projects.filter((p) => p !== project);
-        showProject(projects[0] ?? null);
-      } catch (e) {
-        ui.setStatus(`Errore: ${errText(e)}`);
-      }
-    },
     async onUpload(file) {
-      if (!room || !project) return ui.setStatus('Scegli una stanza e un progetto prima di caricare un modello');
+      if (!room || !project) return ui.setStatus('Scegli un progetto e una sua stanza prima di caricare un modello');
       ui.setStatus(`Carico ${file.name}...`);
       try {
         const { path, name } = await upload(file);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-        project.models.push({ id, name, path, pos: floorCentre(room.scan.planes), yaw: 0, scale: 1 });
-        layer.sync(project.models);
+        project.models.push({ id, roomId: room.id, name, path, pos: floorCentre(room.scan.planes), yaw: 0, scale: 1 });
+        layer.sync(models());
         select(id);
         markDirty();
         ui.setStatus('Caricato. Ricorda di salvare.');
@@ -266,7 +253,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onDeleteModel() {
       if (!project || !selectedId) return;
       project.models = project.models.filter((m) => m.id !== selectedId);
-      layer.sync(project.models);
+      layer.sync(models());
       select(null);
       markDirty();
     },
@@ -274,13 +261,39 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (!project) return;
       ui.setStatus('Salvo...');
       try {
-        await backend.saveProject(project.id, { models: project.models });
+        await backend.saveProject(project.id, { models: project.models, roomIds: project.roomIds });
         markDirty(false);
         ui.setStatus(`Progetto "${project.name}" salvato`);
       } catch (e) {
         ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
       }
     },
+    onRenameRoom: (id) =>
+      run(async () => {
+        const r = rooms.find((x) => x.id === id);
+        const name = r && prompt('Nome della stanza', r.name)?.trim();
+        if (!r || !name || name === r.name) return;
+        await backend.renameRoom(id, name);
+        r.name = name;
+        refreshLists();
+        if (room === r) showRoom(r);
+      }),
+    onDeleteRoom: (id) =>
+      run(async () => {
+        const r = rooms.find((x) => x.id === id);
+        const users = projects.filter((p) => p.roomIds.includes(id));
+        const note = users.length ? ` Sarà tolta anche dai progetti: ${users.map((p) => p.name).join(', ')} (con i suoi modelli).` : '';
+        if (!r || !confirm(`Eliminare la stanza "${r.name}"?${note}`)) return;
+        await backend.deleteRoom(id);
+        rooms = rooms.filter((x) => x !== r);
+        for (const p of users) {
+          p.roomIds = p.roomIds.filter((x) => x !== id);
+          p.models = p.models.filter((m) => m.roomId !== id);
+          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models });
+        }
+        showRoom(room === r ? (projectRoomsList()[0] ?? null) : room);
+        ui.setStatus('Stanza eliminata.');
+      }),
   });
   window.addEventListener('beforeunload', (e) => {
     if (dirty) e.preventDefault();
@@ -305,21 +318,21 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   });
   setInterval(() => selectedId && refresh(), 1000); // late-loading models change the size readout
 
-  ui.setRooms([], null);
-  ui.setProjects([], null, false);
-  ui.setStatus('Carico le stanze...');
+  ui.setStatus('Carico i progetti...');
   try {
     if (!(await backend.email())) return ui.setStatus('Accedi (in alto a destra) con lo stesso account del visore.');
-    rooms = await backend.listRooms();
+    [rooms, projects] = await Promise.all([backend.listRooms(), backend.listProjects()]);
   } catch (e) {
     return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);
   }
-  ui.setRooms(rooms, null);
+  refreshLists();
   ui.setStatus(
-    rooms.length
-      ? 'Scegli la stanza da aprire.'
-      : 'Nessuna stanza salvata: scansionala e salvala dal visore (tab Scan).',
+    !rooms.length
+      ? 'Nessuna stanza salvata: scansionala e salvala dal visore (tab Scan).'
+      : projects.length
+        ? 'Scegli il progetto da aprire, o creane uno con "Nuovo".'
+        : 'Nessun progetto: creane uno con "Nuovo".',
   );
-  if (rooms.length === 1) void chooseRoom(rooms[0].id);
+  if (projects.length === 1) showProject(projects[0]);
   return { select };
 }

@@ -57,8 +57,9 @@ export function asLive(planes: RoomPlane[], yaw: number, tx: number, ty: number,
 export function createFakeBackend(): Backend & { rooms: Room[]; projects: Project[] } {
   const now = () => new Date().toISOString();
   let n = 0;
-  const model = (name: string, x: number, z: number): RoomModel => ({
+  const model = (name: string, x: number, z: number, roomId = 'r1'): RoomModel => ({
     id: `m${n++}`,
+    roomId,
     name,
     path: 'local:smoke.glb',
     pos: [x, 0, z],
@@ -70,9 +71,11 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
     { id: 'r2', name: 'Cucina', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
   const projects: Project[] = [
-    { id: 'p1', roomId: 'r1', name: 'Allestimento A', updatedAt: now(), models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
-    { id: 'p2', roomId: 'r1', name: 'Allestimento B', updatedAt: now(), models: [model('Macchina', 1, 1)] },
-    { id: 'p3', roomId: 'r2', name: 'Cucina nuova', updatedAt: now(), models: [] },
+    { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
+    { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), models: [model('Macchina', 1, 1)] },
+    { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [] },
+    // A whole house: models in two rooms, each in its own room's frame.
+    { id: 'p4', roomIds: ['r1', 'r2'], name: 'Casa', updatedAt: now(), models: [model('Divano', 0.5, -0.5, 'r1'), model('Frigo', 0.3, 0.2, 'r2')] },
   ];
   return {
     rooms,
@@ -91,11 +94,11 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
     },
     async deleteRoom(id) {
       rooms.splice(rooms.findIndex((x) => x.id === id), 1);
-      for (let i = projects.length - 1; i >= 0; i--) if (projects[i].roomId === id) projects.splice(i, 1);
+      // like the database: projects stay, with a stale room id
     },
-    listProjects: async (roomId) => projects.filter((p) => !roomId || p.roomId === roomId),
-    async createProject(roomId, name, models) {
-      const p = { id: `p${projects.length + 1}`, roomId, name, updatedAt: now(), models };
+    listProjects: async () => projects.map((p) => ({ ...p })),
+    async createProject(name, roomIds, models) {
+      const p = { id: `p${projects.length + 1}`, roomIds, name, updatedAt: now(), models };
       projects.push(p);
       return p;
     },

@@ -62,3 +62,19 @@ export function roomAround(planes: RoomPlane[], boxes: RoomBox[], head: Vec3): {
   const here = (pos: Vec3) => pos[0] >= x0 && pos[0] <= x1 && pos[2] >= z0 && pos[2] <= z1 && pos[1] >= y - 0.4 && pos[1] <= y + CEILING;
   return { planes: planes.filter((p) => here(p.pos)), boxes: boxes.filter((b) => here(b.pos)) };
 }
+
+// Split everything the headset reports into one group of planes per room: a floor outline and
+// what sits around it. Used to align a saved room to the right room among several.
+// Without floor outlines the planes cannot be told apart, so they come back as one group.
+export function roomClusters(planes: RoomPlane[]): RoomPlane[][] {
+  const floors = planes.filter((p) => p.label === 'floor' && p.quat && (p.poly?.length ?? 0) >= 6);
+  if (!floors.length) return [planes];
+  return floors.map((f) => {
+    const pts = floorOutline(f);
+    const xs = pts.map((p) => p[0]);
+    const zs = pts.map((p) => p[1]);
+    const [x0, x1, z0, z1] = [Math.min(...xs) - EDGE, Math.max(...xs) + EDGE, Math.min(...zs) - EDGE, Math.max(...zs) + EDGE];
+    const y = f.pos[1];
+    return planes.filter((p) => p.pos[0] >= x0 && p.pos[0] <= x1 && p.pos[2] >= z0 && p.pos[2] <= z1 && p.pos[1] >= y - 0.4 && p.pos[1] <= y + CEILING);
+  });
+}

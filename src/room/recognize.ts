@@ -5,6 +5,9 @@ import type { Room, RoomPlane, Vec3 } from './types';
 const MAX_RESID = 0.05; // m: accept only below this mean plane error
 const MIN_MATCH = 0.7; // fraction of the saved planes that must be found again
 
+// A fit good enough to trust: tight error and most of the saved planes found again.
+export const isGoodFit = (a: Alignment | null): a is Alignment => !!a && a.resid < MAX_RESID && a.matched >= MIN_MATCH * a.total;
+
 export interface Recognised {
   room: Room;
   alignment: Alignment; // maps the saved room's frame onto the live session frame
@@ -16,7 +19,7 @@ export function recognizeRoom(live: RoomPlane[], rooms: Room[]): Recognised | nu
   let bestScore = -Infinity;
   for (const room of rooms) {
     const a = alignPlanes(room.scan.planes, live);
-    if (!a || a.resid >= MAX_RESID || a.matched < MIN_MATCH * a.total) continue;
+    if (!isGoodFit(a)) continue;
     const score = a.matched / a.total - a.resid; // more planes found first, then tighter fit
     if (score > bestScore) {
       bestScore = score;

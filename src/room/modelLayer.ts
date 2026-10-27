@@ -6,16 +6,18 @@ import type { RoomModel } from './types';
 // Keeps scene objects in step with `room.models`: loads each GLB once (cached per
 // path), keeps its real size, centres it on x/z with its base on y=0, and applies
 // position / yaw / scale. Shared by the PC editor and the headset view.
+// One GLB is downloaded and parsed once, however many rooms or models use it.
+const assets = new Map<string, Promise<Object3D>>();
+let loader: ReturnType<typeof createGltfLoader> | null = null;
+
 export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
   const holders = new Map<string, Group>();
-  const assets = new Map<string, Promise<Object3D>>();
-  const loader = createGltfLoader();
 
   function asset(path: string): Promise<Object3D> {
     let p = assets.get(path);
     if (!p) {
       p = modelUrl(path)
-        .then((url) => loader.loadAsync(url))
+        .then((url) => (loader ??= createGltfLoader()).loadAsync(url))
         .then((gltf) => {
           const box = new Box3().setFromObject(gltf.scene);
           const c = box.getCenter(new Vector3());
@@ -66,3 +68,5 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
     },
   };
 }
+
+export type ModelLayer = ReturnType<typeof createModelLayer>;

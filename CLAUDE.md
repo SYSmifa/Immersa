@@ -21,9 +21,9 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `src/main.ts` router: visore → app AR (`app/headset.ts`); PC → editor. `?test` (modello di prova, `?tris=`/`?size=`), `?probe` (diagnostica Space Setup), `?edit`, `?uitest`/`?edittest` (menu AR/editor sul PC con backend finto)
 - `src/app/` app visore: `launcher.ts` (login 2D + "Entra in AR"), `xrApp.ts` (raggi mani, piani, pinch, bottone al polso), `core.ts` (stato: riconoscimento stanza, scan, progetti, menu), `fakeBackend.ts`/`uitest.ts`/`edittest.ts` (test)
 - `src/ui3d/` UI 3D: `panel.ts` (widget su canvas), `host.ts` (raggi→hover/click), `keyboard.ts` (tastiera tipo Meta), `menu.ts` (tab Load/Scan/Options/Account)
-- `src/room/` tipi (`types.ts`: Room=scansione, Project=modelli), allineamento ICP (`align.ts`), riconoscimento (`recognize.ts`), `modelLayer.ts` (GLB, scala reale), `draw.ts`, `capture.ts`
+- `src/room/` tipi (`types.ts`: Room=scansione, Project=stanze+modelli, ogni modello ha `roomId`), allineamento ICP (`align.ts`), riconoscimento (`recognize.ts`), `modelLayer.ts` (GLB, scala reale), `draw.ts`, `capture.ts`
 - `src/cloud/` `backend.ts` (interfaccia), `repo.ts` (Supabase rooms/projects), `models.ts` (bucket), `auth.ts`; `supabase/schema.sql` da incollare nell'SQL Editor (rooms, projects, bucket `models`, RLS)
-- `src/editor/` editor PC: scegli stanza → progetto, carica GLB, sposta/ruota/scala, salva
+- `src/editor/` editor PC: progetto → sue stanze (aggiungi/togli) → modelli per stanza (GLB, sposta/ruota/scala), salva
 - `src/scene/` stage, testModel, testScene; `src/xr/probe.ts`, `pinch.ts`; `src/ui/` login, stats, textPanel
 - `public/models/` — GLB di test, ignorati da git
 
@@ -52,7 +52,8 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Flusso (testato solo sul PC con `?uitest`/`?edittest`, DA TESTARE su visore): login 2D → AR → menu che segue la testa (bottone ☰ al polso, squeeze o X/Y sinistro) → riconosce la stanza tra quelle su Supabase; Scan: salva (nome con tastiera 3D) o avvia scan (`initiateRoomCapture`, se esiste); Load: progetti della stanza; pinch sinistro sposta il modello guardato
 - Il browser riporta i piani di TUTTE le stanze memorizzate nel visore, anche dove non sei: `around.ts` tiene solo il pavimento sotto la testa + ciò che gli sta intorno (senza pavimento = stanza non scansionata); `recognize.ts` ricontrolla che la testa sia dentro, altrimenti chiede conferma
 - La stanza si ricontrolla ogni ~2,5 s: cambio dopo 2 conferme, "uscito" dopo 3 senza pavimento; tornando nella stessa stanza il progetto si riapre
-- Load elenca TUTTI i progetti (stanza corrente prima, sotto il nome la stanza d'origine). Fuori dalla sua stanza un progetto si ancora al centro del pavimento della stanza attuale (o sotto i piedi), orientamento come salvato; resta aperto finché lo chiudi (Options)
+- Progetto = più stanze (una casa), modelli per stanza nel frame di quella stanza. Nel visore ogni stanza del progetto si allinea da sola ai piani che il visore riporta (`roomClusters` + ICP, `alignFar`); allineate = visibili, le altre nascoste. Se nessuna è allineabile il progetto si ancora al centro del pavimento attuale (orientamento come salvato). Load elenca tutti i progetti (stanza attuale prima, sotto il nome le sue stanze)
+- Da fare: pareti invisibili che occludono i modelli di altre stanze (con buchi per porte/finestre), dopo test su visore di quanto sono precise le stanze lontane
 - Volumi dei mobili: letti da `detectedMeshes` (non "global mesh", ≤64 vertici) come box orientati (`RoomScan.boxes`), disegnati con 12 spigoli (arancio); editor: pavimento/mobili semitrasparenti, pareti nascondibili, soffitto mai disegnato; visore: solo contorno (acceso di default, Options); DA VERIFICARE che il Quest 154 li esponga (`?probe`: riga `mesh:`)
 - Incognite da verificare: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto di richiamo menu
 - Dopo l'update schema: stanze vecchie senza contorni → rifare scan
