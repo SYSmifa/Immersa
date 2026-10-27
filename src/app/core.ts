@@ -236,7 +236,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       const a = r.alignment;
       // three's Y rotation is the opposite sense of our xz yaw.
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
-      drawPlanes(r.room.scan.planes, outline);
+      drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? []);
       drawBoxes(r.room.scan.boxes ?? [], outline);
       outline.visible = view.outline;
       if (autoTab) view.tab = 'load';

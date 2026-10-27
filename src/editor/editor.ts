@@ -126,7 +126,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return;
     }
     ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
-    const plan = drawPlanes(r.scan.planes, planesGroup, true);
+    const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? []);
     const drawn = plan.drawn;
     shell = plan.shell;
     shell.visible = shellVisible;

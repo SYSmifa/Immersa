@@ -21,10 +21,11 @@ export function boxRoom(w: number, d: number, h: number): RoomPlane[] {
   ];
 }
 
-// A couch and a cabinet as volumes, against two walls.
+// A couch, a cabinet and the table (matching the table plane of boxRoom) as volumes.
 export function boxRoomBoxes(w: number, d: number): RoomBox[] {
   return [
     { label: 'couch', pos: [-w / 2 + 0.6, 0.4, d / 2 - 0.5], quat: q([0, 1, 0], 0), min: [-0.9, -0.4, -0.45], max: [0.9, 0.4, 0.45] },
+    { label: 'table', pos: [w * 0.2, 0.375, d * 0.1], quat: q([0, 1, 0], 0), min: [-0.6, -0.375, -0.35], max: [0.6, 0.375, 0.35] },
     { label: 'storage', pos: [w / 2 - 0.3, 0.9, -d / 4], quat: q([0, 1, 0], 0.3), min: [-0.25, -0.9, -0.5], max: [0.25, 0.9, 0.5] },
   ];
 }

@@ -31,10 +31,25 @@ const boxFill = fill(0xffa040, 0.2);
 // The room's shell, which can be hidden to look into the room from above.
 const SHELL = new Set(['wall', 'ceiling', 'door', 'window', 'wall face', 'invisible wall']);
 
+// A furniture plane (a table top, a couch seat) is redundant when the same piece of
+// furniture already has its box: skip planes whose centre lies inside (or on) a box.
+function coveredByBox(p: RoomPlane, boxes: RoomBox[]): boolean {
+  const SLACK = 0.1; // m
+  return boxes.some((b) => {
+    const local = new Vector3(...p.pos).sub(new Vector3(...b.pos)).applyQuaternion(new Quaternion(...b.quat).invert());
+    return (
+      local.x >= b.min[0] - SLACK && local.x <= b.max[0] + SLACK &&
+      local.y >= b.min[1] - SLACK && local.y <= b.max[1] + SLACK &&
+      local.z >= b.min[2] - SLACK && local.z <= b.max[2] + SLACK
+    );
+  });
+}
+
 // Plane outlines as wireframe (floor green, the rest cyan), in the planes' own frame.
 // With `solid`, floor and shell planes also get a faint translucent fill.
 // Shell planes (walls, ceiling, doors, windows) go into the returned group so they can be hidden.
-export function drawPlanes(planes: RoomPlane[], into: Group, solid = false): { drawn: number; shell: Group } {
+// Furniture planes that already have a box in `boxes` are not drawn twice.
+export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = []): { drawn: number; shell: Group } {
   const shell = new Group();
   into.add(shell);
   let drawn = 0;
@@ -42,6 +57,7 @@ export function drawPlanes(planes: RoomPlane[], into: Group, solid = false): { d
     if (!p.poly || !p.quat || p.poly.length < 6) continue;
     const isShell = SHELL.has(p.label);
     const isFloor = p.label === 'floor';
+    if (!isShell && !isFloor && coveredByBox(p, boxes)) continue;
     const target = isShell ? shell : into;
     const pts: Vector3[] = [];
     for (let i = 0; i < p.poly.length; i += 2) pts.push(new Vector3(p.poly[i], 0, p.poly[i + 1]));
