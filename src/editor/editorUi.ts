@@ -2,6 +2,7 @@
 export interface EditorHandlers {
   onRoom(id: string): void;
   onRenameRoom(): void;
+  onShell(visible: boolean): void;
   onDeleteRoom(): void;
   onProject(id: string): void;
   onNewProject(): void;
@@ -70,6 +71,13 @@ export function createEditorUi(h: EditorHandlers) {
   const rooms = select(h.onRoom);
   const renameRoom = button('Rinomina', h.onRenameRoom);
   const deleteRoom = button('Elimina', h.onDeleteRoom);
+  const shell = el('input');
+  shell.type = 'checkbox';
+  shell.checked = true;
+  shell.onchange = () => h.onShell(shell.checked);
+  const shellRow = el('label');
+  shellRow.style.cssText = 'display:flex;gap:6px;align-items:center';
+  shellRow.append(shell, document.createTextNode('Mostra pareti e soffitto'));
   const projects = select(h.onProject);
   const projectButtons = [
     button('Nuovo', h.onNewProject),
@@ -115,6 +123,7 @@ export function createEditorUi(h: EditorHandlers) {
     section('Stanza'),
     rooms,
     row(renameRoom, deleteRoom),
+    shellRow,
     section('Progetto'),
     projects,
     row(...projectButtons),

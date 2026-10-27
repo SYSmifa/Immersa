@@ -53,7 +53,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   roomRoot.visible = false;
   scene.add(roomRoot);
   const outline = new Group();
-  outline.visible = false;
+  outline.visible = true;
   roomRoot.add(outline);
   // The open project's frame: the project's own room frame, placed by `placement()`.
   const projectRoot = new Group();
@@ -73,7 +73,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     projects: null,
     currentProjectId: null,
     page: 0,
-    outline: false,
+    outline: true,
     message: '',
   };
   let rooms: Room[] = [];

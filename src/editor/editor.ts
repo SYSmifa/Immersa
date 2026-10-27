@@ -54,6 +54,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let lastDrag = 0;
 
   const planesGroup = new Group();
+  let shell: Group | null = null; // walls, ceiling, doors, windows of the open room
+  let shellVisible = true;
   const modelsGroup = new Group();
   scene.add(planesGroup, modelsGroup);
   const layer = createModelLayer(modelsGroup, (t) => ui.setStatus(`Errore modello: ${t}`));
@@ -112,6 +114,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function showRoom(r: Room | null) {
     room = r;
     planesGroup.clear();
+    shell = null;
     project = null;
     projects = [];
     layer.sync([]);
@@ -123,8 +126,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return;
     }
     ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
-    const drawn = drawPlanes(r.scan.planes, planesGroup);
-    const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup);
+    const plan = drawPlanes(r.scan.planes, planesGroup, true);
+    const drawn = plan.drawn;
+    shell = plan.shell;
+    shell.visible = shellVisible;
+    const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true);
     const spot = floorCentre(r.scan.planes);
     planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
@@ -183,6 +189,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       } catch (e) {
         ui.setStatus(`Errore: ${errText(e)}`);
       }
+    },
+    onShell(visible) {
+      shellVisible = visible;
+      if (shell) shell.visible = visible;
     },
     onProject(id) {
       if (!confirmLeave()) return ui.setProjects(projects, project?.id ?? null, !!room);
