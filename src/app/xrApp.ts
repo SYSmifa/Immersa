@@ -32,6 +32,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let bound: XRSession | null = null;
   let last = performance.now();
   let leftToggleHeld = false;
+  let watched: XRReferenceSpace | null = null;
 
   const idOf = (src: XRInputSource) => {
     let id = ids.get(src);
@@ -84,6 +85,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (frame.session !== bound) bind(frame.session);
       const ref = renderer.xr.getReferenceSpace();
       if (!ref) return;
+      if (ref !== watched) {
+        watched = ref;
+        // Fires when the headset moves the origin (e.g. after the boundary is set up again).
+        ref.addEventListener('reset', () => core.referenceReset());
+      }
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;

@@ -90,8 +90,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let current: Project | null = null;
   const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
   let foreign: { key: string; roomId: string; matrix: Matrix4 } | null = null; // project shown away from its rooms
+  let foreignMode = false; // the project was opened with none of its rooms found: shown away from them
   let lastFar = 0;
   let farIndex = 0;
+  const misses = new Map<string, number>(); // consecutive checks that could not find an aligned room any more
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
   let rawBoxes: RoomBox[] = [];
   let live: RoomPlane[] = []; // only the room you are standing in
@@ -183,6 +185,17 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   // ---- rooms and projects
+  // Did a room's alignment really change? Compared where it puts the room's floor centre
+  // and in yaw, so that noise of a centimetre or two does not make the room tremble.
+  function moved(a: Alignment, b: Alignment, roomId: string): boolean {
+    const planes = rooms.find((r) => r.id === roomId)?.scan.planes ?? [];
+    const [x, , z] = floorCentre(planes);
+    const at = (m: Alignment) => [Math.cos(m.yaw) * x - Math.sin(m.yaw) * z + m.tx, Math.sin(m.yaw) * x + Math.cos(m.yaw) * z + m.tz];
+    const [ax, az] = at(a);
+    const [bx, bz] = at(b);
+    return Math.hypot(ax - bx, az - bz) > 0.02 || Math.abs(wrap(a.yaw - b.yaw)) > 0.0087;
+  }
+
   const alignMatrix = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
   const modelsOf = (roomId: string) => current?.models.filter((m) => m.roomId === roomId) ?? [];
 
@@ -202,6 +215,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function closeCurrent() {
     current = null;
     foreign = null;
+    foreignMode = false;
     for (const h of houses.values()) {
       h.layer.sync([]);
       scene.remove(h.root);
@@ -236,9 +250,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
     }
     const aligned = ids.filter((id) => aligns.has(id));
-    // No room of the project can be placed for real: show its first room with models
-    // anywhere sensible, so the project can still be looked at.
-    const away = aligned.length ? null : (ids.find((id) => modelsOf(id).length) ?? ids[0] ?? null);
+    // Opened with none of its rooms found: show its first room with models anywhere sensible,
+    // so the project can still be looked at. Once a room is found, models go to the real places.
+    if (aligned.length) foreignMode = false;
+    const away = foreignMode ? (ids.find((id) => modelsOf(id).length) ?? ids[0] ?? null) : null;
     const key = away ? `${away}|${recognised?.room.id ?? ''}` : '';
     if (!away) foreign = null;
     else if (foreign?.key !== key) foreign = { key, roomId: away, matrix: foreignMatrix(away) };
@@ -252,25 +267,46 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     }
   }
 
-  // Rooms of the open project other than the one under your head: align them to the planes the
-  // headset reports for them (it reports every stored room), one room per call.
-  function alignFar(now: number) {
-    if (!current || now - lastFar < 3000 || rawLive.length < MIN_PLANES) return;
-    lastFar = now;
-    const todo = current.roomIds.filter((id) => !aligns.has(id) && rooms.some((r) => r.id === id));
-    if (!todo.length) return;
-    const room = rooms.find((r) => r.id === todo[farIndex++ % todo.length])!;
-    // Try each room the headset reports on its own, so another room's planes cannot confuse the fit.
-    let a: Alignment | null = null;
+  // Where the headset reports this room now, if anywhere. Each reported room is tried on its
+  // own, so another room's planes cannot confuse the fit.
+  function bestFit(room: Room): Alignment | null {
+    let fit: Alignment | null = null;
     for (const group of roomClusters(rawLive)) {
       if (group.length < MIN_PLANES) continue;
-      const fit = alignPlanes(room.scan.planes, group);
-      if (isGoodFit(fit) && (!a || fit.matched / fit.total - fit.resid > a.matched / a.total - a.resid)) a = fit;
+      const a = alignPlanes(room.scan.planes, group);
+      if (isGoodFit(a) && (!fit || a.matched / a.total - a.resid > fit.matched / fit.total - fit.resid)) fit = a;
     }
-    if (a) {
-      aligns.set(room.id, a);
-      syncHouses();
-      refreshView();
+    return fit;
+  }
+
+  // Rooms of the open project other than the one under your head: keep them aligned to the planes
+  // the headset reports for them (it reports every stored room), one room per call. The headset
+  // can move its frame (new boundary, relocalisation), so every alignment is re-checked: updated
+  // when the room is found elsewhere, dropped (room hidden) when it cannot be found at all.
+  function alignFar(now: number) {
+    if (!current || now - lastFar < 1200 || rawLive.length < MIN_PLANES) return;
+    lastFar = now;
+    const ids = current.roomIds.filter((id) => id !== recognised?.room.id && rooms.some((r) => r.id === id));
+    if (!ids.length) return;
+    const room = rooms.find((r) => r.id === ids[farIndex++ % ids.length])!;
+    const fit = bestFit(room);
+    const old = aligns.get(room.id);
+    if (fit) {
+      misses.delete(room.id);
+      if (!old || moved(old, fit, room.id)) {
+        aligns.set(room.id, fit);
+        syncHouses();
+        refreshView();
+      }
+    } else if (old) {
+      const n = (misses.get(room.id) ?? 0) + 1;
+      misses.set(room.id, n);
+      if (n >= 2) {
+        aligns.delete(room.id); // not where we left it and not found anywhere: do not show it misplaced
+        misses.delete(room.id);
+        syncHouses();
+        refreshView();
+      }
     }
   }
 
@@ -310,6 +346,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function reconsider(found: Recognised | null) {
     if (found && found.room.id === recognised!.room.id) {
       switching = lost = 0;
+      if (moved(recognised!.alignment, found.alignment, found.room.id)) {
+        // The headset moved the room: follow it.
+        recognised!.alignment = found.alignment;
+        aligns.set(found.room.id, found.alignment);
+        roomRoot.matrix.copy(alignMatrix(found.alignment));
+        syncHouses();
+      }
     } else if (found) {
       lost = 0;
       if (++switching >= 2) {
@@ -421,6 +464,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function openProject(p: Project) {
     closeCurrent();
     current = p;
+    // Align every room of the project now (the headset reports them all), so it opens in the right places.
+    for (const id of p.roomIds) {
+      const room = rooms.find((r) => r.id === id);
+      if (!room || aligns.has(id)) continue;
+      const fit = bestFit(room);
+      if (fit) aligns.set(id, fit);
+    }
+    foreignMode = !p.roomIds.some((id) => aligns.has(id));
     syncHouses();
     closeMenu();
     refreshView();
@@ -551,6 +602,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       switching = lost = 0;
       ignored.clear();
       aligns.clear(); // a new session has a new origin
+      misses.clear();
       closeCurrent();
       setRecognised(null);
       void reloadRooms();
@@ -572,6 +624,18 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       checkPending();
       followHead(head, dt);
       host.update();
+    },
+    // The headset moved its coordinate frame (new boundary, recentring): every alignment is void.
+    referenceReset() {
+      aligns.clear();
+      misses.clear();
+      lastTry = 0;
+      lastFar = 0;
+      failedTries = 0;
+      switching = lost = 0;
+      candidate = null;
+      setRecognised(null);
+      say('Il visore ha cambiato riferimento: rileggo la stanza...', 5000);
     },
     moveGazedModel,
     say,
