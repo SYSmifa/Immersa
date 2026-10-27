@@ -10,10 +10,17 @@ export interface RoomItem {
   pos: Vec3; // same frame as the planes
 }
 
+export interface RoomModel {
+  name: string; // file under /models/
+  pos: Vec3; // model base centre, same frame as the planes
+  yaw: number; // rotation about Y, radians
+}
+
 // Our own room format; the Meta scan is only one possible source of `planes`.
 export interface RoomFile {
   version: 1;
   savedAt: number;
   planes: RoomPlane[];
   items: RoomItem[];
+  model?: RoomModel;
 }

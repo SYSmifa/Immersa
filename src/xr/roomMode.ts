@@ -1,10 +1,13 @@
 import {
   BoxGeometry,
   Color,
+  Euler,
   Group,
   Mesh,
   MeshBasicMaterial,
+  Object3D,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   Vector3,
   WebGLRenderer,
@@ -13,16 +16,44 @@ import { alignPlanes, type Alignment } from '../room/align';
 import { readPlanes } from '../room/capture';
 import { loadRoom, saveRoom } from '../room/storage';
 import type { RoomFile, RoomItem, RoomPlane } from '../room/types';
+import { loadTestModel } from '../scene/testModel';
 import { createTextPanel } from '../ui/textPanel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const MAX_RESID = 0.05; // m: accept the alignment only below this mean plane error
 const MIN_MATCH = 0.7; // fraction of saved planes that must be found again
 
-// ?room end-to-end test: pinch drops a cube (saved in the room's own frame);
-// on the next session the saved planes are aligned to the live scan and the
-// cubes should reappear at the same real-world spot. ?room=reset clears it.
-export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera) {
+// Position of the pinch: midpoint of thumb and index tips for hands, grip for controllers.
+function pinchPoint(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): Vector3 | null {
+  const hand = (src as any).hand;
+  if (hand) {
+    const a = hand.get('thumb-tip');
+    const b = hand.get('index-finger-tip');
+    const pa = a && frame.getJointPose?.(a, ref);
+    const pb = b && frame.getJointPose?.(b, ref);
+    if (!pa || !pb) return null;
+    const u = pa.transform.position;
+    const v = pb.transform.position;
+    return new Vector3((u.x + v.x) / 2, (u.y + v.y) / 2, (u.z + v.z) / 2);
+  }
+  const pose = frame.getPose(src.gripSpace ?? src.targetRaySpace, ref);
+  if (!pose) return null;
+  const p = pose.transform.position;
+  return new Vector3(p.x, p.y, p.z);
+}
+
+// ?room end-to-end test: the room's planes and placed items are saved in the
+// room's own frame; on the next session the saved planes are aligned to the
+// live scan and everything reappears at the same real-world spot.
+// Left pinch: puts the model (public/models/test.glb) exactly at the pinch point,
+// facing you (replaces the previous one). Right pinch: drops a cube 1 m ahead.
+// ?room=reset clears the saved room.
+export function createRoomMode(
+  renderer: WebGLRenderer,
+  scene: Scene,
+  camera: PerspectiveCamera,
+  setInfo: (text: string) => void,
+) {
   if (new URLSearchParams(location.search).get('room') === 'reset') saveRoom(null);
   let room: RoomFile | null = loadRoom();
 
@@ -43,11 +74,30 @@ export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: Pe
   room?.items.forEach(addCube);
   root.visible = !room;
 
+  let modelObj: Object3D | null = null;
+  let modelName = 'test.glb';
+  loadTestModel().then(({ root: m, source, triangles }) => {
+    modelObj = m;
+    modelName = source;
+    setInfo(`${source}: ${(triangles / 1000).toFixed(0)}k tris`);
+    applyModel();
+    modelMsg = 'model ready (left pinch)';
+  });
+
+  function applyModel() {
+    if (!modelObj || !room?.model) return;
+    modelObj.position.set(...room.model.pos);
+    modelObj.rotation.set(0, room.model.yaw, 0);
+    root.add(modelObj);
+  }
+
   let bound: XRSession | null = null;
   let started = 0;
   let lastTry = 0;
   let lastDraw = 0;
   let aligned: Alignment | null = null;
+  let ready = false; // room frame is usable in this session (aligned or just captured)
+  let modelMsg = 'model loading...';
   let livePlanes: RoomPlane[] = [];
   let msg = room ? 'aligning...' : 'no room: pinch to start';
 
@@ -56,9 +106,57 @@ export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: Pe
     started = performance.now();
     lastTry = 0;
     aligned = null;
+    ready = false;
     root.visible = !room;
     root.matrix.identity();
-    session.addEventListener('select', (ev: any) => place(ev));
+    // selectstart = fingers touching, so the pinch position is exact.
+    session.addEventListener('selectstart', (ev: any) => {
+      if (ev.inputSource.handedness === 'left') placeModel(ev);
+    });
+    session.addEventListener('select', (ev: any) => {
+      if (ev.inputSource.handedness !== 'left') place(ev);
+    });
+  }
+
+  // The saved room can be edited once aligned, or created from the live scan.
+  function ensureRoom(): boolean {
+    if (!room) {
+      if (livePlanes.length < 4) {
+        msg = 'scan not ready, wait a few s';
+        return false;
+      }
+      // First capture: the room frame is this session's frame.
+      room = { version: 1, savedAt: Date.now(), planes: livePlanes, items: [] };
+      root.matrix.identity();
+      root.visible = true;
+      ready = true;
+    } else if (!ready) {
+      msg = 'not aligned yet, cannot place';
+      return false;
+    }
+    return true;
+  }
+
+  function placeModel(ev: any) {
+    const ref = renderer.xr.getReferenceSpace();
+    if (!ref) return;
+    const point = pinchPoint(ev.frame, ev.inputSource, ref);
+    if (!point) return;
+    if (!modelObj) {
+      modelMsg = 'model still loading';
+      return;
+    }
+    if (!ensureRoom() || !room) return;
+    root.updateWorldMatrix(true, false);
+    const local = root.worldToLocal(point.clone());
+    // Face the user, expressed relative to the room frame.
+    const head = renderer.xr.getCamera().getWorldPosition(new Vector3());
+    const rootYaw = new Euler().setFromQuaternion(root.getWorldQuaternion(new Quaternion()), 'YXZ').y;
+    const yaw = Math.atan2(head.x - point.x, head.z - point.z) - rootYaw;
+    room.model = { name: modelName, pos: [local.x, local.y, local.z], yaw };
+    applyModel();
+    saveRoom(room);
+    modelMsg = 'model placed+saved';
   }
 
   function place(ev: any) {
@@ -66,19 +164,7 @@ export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: Pe
     if (!ref) return;
     const pose = ev.frame.getPose(ev.inputSource.targetRaySpace, ref);
     if (!pose) return;
-    if (!room) {
-      if (livePlanes.length < 4) {
-        msg = 'scan not ready, wait a few s';
-        return;
-      }
-      // First capture: the room frame is this session's frame.
-      room = { version: 1, savedAt: Date.now(), planes: livePlanes, items: [] };
-      root.matrix.identity();
-      root.visible = true;
-    } else if (!aligned) {
-      msg = 'not aligned yet, cannot place';
-      return;
-    }
+    if (!ensureRoom() || !room) return;
     const p = pose.transform.position;
     const q = pose.transform.orientation;
     const dir = new Vector3(0, 0, -1).applyQuaternion({ x: q.x, y: q.y, z: q.z, w: q.w } as any);
@@ -108,6 +194,7 @@ export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: Pe
         const a = alignPlanes(room.planes, planes);
         if (a && a.resid < MAX_RESID && a.matched >= MIN_MATCH * a.total) {
           aligned = a;
+          ready = true;
           // three's Y rotation is the opposite sense of our xz yaw.
           root.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
           root.visible = true;
@@ -129,6 +216,7 @@ export function createRoomMode(renderer: WebGLRenderer, scene: Scene, camera: Pe
           ? `align ${(aligned.resid * 100).toFixed(1)}cm ${aligned.matched}/${aligned.total}`
           : 'align: -',
         msg,
+        modelMsg,
       ];
       panel.setText(lines.join('\n'));
     },

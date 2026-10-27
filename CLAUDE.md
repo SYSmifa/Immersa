@@ -51,6 +51,6 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `?probe` testato su Quest (Horizon 154): piani Space Setup stabili tra sessioni (scarto <3 cm dopo allineamento); anchor persistenti NON supportati
 - Ogni sessione XR ha origine/yaw/altezza pavimento diversi (dy fino a 40 cm) → la stanza salvata va riallineata ai piani live
 - Dopo standby la vecchia sessione vede 0 piani; ricaricando tornano → riavviare la sessione XR
-- `?room` (da testare): pinch = cubo salvato nel frame stanza; alla riapertura deve riapparire nello stesso punto reale; `?room=reset` cancella
+- `?room` testato (cubi tornano al punto giusto anche da altra posizione/direzione). Pinch sinistro = `test.glb` alla posizione esatta del pinch (base del modello, rivolto verso l'utente, sostituisce il precedente; usa hand-tracking); pinch destro = cubo 1 m avanti; `?room=reset` cancella
 - Da fare: test dopo riavvio visore e giorno dopo
 - Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione; passi 3-4 (piani/mesh stanza, anchor)
