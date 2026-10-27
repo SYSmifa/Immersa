@@ -16,8 +16,9 @@ import type { Backend } from '../cloud/backend';
 import { uploadModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawPlanes } from '../room/draw';
+import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
-import type { Project, Room, Vec3 } from '../room/types';
+import type { Project, Room } from '../room/types';
 import { createStage } from '../scene/stage';
 import { createLogin } from '../ui/login';
 import { createEditorUi } from './editorUi';
@@ -32,16 +33,6 @@ interface Deps {
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-// Where a new model starts: middle of the floor, on the floor.
-function floorSpot(room: Room): Vec3 {
-  const planes = room.scan.planes;
-  const floors = planes.filter((p) => p.label === 'floor');
-  const src = floors.length ? floors : planes;
-  if (!src.length) return [0, 0, 0];
-  const mean = (i: number) => src.reduce((a, p) => a + p.pos[i], 0) / src.length;
-  return [mean(0), floors.length ? mean(1) : Math.min(...src.map((p) => p.pos[1])), mean(2)];
-}
 
 // Entry for the PC: stage without AR, login box, then the editor.
 export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload']) {
@@ -133,7 +124,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
     const drawn = drawPlanes(r.scan.planes, planesGroup, true);
-    const spot = floorSpot(r);
+    const spot = floorCentre(r.scan.planes);
     planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
     const centre = bounds.getCenter(new Vector3());
@@ -237,7 +228,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       try {
         const { path, name } = await upload(file);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-        project.models.push({ id, name, path, pos: floorSpot(room), yaw: 0, scale: 1 });
+        project.models.push({ id, name, path, pos: floorCentre(room.scan.planes), yaw: 0, scale: 1 });
         layer.sync(project.models);
         select(id);
         markDirty();

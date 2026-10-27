@@ -52,6 +52,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Flusso (testato solo sul PC con `?uitest`/`?edittest`, DA TESTARE su visore): login 2D → AR → menu che segue la testa (bottone ☰ al polso, squeeze o X/Y sinistro) → riconosce la stanza tra quelle su Supabase; Scan: salva (nome con tastiera 3D) o avvia scan (`initiateRoomCapture`, se esiste); Load: progetti della stanza; pinch sinistro sposta il modello guardato
 - Il browser riporta i piani di TUTTE le stanze memorizzate nel visore, anche dove non sei: `around.ts` tiene solo il pavimento sotto la testa + ciò che gli sta intorno (senza pavimento = stanza non scansionata); `recognize.ts` ricontrolla che la testa sia dentro, altrimenti chiede conferma
 - La stanza si ricontrolla ogni ~2,5 s: cambio dopo 2 conferme, "uscito" dopo 3 senza pavimento; tornando nella stessa stanza il progetto si riapre
+- Load elenca TUTTI i progetti (stanza corrente prima, sotto il nome la stanza d'origine). Fuori dalla sua stanza un progetto si ancora al centro del pavimento della stanza attuale (o sotto i piedi), orientamento come salvato; resta aperto finché lo chiudi (Options)
 - Incognite da verificare: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto di richiamo menu
 - Dopo l'update schema: stanze vecchie senza contorni → rifare scan
 - Idee: `?model=`, foveation, LOD; login con codice dispositivo; opzioni

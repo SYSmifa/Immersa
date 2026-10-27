@@ -73,7 +73,7 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
       rooms.splice(rooms.findIndex((x) => x.id === id), 1);
       for (let i = projects.length - 1; i >= 0; i--) if (projects[i].roomId === id) projects.splice(i, 1);
     },
-    listProjects: async (roomId) => projects.filter((p) => p.roomId === roomId),
+    listProjects: async (roomId) => projects.filter((p) => !roomId || p.roomId === roomId),
     async createProject(roomId, name, models) {
       const p = { id: `p${projects.length + 1}`, roomId, name, updatedAt: now(), models };
       projects.push(p);

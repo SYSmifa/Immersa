@@ -62,11 +62,9 @@ export function createSupabaseBackend(): Backend {
       check(error);
     },
     async listProjects(roomId) {
-      const { data, error } = await client()
-        .from('projects')
-        .select(PROJECT_COLS)
-        .eq('room_id', roomId)
-        .order('updated_at', { ascending: false });
+      let query = client().from('projects').select(PROJECT_COLS);
+      if (roomId) query = query.eq('room_id', roomId);
+      const { data, error } = await query.order('updated_at', { ascending: false });
       check(error);
       return (data as ProjectRow[]).map(toProject);
     },

@@ -11,7 +11,7 @@ export interface MenuView {
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
-  projects: { id: string; name: string; models: number }[] | null; // of the recognised room
+  projects: { id: string; name: string; models: number; room: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   page: number;
   outline: boolean;
@@ -29,6 +29,7 @@ export interface MenuActions {
   scan(): void;
   reread(): void;
   toggleOutline(): void;
+  closeProject(): void;
   signOut(): void;
   close(): void;
 }
@@ -85,23 +86,20 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
 
   const top = 192;
   if (v.tab === 'load') {
-    if (!v.roomName && v.candidate) {
-      out.push(label('Conferma prima la stanza nel tab Scan.', top, 80, 28, '#cdd6ea', true));
-    } else if (!v.roomName) {
-      out.push(label('Non sei in una stanza salvata.\nVai su Scan per salvarla: i progetti si aprono solo nella stanza in cui sono nati.', top, 160, 28, '#cdd6ea', true));
-    } else if (v.projects === null) {
+    if (v.projects === null) {
       out.push(label('Carico i progetti...', top));
     } else if (!v.projects.length) {
-      out.push(label('Questa stanza non ha ancora progetti.\nCreane uno dal PC e salvalo con un nome.', top, 140, 28, '#cdd6ea', true));
+      out.push(label('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', top, 140, 28, '#cdd6ea', true));
     } else {
       const pages = Math.ceil(v.projects.length / PER_PAGE);
       const page = Math.min(v.page, pages - 1);
       v.projects.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((p, i) => {
+        const count = `${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`;
         out.push({
           kind: 'row',
           rect: { x: PAD, y: top + i * 76, w: MENU_W - 2 * PAD, h: 68 },
           text: p.name,
-          sub: `${p.models} ${p.models === 1 ? 'modello' : 'modelli'}${p.id === v.currentProjectId ? ' · aperto' : ''}`,
+          sub: `${p.room}${p.here ? '' : ' (altra stanza)'} · ${count}${p.id === v.currentProjectId ? ' · aperto' : ''}`,
           active: p.id === v.currentProjectId,
           onClick: () => a.selectProject(p.id),
         });
@@ -141,7 +139,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     }
   } else if (v.tab === 'options') {
     out.push(button(`Contorno della stanza: ${v.outline ? 'sì' : 'no'}`, top, a.toggleOutline));
-    out.push(label('Altre opzioni in arrivo.', top + 90, 40, 24, '#8e99b3'));
+    out.push(button('Chiudi il progetto aperto', top + 80, a.closeProject, { disabled: !v.currentProjectId }));
+    out.push(label('Altre opzioni in arrivo.', top + 170, 40, 24, '#8e99b3'));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));

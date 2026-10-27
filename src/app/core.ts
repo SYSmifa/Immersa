@@ -1,7 +1,8 @@
-import { Box3, Group, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import type { Alignment } from '../room/align';
 import { drawPlanes } from '../room/draw';
+import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
 import { planesAround } from '../room/around';
 import { isInside, recognizeRoom, type Recognised } from '../room/recognize';
@@ -46,7 +47,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   host.add(menu);
   const keyboard = createKeyboard(host, rig);
 
-  // The room's frame: saved rooms/projects live in it, the alignment maps it onto the session.
+  // The recognised room's frame (only its outline lives here); the alignment maps it onto the session.
   const roomRoot = new Group();
   roomRoot.matrixAutoUpdate = false;
   roomRoot.visible = false;
@@ -54,7 +55,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const outline = new Group();
   outline.visible = false;
   roomRoot.add(outline);
-  const layer = createModelLayer(roomRoot, (t) => say(`Modello: ${t}`));
+  // The open project's frame: the project's own room frame, placed by `placement()`.
+  const projectRoot = new Group();
+  projectRoot.matrixAutoUpdate = false;
+  scene.add(projectRoot);
+  const layer = createModelLayer(projectRoot, (t) => say(`Modello: ${t}`));
 
   const view: MenuView = {
     tab: 'scan',
@@ -76,9 +81,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let recognised: Recognised | null = null;
   let candidate: Recognised | null = null; // matches the live scan but the user is not inside
   const ignored = new Set<string>(); // rooms the user said are not the one they are in
-  let projects: Project[] = [];
+  let allProjects: Project[] = []; // every project of the account, in any room
   let projectsLoaded = false;
   let current: Project | null = null;
+  let nativeRoomId: string | null = null; // set when the open project sits in its own, recognised room
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
   let live: RoomPlane[] = []; // only the room you are standing in
   let lastHere = 0;
@@ -119,7 +125,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     view.captureAvailable = !!capture?.available;
-    view.projects = recognised && projectsLoaded ? projects.map((p) => ({ id: p.id, name: p.name, models: p.models.length })) : null;
+    const roomName = (id: string) => rooms.find((r) => r.id === id)?.name ?? '?';
+    const here = (p: Project) => p.roomId === recognised?.room.id;
+    view.projects = projectsLoaded
+      ? [...allProjects]
+          .sort((a, b) => Number(here(b)) - Number(here(a)) || b.updatedAt.localeCompare(a.updatedAt))
+          .map((p) => ({ id: p.id, name: p.name, models: p.models.length, room: roomName(p.roomId), here: here(p) }))
+      : null;
     view.currentProjectId = current?.id ?? null;
     render();
   }
@@ -162,12 +174,60 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   // ---- rooms and projects
-  function setRecognised(r: Recognised | null) {
-    recognised = r;
-    projects = [];
-    projectsLoaded = false;
+  function closeCurrent() {
     current = null;
+    nativeRoomId = null;
     layer.sync([]);
+  }
+
+  // Where the project's own frame goes. In its own room: exactly as laid out on the PC.
+  // In another room (or none): its floor centre goes to this room's floor centre (or under
+  // your feet), orientation as saved, so the models keep their layout relative to each other.
+  function placement(p: Project): { matrix: Matrix4; native: boolean } {
+    const align = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
+    if (recognised && recognised.room.id === p.roomId) return { matrix: align(recognised.alignment), native: true };
+    const home = rooms.find((r) => r.id === p.roomId);
+    const pivot = home ? floorCentre(home.scan.planes) : ([0, 0, 0] as const);
+    if (recognised) {
+      const t = floorCentre(recognised.room.scan.planes);
+      const shift = new Matrix4().makeTranslation(t[0] - pivot[0], t[1] - pivot[1], t[2] - pivot[2]);
+      return { matrix: align(recognised.alignment).multiply(shift), native: false };
+    }
+    const h = lastHead?.pos;
+    const floorY = live.find((x) => x.label === 'floor')?.pos[1] ?? (h ? h.y - 1.5 : 0);
+    return { matrix: new Matrix4().makeTranslation((h?.x ?? 0) - pivot[0], floorY - pivot[1], (h?.z ?? 0) - pivot[2]), native: false };
+  }
+
+  function placeProject(p: Project) {
+    const { matrix, native } = placement(p);
+    current = p;
+    nativeRoomId = native ? p.roomId : null;
+    projectRoot.matrix.copy(matrix);
+    layer.sync(p.models);
+  }
+
+  function loadProjects() {
+    backend
+      .listProjects()
+      .then((list) => {
+        allProjects = list;
+        projectsLoaded = true;
+        // We left this project's room and came back: reopen it.
+        const back = !current && recognised && resume?.roomId === recognised.room.id ? list.find((p) => p.id === resume!.projectId) : undefined;
+        if (back) placeProject(back);
+        refreshView();
+      })
+      .catch((e) => say(`Errore: ${errText(e)}`));
+  }
+
+  function setRecognised(r: Recognised | null) {
+    // A project laid out in the old room's frame stays behind with that room; one placed
+    // freely (opened from another room) goes with you.
+    if (current && nativeRoomId) {
+      resume = { roomId: nativeRoomId, projectId: current.id };
+      closeCurrent();
+    }
+    recognised = r;
     outline.clear();
     roomRoot.visible = !!r;
     if (r) {
@@ -177,21 +237,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       drawPlanes(r.room.scan.planes, outline);
       outline.visible = view.outline;
       if (autoTab) view.tab = 'load';
-      backend
-        .listProjects(r.room.id)
-        .then((list) => {
-          if (recognised !== r) return;
-          projects = list;
-          projectsLoaded = true;
-          const back = resume?.roomId === r.room.id ? projects.find((p) => p.id === resume!.projectId) : undefined;
-          if (back) {
-            current = back; // we left this room and came back: the project is still open
-            layer.sync(back.models);
-          }
-          refreshView();
-        })
-        .catch((e) => say(`Errore: ${errText(e)}`));
     }
+    loadProjects();
     refreshView();
   }
 
@@ -204,7 +251,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       lost = 0;
       if (++switching >= 2) {
         switching = 0;
-        rememberProject();
         setRecognised(found);
         say(`Ora sei in: ${found.room.name}`);
         openMenu();
@@ -214,15 +260,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (++lost >= 3) {
         lost = 0;
         const name = recognised!.room.name;
-        rememberProject();
         setRecognised(null);
         say(`Sei uscito da: ${name}`);
       }
     }
-  }
-
-  function rememberProject() {
-    if (recognised && current) resume = { roomId: recognised.room.id, projectId: current.id };
   }
 
   function tryRecognise(now: number) {
@@ -314,11 +355,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   function openProject(p: Project) {
-    current = p;
-    layer.sync(p.models);
+    placeProject(p);
     closeMenu();
     refreshView();
-    say(`Aperto: ${p.name}`);
+    const away = !recognised || recognised.room.id !== p.roomId;
+    say(away ? `Aperto: ${p.name} (di un'altra stanza, posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, away ? 9000 : 7000);
   }
 
   const actions: MenuActions = {
@@ -328,7 +369,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       render();
     },
     selectProject(id) {
-      const p = projects.find((x) => x.id === id);
+      const p = allProjects.find((x) => x.id === id);
       if (p) openProject(p);
     },
     turnPage(delta) {
@@ -361,13 +402,18 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       outline.visible = view.outline;
       render();
     },
+    closeProject() {
+      closeCurrent();
+      resume = null;
+      refreshView();
+    },
     signOut,
     close: closeMenu,
   };
 
   // Left pinch: move the model the user is looking at to the pinch point.
   function moveGazedModel(point: Vector3, head: Head) {
-    if (!current || !recognised) return say('Apri un progetto dal menu (Load)');
+    if (!current) return say('Apri un progetto dal menu (Load)');
     let best: Project['models'][number] | null = null;
     let bestDot = -2;
     for (const m of current.models) {
@@ -383,8 +429,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
     }
     if (!best) return say('Il progetto non ha modelli');
-    roomRoot.updateWorldMatrix(true, false);
-    const local = roomRoot.worldToLocal(point.clone());
+    projectRoot.updateWorldMatrix(true, false);
+    const local = projectRoot.worldToLocal(point.clone());
     best.pos = [local.x, local.y, local.z];
     layer.sync(current.models);
     const target = best;
@@ -418,6 +464,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     host,
     layer,
     roomRoot,
+    projectRoot,
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -435,6 +482,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       switching = lost = 0;
       resume = null;
       ignored.clear();
+      closeCurrent();
       setRecognised(null);
       void reloadRooms();
       openMenu();
@@ -457,7 +505,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     moveGazedModel,
     say,
     // Test hook.
-    debug: () => ({ rooms, recognised, projects, current, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
+    debug: () => ({ rooms, recognised, projects: allProjects, current, nativeRoomId, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
   };
 }
 
