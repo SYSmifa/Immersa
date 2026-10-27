@@ -56,6 +56,5 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Gli allineamenti si ricontrollano di continuo (stanza sotto la testa: ogni ~2,5 s; stanze lontane: una ogni 1,2 s): se il visore sposta il suo frame (nuovo confine) le stanze lo seguono, se non si ritrovano più sparisce (2 miss); evento `reset` del reference space = tutto da rifare. Con adb `setprop debug.oculus.guardian_pause 1` si sospende il confine (solo sviluppo)
 - Da fare: pareti invisibili che occludono i modelli di altre stanze (con buchi per porte/finestre), dopo test su visore di quanto sono precise le stanze lontane
 - Volumi dei mobili: letti da `detectedMeshes` (non "global mesh", ≤64 vertici) come box orientati (`RoomScan.boxes`), disegnati con 12 spigoli (arancio); editor: pavimento/mobili semitrasparenti, pareti nascondibili, soffitto mai disegnato; visore: solo contorno (acceso di default, Options); DA VERIFICARE che il Quest 154 li esponga (`?probe`: riga `mesh:`)
-- Incognite da verificare: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto di richiamo menu
-- Dopo l'update schema: stanze vecchie senza contorni → rifare scan
+- Incognite: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto menu; stanze vecchie senza contorni → rifare scan
 - Idee: `?model=`, foveation, LOD; login con codice dispositivo; opzioni
