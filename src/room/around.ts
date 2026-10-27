@@ -1,5 +1,5 @@
 import { Quaternion, Vector3 } from 'three';
-import type { RoomPlane, Vec3 } from './types';
+import type { RoomBox, RoomPlane, Vec3 } from './types';
 
 const NEAR = 0.3; // m: a floor outline counts if you are this close to it (scans have rough edges)
 const EDGE = 0.6; // m: walls sit on the footprint's edge
@@ -42,9 +42,9 @@ const area = (pts: Pt[]) =>
 // The headset reports the planes of every room stored on it. Keep only the ones of the room
 // you are standing in: the floor under your head and what sits around that floor.
 // Without any floor outline there is nothing to judge by, so everything is kept.
-export function planesAround(planes: RoomPlane[], head: Vec3): RoomPlane[] {
+export function roomAround(planes: RoomPlane[], boxes: RoomBox[], head: Vec3): { planes: RoomPlane[]; boxes: RoomBox[] } {
   const floors = planes.filter((p) => p.label === 'floor' && p.quat && (p.poly?.length ?? 0) >= 6);
-  if (!floors.length) return planes;
+  if (!floors.length) return { planes, boxes };
   let best: { pts: Pt[]; y: number; size: number } | null = null;
   for (const f of floors) {
     const height = head[1] - f.pos[1];
@@ -54,11 +54,11 @@ export function planesAround(planes: RoomPlane[], head: Vec3): RoomPlane[] {
     const size = area(pts);
     if (!best || size < best.size) best = { pts, y: f.pos[1], size };
   }
-  if (!best) return [];
+  if (!best) return { planes: [], boxes: [] };
   const xs = best.pts.map((p) => p[0]);
   const zs = best.pts.map((p) => p[1]);
   const [x0, x1, z0, z1] = [Math.min(...xs) - EDGE, Math.max(...xs) + EDGE, Math.min(...zs) - EDGE, Math.max(...zs) + EDGE];
-  return planes.filter(
-    (p) => p.pos[0] >= x0 && p.pos[0] <= x1 && p.pos[2] >= z0 && p.pos[2] <= z1 && p.pos[1] >= best.y - 0.4 && p.pos[1] <= best.y + CEILING,
-  );
+  const y = best.y;
+  const here = (pos: Vec3) => pos[0] >= x0 && pos[0] <= x1 && pos[2] >= z0 && pos[2] <= z1 && pos[1] >= y - 0.4 && pos[1] <= y + CEILING;
+  return { planes: planes.filter((p) => here(p.pos)), boxes: boxes.filter((b) => here(b.pos)) };
 }

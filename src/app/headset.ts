@@ -4,7 +4,7 @@ import { createEnterAr } from './enterAr';
 import { createLauncher } from './launcher';
 import { createXrApp } from './xrApp';
 
-const FEATURES = ['plane-detection', 'hand-tracking'];
+const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking'];
 
 // Headset entry point: sign-in page → AR with the in-AR menu (Load / Scan / Options / Account).
 export async function runHeadsetApp() {

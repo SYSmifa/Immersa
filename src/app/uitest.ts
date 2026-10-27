@@ -1,7 +1,7 @@
 import { PlaneGeometry, Vector2, Vector3 } from 'three';
 import { createStage } from '../scene/stage';
 import { createAppCore } from './core';
-import { asLive, boxRoom, createFakeBackend } from './fakeBackend';
+import { asLive, asLiveBoxes, boxRoom, boxRoomBoxes, createFakeBackend } from './fakeBackend';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // ?uitest: the AR menu, keyboard, recognition and project loading on the PC, driven by
@@ -55,7 +55,9 @@ export function runUiTest() {
       const room = backend.rooms.find((r) => r.name === roomName);
       const planes = roomName && FRESH[roomName] ? boxRoom(...FRESH[roomName]) : room?.scan.planes;
       const live = planes ? asLive(planes, (yawDeg * Math.PI) / 180, tx, ty, tz) : [];
-      core.setLivePlanes(noOutline ? live.map(({ label, pos }) => ({ label, pos })) : live);
+      const dims = roomName && FRESH[roomName] ? FRESH[roomName] : null;
+      const boxes = dims ? boxRoomBoxes(dims[0], dims[1]) : (room?.scan.boxes ?? []);
+      core.setLivePlanes(noOutline ? live.map(({ label, pos }) => ({ label, pos })) : live, planes ? asLiveBoxes(boxes, (yawDeg * Math.PI) / 180, tx, ty, tz) : []);
     },
     // The headset reports several stored rooms at once: [name, yawDeg, tx, ty, tz] each.
     liveMany(rooms: [string, number, number, number, number][]) {
@@ -64,7 +66,7 @@ export function runUiTest() {
         const src = FRESH[n] ? boxRoom(...FRESH[n]) : (room?.scan.planes ?? []);
         return asLive(src, (yaw * Math.PI) / 180, tx, ty, tz);
       });
-      core.setLivePlanes(planes);
+      core.setLivePlanes(planes, []);
     },
     // Screen position of a widget, to click it with the mouse.
     screenOf(which: 'menu' | 'keyboard', text: string) {

@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
-import type { Project, Room, RoomModel, RoomPlane, RoomScan } from '../room/types';
+import type { Project, Room, RoomBox, RoomModel, RoomPlane, RoomScan } from '../room/types';
 
 // In-memory backend + synthetic rooms for the UI test harness (?uitest).
 const q = (axis: [number, number, number], angle: number) =>
@@ -19,6 +19,25 @@ export function boxRoom(w: number, d: number, h: number): RoomPlane[] {
     { label: 'table', pos: [w * 0.2, 0.75, d * 0.1], quat: q([0, 1, 0], 0), poly: rect(1.2, 0.7) },
     { label: 'door', pos: [w / 2 - 0.01, 1, -d / 4], quat: q([0, 0, 1], Math.PI / 2), poly: rect(2, 0.9) },
   ];
+}
+
+// A couch and a cabinet as volumes, against two walls.
+export function boxRoomBoxes(w: number, d: number): RoomBox[] {
+  return [
+    { label: 'couch', pos: [-w / 2 + 0.6, 0.4, d / 2 - 0.5], quat: q([0, 1, 0], 0), min: [-0.9, -0.4, -0.45], max: [0.9, 0.4, 0.45] },
+    { label: 'storage', pos: [w / 2 - 0.3, 0.9, -d / 4], quat: q([0, 1, 0], 0.3), min: [-0.25, -0.9, -0.5], max: [0.25, 0.9, 0.5] },
+  ];
+}
+
+export function asLiveBoxes(boxes: RoomBox[], yaw: number, tx: number, ty: number, tz: number): RoomBox[] {
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw);
+  return boxes.map((b) => ({
+    ...b,
+    pos: [c * b.pos[0] + s * b.pos[2] + tx, b.pos[1] + ty, -s * b.pos[0] + c * b.pos[2] + tz],
+    quat: turn.clone().multiply(new Quaternion(...b.quat)).toArray() as RoomBox['quat'],
+  }));
 }
 
 // The same planes as the headset would report them in a new session: rotated, moved, a little noise.
@@ -46,8 +65,8 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
     scale: 1,
   });
   const rooms: Room[] = [
-    { id: 'r1', name: 'Salotto', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6) } },
-    { id: 'r2', name: 'Cucina', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5) } },
+    { id: 'r1', name: 'Salotto', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6), boxes: boxRoomBoxes(5, 4) } },
+    { id: 'r2', name: 'Cucina', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
   const projects: Project[] = [
     { id: 'p1', roomId: 'r1', name: 'Allestimento A', updatedAt: now(), models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },

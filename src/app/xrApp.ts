@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
 import type { Backend } from '../cloud/backend';
-import { readPlanes } from '../room/capture';
+import { readBoxes, readPlanes } from '../room/capture';
 import { Panel } from '../ui3d/panel';
 import { handAnchor, pinchPoint } from '../xr/pinch';
 import { createAppCore, type Capture, type Head } from './core';
@@ -88,7 +88,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
 
-      if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) core.setLivePlanes(readPlanes(frame, ref));
+      if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) core.setLivePlanes(readPlanes(frame, ref), readBoxes(frame, ref));
 
       const seen = new Set<string>();
       let anchor: Vector3 | null = null;

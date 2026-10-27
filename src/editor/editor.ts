@@ -15,7 +15,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
 import { uploadModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
-import { drawPlanes } from '../room/draw';
+import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
 import type { Project, Room } from '../room/types';
@@ -124,6 +124,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
     const drawn = drawPlanes(r.scan.planes, planesGroup, true);
+    const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup);
     const spot = floorCentre(r.scan.planes);
     planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
@@ -132,7 +133,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     controls.target.copy(centre);
     camera.position.set(centre.x, centre.y + span * 0.7, centre.z + span * 0.9);
     controls.update();
-    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${drawn} con contorno)`);
+    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${drawn} con contorno), ${volumes} volumi`);
   }
 
   function showProject(p: Project | null) {

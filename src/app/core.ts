@@ -1,12 +1,12 @@
 import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import type { Alignment } from '../room/align';
-import { drawPlanes } from '../room/draw';
+import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
-import { planesAround } from '../room/around';
+import { roomAround } from '../room/around';
 import { isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Project, Room, RoomPlane } from '../room/types';
+import type { Project, Room, RoomBox, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
@@ -86,7 +86,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let current: Project | null = null;
   let nativeRoomId: string | null = null; // set when the open project sits in its own, recognised room
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
+  let rawBoxes: RoomBox[] = [];
   let live: RoomPlane[] = []; // only the room you are standing in
+  let liveBoxes: RoomBox[] = [];
   let lastHere = 0;
   let capture: Capture | null = null;
   let lastTry = 0;
@@ -235,6 +237,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       // three's Y rotation is the opposite sense of our xz yaw.
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
       drawPlanes(r.room.scan.planes, outline);
+      drawBoxes(r.room.scan.boxes ?? [], outline);
       outline.visible = view.outline;
       if (autoTab) view.tab = 'load';
     }
@@ -295,12 +298,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   async function saveRoom() {
     const planes = live; // the scan as it is now, even if the list changes while typing
+    const boxes = liveBoxes;
     if (planes.length < MIN_PLANES) return say('Nessuna scansione da salvare');
     const name = await ask('Nome della stanza');
     if (!name) return;
     say('Salvo la stanza...');
     try {
-      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes });
+      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes });
       rooms.unshift(room);
       setRecognised({ room, alignment: identity(planes.length) });
       say(`Stanza "${name}" salvata`);
@@ -454,7 +458,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // Keep `live` = the planes of the room around the head; re-run when planes or head change.
   function recompute() {
     const h = lastHead?.pos;
-    live = h ? planesAround(rawLive, [h.x, h.y, h.z]) : rawLive;
+    const here = h ? roomAround(rawLive, rawBoxes, [h.x, h.y, h.z]) : { planes: rawLive, boxes: rawBoxes };
+    live = here.planes;
+    liveBoxes = here.boxes;
     const info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     if (info !== view.info || live.length >= MIN_PLANES !== view.liveReady) refreshView();
   }
@@ -474,7 +480,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       autoTab = true;
       view.tab = 'scan';
       rawLive = [];
+      rawBoxes = [];
       live = [];
+      liveBoxes = [];
       lastTry = 0;
       failedTries = 0;
       readyAt = 0;
@@ -487,8 +495,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       void reloadRooms();
       openMenu();
     },
-    setLivePlanes(planes: RoomPlane[]) {
+    setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       rawLive = planes;
+      rawBoxes = boxes;
       recompute();
     },
     tick(now: number, head: Head, dt: number) {

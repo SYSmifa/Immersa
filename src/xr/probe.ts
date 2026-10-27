@@ -186,8 +186,12 @@ export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: Persp
       // Meshes (counted only: the global mesh can be large)
       let meshes = 0;
       let tris = 0;
+      const meshLabels = new Map<string, string>();
       for (const m of (f.detectedMeshes ?? []) as Set<Any>) {
         meshes++;
+        const key = String(m.semanticLabel || '?');
+        const prev = meshLabels.get(key);
+        meshLabels.set(key, `${key}:${(prev ? Number(prev.split(':')[1].split('(')[0]) : 0) + 1}(${m.vertices?.length / 3 | 0}v)`);
         tris += (m.indices?.length ?? 0) / 3;
       }
 
@@ -225,6 +229,7 @@ export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: Persp
         'PROBE',
         `feat: ${features}`.slice(0, 44),
         `planes ${planes.length}  meshes ${meshes} (${(tris / 1000).toFixed(0)}k tris)`,
+        `mesh: ${[...meshLabels.values()].join(' ')}`.slice(0, 44),
         [...labels].map(([k, v]) => `${k}:${v}`).join(' ').slice(0, 44),
         `vs base ${ago(base)}: ${fmt(compare(base, planes))}`,
         `vs last ${ago(prev)}: ${fmt(compare(prev, planes))}`,

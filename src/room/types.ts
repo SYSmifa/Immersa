@@ -7,6 +7,15 @@ export interface RoomPlane {
   poly?: number[]; // outline in plane space, flat [x, z, x, z, ...] (for drawing only)
 }
 
+// A furniture-like volume reported by the headset (table, couch, ...): an oriented box.
+export interface RoomBox {
+  label: string;
+  pos: Vec3; // origin of the box's own frame, in the scan's frame
+  quat: [number, number, number, number];
+  min: Vec3; // corners of the box in its own frame
+  max: Vec3;
+}
+
 // A 3D model placed in a project. Real-world size: `scale` multiplies the file's own metres.
 export interface RoomModel {
   id: string;
@@ -22,6 +31,7 @@ export interface RoomScan {
   version: 1;
   savedAt: number;
   planes: RoomPlane[];
+  boxes?: RoomBox[]; // absent in scans saved by older versions
 }
 
 export interface Room {
