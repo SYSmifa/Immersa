@@ -29,7 +29,8 @@ const wallFill = fill(0x00c8ff, 0.06);
 const boxFill = fill(0xffa040, 0.2);
 
 // The room's shell, which can be hidden to look into the room from above.
-const SHELL = new Set(['wall', 'ceiling', 'door', 'window', 'wall face', 'invisible wall']);
+// The ceiling is never drawn: it only gets in the way.
+const SHELL = new Set(['wall', 'door', 'window', 'wall face', 'invisible wall']);
 
 // A furniture plane (a table top, a couch seat) is redundant when the same piece of
 // furniture already has its box: skip planes whose centre lies inside (or on) a box.
@@ -47,7 +48,7 @@ function coveredByBox(p: RoomPlane, boxes: RoomBox[]): boolean {
 
 // Plane outlines as wireframe (floor green, the rest cyan), in the planes' own frame.
 // With `solid`, floor and shell planes also get a faint translucent fill.
-// Shell planes (walls, ceiling, doors, windows) go into the returned group so they can be hidden.
+// Shell planes (walls, doors, windows) go into the returned group so they can be hidden.
 // Furniture planes that already have a box in `boxes` are not drawn twice.
 export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = []): { drawn: number; shell: Group } {
   const shell = new Group();
@@ -55,6 +56,7 @@ export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxe
   let drawn = 0;
   for (const p of planes) {
     if (!p.poly || !p.quat || p.poly.length < 6) continue;
+    if (p.label === 'ceiling') continue;
     const isShell = SHELL.has(p.label);
     const isFloor = p.label === 'floor';
     if (!isShell && !isFloor && coveredByBox(p, boxes)) continue;

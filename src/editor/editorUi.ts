@@ -77,7 +77,7 @@ export function createEditorUi(h: EditorHandlers) {
   shell.onchange = () => h.onShell(shell.checked);
   const shellRow = el('label');
   shellRow.style.cssText = 'display:flex;gap:6px;align-items:center';
-  shellRow.append(shell, document.createTextNode('Mostra pareti e soffitto'));
+  shellRow.append(shell, document.createTextNode('Mostra le pareti'));
   const projects = select(h.onProject);
   const projectButtons = [
     button('Nuovo', h.onNewProject),
