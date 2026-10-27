@@ -50,7 +50,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Space Setup: piani stabili tra sessioni (scarto <3 cm dopo allineamento); anchor persistenti NON supportati (Horizon 154)
 - Ogni sessione XR ha origine/yaw/altezza diversi → riallineare la stanza salvata ai piani live (ICP). Dopo standby la vecchia sessione vede 0 piani → riavviare la sessione
 - Flusso (testato solo sul PC con `?uitest`/`?edittest`, DA TESTARE su visore): login 2D → AR → menu che segue la testa (bottone ☰ al polso, squeeze o X/Y sinistro) → riconosce la stanza tra quelle su Supabase; Scan: salva (nome con tastiera 3D) o avvia scan (`initiateRoomCapture`, se esiste); Load: progetti della stanza; pinch sinistro sposta il modello guardato
-- Il browser riporta i piani della stanza memorizzata anche se NON sei lì → il match non basta: `recognize.ts` controlla che la testa sia dentro la stanza, altrimenti chiede conferma ("Sì, sono in questa stanza") o propone la scansione
+- Il browser riporta i piani di TUTTE le stanze memorizzate nel visore, anche dove non sei: `around.ts` tiene solo il pavimento sotto la testa + ciò che gli sta intorno (senza pavimento = stanza non scansionata); `recognize.ts` ricontrolla che la testa sia dentro, altrimenti chiede conferma
 - Incognite da verificare: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto di richiamo menu
 - Dopo l'update schema: stanze vecchie senza contorni → rifare scan
 - Idee: `?model=`, foveation, LOD; login con codice dispositivo; opzioni

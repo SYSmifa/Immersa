@@ -25,9 +25,12 @@ export function boxRoom(w: number, d: number, h: number): RoomPlane[] {
 export function asLive(planes: RoomPlane[], yaw: number, tx: number, ty: number, tz: number): RoomPlane[] {
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
+  const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw);
   return planes.map((p, i) => ({
     label: p.label,
     pos: [c * p.pos[0] + s * p.pos[2] + tx + 0.004 * Math.sin(i), p.pos[1] + ty, -s * p.pos[0] + c * p.pos[2] + tz],
+    quat: p.quat && (turn.clone().multiply(new Quaternion(...p.quat)).toArray() as [number, number, number, number]),
+    poly: p.poly,
   }));
 }
 
@@ -65,6 +68,10 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
     async renameRoom(id, name) {
       const r = rooms.find((x) => x.id === id);
       if (r) r.name = name;
+    },
+    async deleteRoom(id) {
+      rooms.splice(rooms.findIndex((x) => x.id === id), 1);
+      for (let i = projects.length - 1; i >= 0; i--) if (projects[i].roomId === id) projects.splice(i, 1);
     },
     listProjects: async (roomId) => projects.filter((p) => p.roomId === roomId),
     async createProject(roomId, name, models) {

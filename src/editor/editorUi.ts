@@ -2,6 +2,7 @@
 export interface EditorHandlers {
   onRoom(id: string): void;
   onRenameRoom(): void;
+  onDeleteRoom(): void;
   onProject(id: string): void;
   onNewProject(): void;
   onRenameProject(): void;
@@ -67,7 +68,8 @@ export function createEditorUi(h: EditorHandlers) {
   status.style.cssText = 'color:#8f8;min-height:1.2em;white-space:pre-wrap';
 
   const rooms = select(h.onRoom);
-  const renameRoom = button('Rinomina stanza', h.onRenameRoom);
+  const renameRoom = button('Rinomina', h.onRenameRoom);
+  const deleteRoom = button('Elimina', h.onDeleteRoom);
   const projects = select(h.onProject);
   const projectButtons = [
     button('Nuovo', h.onNewProject),
@@ -112,7 +114,7 @@ export function createEditorUi(h: EditorHandlers) {
     status,
     section('Stanza'),
     rooms,
-    renameRoom,
+    row(renameRoom, deleteRoom),
     section('Progetto'),
     projects,
     row(...projectButtons),
@@ -123,7 +125,7 @@ export function createEditorUi(h: EditorHandlers) {
     save,
   );
   const enableProject = (on: boolean) => projectControls.forEach((c) => ((c as HTMLButtonElement).disabled = !on));
-  renameRoom.disabled = true;
+  renameRoom.disabled = deleteRoom.disabled = true;
   enableProject(false);
 
   return {
@@ -136,7 +138,7 @@ export function createEditorUi(h: EditorHandlers) {
     },
     setRooms(items: Option[], selected: string | null) {
       fill(rooms, items, selected, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
-      renameRoom.disabled = !selected;
+      renameRoom.disabled = deleteRoom.disabled = !selected;
     },
     // `enabled`: a room is chosen, so projects can be created.
     setProjects(items: Option[], selected: string | null, enabled: boolean) {

@@ -6,6 +6,9 @@ import { asLive, boxRoom, createFakeBackend } from './fakeBackend';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // ?uitest: the AR menu, keyboard, recognition and project loading on the PC, driven by
 // the mouse and fake planes, so the whole flow can be checked without a headset.
+// Rooms that are not saved anywhere, by name: [width, depth, height].
+const FRESH: Record<string, [number, number, number]> = { Nuova: [4.4, 3.3, 2.5], Nuova2: [6.1, 4.7, 2.7], Nuova3: [3.8, 3, 2.4] };
+
 export function runUiTest() {
   const { renderer, scene, camera, controls } = createStage({ arButton: false });
   controls.enabled = false;
@@ -46,12 +49,22 @@ export function runUiTest() {
     core,
     backend,
     // Pretend the headset now reports this room, in a fresh session frame.
-    // 'Nuova' / 'Nuova2' = rooms that are not saved anywhere; null = nothing scanned.
-    live(roomName: string | null, yawDeg = 0, tx = 0, ty = 0, tz = 0) {
+    // 'Nuova', 'Nuova2', 'Nuova3' = rooms that are not saved anywhere; null = nothing scanned.
+    // noOutline: planes without outlines (so the floor-under-you filter cannot judge).
+    live(roomName: string | null, yawDeg = 0, tx = 0, ty = 0, tz = 0, noOutline = false) {
       const room = backend.rooms.find((r) => r.name === roomName);
-      const fresh = roomName === 'Nuova' ? boxRoom(4.4, 3.3, 2.5) : roomName === 'Nuova2' ? boxRoom(6.1, 4.7, 2.7) : null;
-      const planes = fresh ?? room?.scan.planes;
-      core.setLivePlanes(planes ? asLive(planes, (yawDeg * Math.PI) / 180, tx, ty, tz) : []);
+      const planes = roomName && FRESH[roomName] ? boxRoom(...FRESH[roomName]) : room?.scan.planes;
+      const live = planes ? asLive(planes, (yawDeg * Math.PI) / 180, tx, ty, tz) : [];
+      core.setLivePlanes(noOutline ? live.map(({ label, pos }) => ({ label, pos })) : live);
+    },
+    // The headset reports several stored rooms at once: [name, yawDeg, tx, ty, tz] each.
+    liveMany(rooms: [string, number, number, number, number][]) {
+      const planes = rooms.flatMap(([n, yaw, tx, ty, tz]) => {
+        const room = backend.rooms.find((r) => r.name === n);
+        const src = FRESH[n] ? boxRoom(...FRESH[n]) : (room?.scan.planes ?? []);
+        return asLive(src, (yaw * Math.PI) / 180, tx, ty, tz);
+      });
+      core.setLivePlanes(planes);
     },
     // Screen position of a widget, to click it with the mouse.
     screenOf(which: 'menu' | 'keyboard', text: string) {

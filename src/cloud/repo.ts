@@ -57,6 +57,10 @@ export function createSupabaseBackend(): Backend {
       const { error } = await client().from('rooms').update({ name, updated_at: now() }).eq('id', id);
       check(error);
     },
+    async deleteRoom(id) {
+      const { error } = await client().from('rooms').delete().eq('id', id);
+      check(error);
+    },
     async listProjects(roomId) {
       const { data, error } = await client()
         .from('projects')

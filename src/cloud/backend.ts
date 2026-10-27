@@ -8,6 +8,7 @@ export interface Backend {
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;
   renameRoom(id: string, name: string): Promise<void>;
+  deleteRoom(id: string): Promise<void>; // also deletes its projects
   listProjects(roomId: string): Promise<Project[]>;
   createProject(roomId: string, name: string, models: RoomModel[]): Promise<Project>;
   saveProject(id: string, patch: { name?: string; models?: RoomModel[] }): Promise<void>;

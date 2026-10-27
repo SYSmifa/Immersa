@@ -6,6 +6,7 @@ export interface MenuView {
   tab: Tab;
   email: string | null;
   roomName: string | null; // recognised (saved) room
+  info: string; // how many planes the headset reports / belong to this room
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
@@ -148,5 +149,6 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   }
 
   if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
+  else if (v.info) out.push(label(v.info, MENU_H - 50, 32, 20, '#6f7a93'));
   return out;
 }

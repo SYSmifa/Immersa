@@ -3,6 +3,7 @@ import type { Backend } from '../cloud/backend';
 import type { Alignment } from '../room/align';
 import { drawPlanes } from '../room/draw';
 import { createModelLayer } from '../room/modelLayer';
+import { planesAround } from '../room/around';
 import { isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
@@ -60,6 +61,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     email: null,
     roomName: null,
     candidate: null,
+    info: '',
     resid: null,
     liveReady: false,
     captureAvailable: false,
@@ -77,7 +79,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let projects: Project[] = [];
   let projectsLoaded = false;
   let current: Project | null = null;
-  let live: RoomPlane[] = [];
+  let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
+  let live: RoomPlane[] = []; // only the room you are standing in
+  let lastHere = 0;
   let capture: Capture | null = null;
   let lastTry = 0;
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
@@ -110,6 +114,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     view.candidate = candidate?.room.name ?? null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
+    view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     view.captureAvailable = !!capture?.available;
     view.projects = recognised && projectsLoaded ? projects.map((p) => ({ id: p.id, name: p.name, models: p.models.length })) : null;
     view.currentProjectId = current?.id ?? null;
@@ -359,6 +364,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     refreshView();
   }
 
+  // Keep `live` = the planes of the room around the head; re-run when planes or head change.
+  function recompute() {
+    const h = lastHead?.pos;
+    live = h ? planesAround(rawLive, [h.x, h.y, h.z]) : rawLive;
+    const info = `Piani qui ${live.length} / visti ${rawLive.length}`;
+    if (info !== view.info || live.length >= MIN_PLANES !== view.liveReady) refreshView();
+  }
+
   render();
   return {
     host,
@@ -372,6 +385,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       capture = cap;
       autoTab = true;
       view.tab = 'scan';
+      rawLive = [];
       live = [];
       lastTry = 0;
       failedTries = 0;
@@ -383,12 +397,15 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       openMenu();
     },
     setLivePlanes(planes: RoomPlane[]) {
-      const ready = planes.length >= MIN_PLANES;
-      live = planes;
-      if (ready !== view.liveReady) refreshView();
+      rawLive = planes;
+      recompute();
     },
     tick(now: number, head: Head, dt: number) {
       lastHead = head;
+      if (now - lastHere > 1000) {
+        lastHere = now;
+        recompute(); // you may have walked into another room
+      }
       tryRecognise(now);
       checkPending();
       followHead(head, dt);
@@ -397,7 +414,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     moveGazedModel,
     say,
     // Test hook.
-    debug: () => ({ rooms, recognised, projects, current, view, live: live.length, pending: pendingName() }),
+    debug: () => ({ rooms, recognised, projects, current, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
   };
 }
 

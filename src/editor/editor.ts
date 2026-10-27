@@ -180,6 +180,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         ui.setStatus(`Errore: ${errText(e)}`);
       }
     },
+    async onDeleteRoom() {
+      if (!room || !confirm(`Eliminare la stanza "${room.name}" e tutti i suoi progetti?`)) return;
+      try {
+        await backend.deleteRoom(room.id);
+        rooms = rooms.filter((r) => r !== room);
+        dirty = false;
+        showRoom(null);
+        ui.setStatus('Stanza eliminata.');
+      } catch (e) {
+        ui.setStatus(`Errore: ${errText(e)}`);
+      }
+    },
     onProject(id) {
       if (!confirmLeave()) return ui.setProjects(projects, project?.id ?? null, !!room);
       showProject(projects.find((p) => p.id === id) ?? null);
