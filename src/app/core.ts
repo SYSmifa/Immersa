@@ -3,7 +3,7 @@ import type { Backend } from '../cloud/backend';
 import type { Alignment } from '../room/align';
 import { drawPlanes } from '../room/draw';
 import { createModelLayer } from '../room/modelLayer';
-import { recognizeRoom, type Recognised } from '../room/recognize';
+import { isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
@@ -59,6 +59,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     tab: 'scan',
     email: null,
     roomName: null,
+    candidate: null,
     resid: null,
     liveReady: false,
     captureAvailable: false,
@@ -71,6 +72,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let rooms: Room[] = [];
   let roomsLoaded = false;
   let recognised: Recognised | null = null;
+  let candidate: Recognised | null = null; // matches the live scan but the user is not inside
+  const ignored = new Set<string>(); // rooms the user said are not the one they are in
   let projects: Project[] = [];
   let projectsLoaded = false;
   let current: Project | null = null;
@@ -104,6 +107,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   function refreshView() {
     view.roomName = recognised?.room.name ?? null;
+    view.candidate = candidate?.room.name ?? null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
     view.captureAvailable = !!capture?.available;
@@ -179,11 +183,25 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   function tryRecognise(now: number) {
-    if (recognised || !roomsLoaded || live.length < MIN_PLANES || now < readyAt || now - lastTry < 2500) return;
+    if (recognised || !roomsLoaded || !lastHead || live.length < MIN_PLANES || now < readyAt || now - lastTry < 2500) return;
     lastTry = now;
-    const r = recognizeRoom(live, rooms);
-    if (r) setRecognised(r);
-    else failedTries++;
+    const r = recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id)));
+    if (!r) {
+      candidate = null;
+      failedTries++;
+      return refreshView();
+    }
+    const h = lastHead.pos;
+    if (isInside(r, [h.x, h.y, h.z])) {
+      candidate = null;
+      return setRecognised(r);
+    }
+    // The headset reports this room's planes, but you are not in it: ask instead of assuming.
+    const first = !candidate;
+    candidate = r;
+    failedTries++;
+    if (first && autoTab) view.tab = 'scan';
+    refreshView();
   }
 
   const identity = (n: number): Alignment => ({ yaw: 0, tx: 0, ty: 0, tz: 0, resid: 0, matched: n, total: n });
@@ -271,6 +289,19 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       view.page = Math.max(0, view.page + delta);
       render();
     },
+    confirmCandidate() {
+      if (!candidate) return;
+      const r = candidate;
+      candidate = null;
+      setRecognised(r);
+    },
+    notThisRoom() {
+      const id = recognised?.room.id ?? candidate?.room.id;
+      if (id) ignored.add(id);
+      candidate = null;
+      setRecognised(null); // keeps recognising the other rooms, but not this one again
+      say('Ok. Scansiona o salva la stanza in cui sei.');
+    },
     saveRoom: () => void saveRoom(),
     renameRoom: () => void renameRoom(),
     scan: () => void startScan(),
@@ -345,6 +376,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       lastTry = 0;
       failedTries = 0;
       readyAt = 0;
+      candidate = null;
+      ignored.clear();
       setRecognised(null);
       void reloadRooms();
       openMenu();

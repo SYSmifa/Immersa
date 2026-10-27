@@ -131,6 +131,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       ui.setProjects([], null, false);
       return;
     }
+    ui.setProjects([], null, true); // "Nuovo" works from here on, even if listing projects fails
     const drawn = drawPlanes(r.scan.planes, planesGroup, true);
     const spot = floorSpot(r);
     planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));

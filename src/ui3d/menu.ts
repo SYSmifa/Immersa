@@ -6,6 +6,7 @@ export interface MenuView {
   tab: Tab;
   email: string | null;
   roomName: string | null; // recognised (saved) room
+  candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
@@ -22,6 +23,8 @@ export interface MenuActions {
   turnPage(delta: number): void;
   saveRoom(): void;
   renameRoom(): void;
+  confirmCandidate(): void;
+  notThisRoom(): void;
   scan(): void;
   reread(): void;
   toggleOutline(): void;
@@ -58,7 +61,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     ...o,
   });
 
-  const where = v.roomName ? `Stanza: ${v.roomName}` : v.liveReady ? 'Stanza non salvata' : 'Nessuna stanza scansionata';
+  const where = v.roomName
+    ? `Stanza: ${v.roomName}`
+    : v.candidate
+      ? 'Stanza non confermata'
+      : v.liveReady
+        ? 'Stanza non salvata'
+        : 'Nessuna stanza scansionata';
   out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 300, h: 46 }, text: 'Immersa', size: 38 });
   out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
   out.push(label(where, 58, 36, 24, '#9fb0d0'));
@@ -75,7 +84,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
 
   const top = 192;
   if (v.tab === 'load') {
-    if (!v.roomName) {
+    if (!v.roomName && v.candidate) {
+      out.push(label('Conferma prima la stanza nel tab Scan.', top, 80, 28, '#cdd6ea', true));
+    } else if (!v.roomName) {
       out.push(label('Non sei in una stanza salvata.\nVai su Scan per salvarla: i progetti si aprono solo nella stanza in cui sono nati.', top, 160, 28, '#cdd6ea', true));
     } else if (v.projects === null) {
       out.push(label('Carico i progetti...', top));
@@ -106,6 +117,15 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
       out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, '#cdd6ea', true));
       out.push(button('Rinomina stanza', top + 140, a.renameRoom));
+      out.push(button('Non è questa stanza', top + 220, a.notThisRoom));
+    } else if (v.candidate) {
+      out.push(label(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, top, 110, 28, '#cdd6ea', true));
+      out.push(button('Sì, sono in questa stanza', top + 130, a.confirmCandidate, { primary: true }));
+      out.push(
+        v.captureAvailable
+          ? button('No, scansiona la stanza in cui sono', top + 210, a.scan)
+          : label('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top + 210, 90, 24, '#8e99b3', true),
+      );
     } else if (v.liveReady) {
       out.push(label('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', top, 100, 28, '#cdd6ea', true));
       out.push(button('Salva stanza', top + 120, a.saveRoom, { primary: true }));

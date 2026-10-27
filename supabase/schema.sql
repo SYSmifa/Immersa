@@ -73,3 +73,6 @@ drop policy if exists "models: owner delete" on storage.objects;
 create policy "models: owner delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'models' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- Make the API see the new tables right away.
+notify pgrst, 'reload schema';
