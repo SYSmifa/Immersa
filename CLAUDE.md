@@ -48,7 +48,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `dev:usb` lega 127.0.0.1 (Windows: localhost=IPv6 rompe adb); `adb reverse` va rifatto dopo standby/cavo
 - Aperto: `npm run dev` (HTTPS LAN) non stampa nulla su PC Windows dell'utente (cert basic-ssl)
 - Space Setup: piani stabili tra sessioni (scarto <3 cm dopo allineamento); anchor persistenti NON supportati (Horizon 154)
-- Ogni sessione XR ha origine/yaw/altezza diversi → riallineare la stanza salvata ai piani live (ICP). Dopo standby la vecchia sessione vede 0 piani → riavviare la sessione
+- Ogni sessione XR ha origine/yaw/altezza diversi → riallineare la stanza salvata ai piani live: solo piani strutturali, prima centri (ICP), poi distanza lungo le normali (i centri dipendono dall'estensione del contorno, che cambia tra scansioni), più partenze per la simmetria di 180°. Dopo standby la vecchia sessione vede 0 piani → riavviare la sessione
 - Flusso (testato solo sul PC con `?uitest`/`?edittest`, DA TESTARE su visore): login 2D → AR → menu che segue la testa (bottone ☰ al polso, squeeze o X/Y sinistro) → riconosce la stanza tra quelle su Supabase; Scan: salva (nome con tastiera 3D) o avvia scan (`initiateRoomCapture`, se esiste); Load: progetti della stanza; pinch sinistro sposta il modello guardato
 - Il browser riporta i piani di TUTTE le stanze memorizzate nel visore, anche dove non sei: `around.ts` tiene solo il pavimento sotto la testa + ciò che gli sta intorno (senza pavimento = stanza non scansionata); `recognize.ts` ricontrolla che la testa sia dentro, altrimenti chiede conferma
 - La stanza si ricontrolla ogni ~2,5 s: cambio dopo 2 conferme, "uscito" dopo 3 senza pavimento; tornando nella stessa stanza il progetto si riapre

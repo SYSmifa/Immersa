@@ -12,6 +12,7 @@ export interface MenuView {
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
   projectName: string | null; // the open project
+  fits: string[]; // how well each room's saved planes match the live scan (diagnostics)
   projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   page: number;
@@ -142,7 +143,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   } else if (v.tab === 'options') {
     out.push(button(`Contorno della stanza: ${v.outline ? 'sì' : 'no'}`, top, a.toggleOutline));
     out.push(button('Chiudi il progetto aperto', top + 80, a.closeProject, { disabled: !v.currentProjectId }));
-    out.push(label('Altre opzioni in arrivo.', top + 170, 40, 24, '#8e99b3'));
+    out.push(label('Allineamento delle stanze (diagnostica)', top + 160, 30, 20, '#8e99b3'));
+    v.fits.forEach((line, i) => out.push(label(line, top + 192 + i * 28, 28, 22, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));

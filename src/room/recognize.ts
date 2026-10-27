@@ -14,11 +14,12 @@ export interface Recognised {
 }
 
 // Which saved room (if any) is the live scan? Best fit among the rooms that pass both thresholds.
-export function recognizeRoom(live: RoomPlane[], rooms: Room[]): Recognised | null {
+export function recognizeRoom(live: RoomPlane[], rooms: Room[], onFit?: (room: Room, fit: Alignment | null) => void): Recognised | null {
   let best: Recognised | null = null;
   let bestScore = -Infinity;
   for (const room of rooms) {
     const a = alignPlanes(room.scan.planes, live);
+    onFit?.(room, a);
     if (!isGoodFit(a)) continue;
     const score = a.matched / a.total - a.resid; // more planes found first, then tighter fit
     if (score > bestScore) {

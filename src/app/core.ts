@@ -74,6 +74,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     liveReady: false,
     captureAvailable: false,
     projectName: null,
+    fits: [],
     projects: null,
     currentProjectId: null,
     page: 0,
@@ -93,6 +94,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let foreignMode = false; // the project was opened with none of its rooms found: shown away from them
   let lastFar = 0;
   let farIndex = 0;
+  const fits = new Map<string, { resid: number; matched: number; total: number; good: boolean }>(); // last attempt per room, for the Options diagnostics
   const misses = new Map<string, number>(); // consecutive checks that could not find an aligned room any more
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
   let rawBoxes: RoomBox[] = [];
@@ -143,6 +145,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
       : null;
     view.projectName = current?.name ?? null;
+    const listed = current ? rooms.filter((r) => current!.roomIds.includes(r.id)) : rooms;
+    view.fits = listed
+      .filter((r) => fits.has(r.id))
+      .slice(0, 4)
+      .map((r) => {
+        const f = fits.get(r.id)!;
+        return `${r.name}: ${f.good ? 'ok' : 'NO'} ${(f.resid * 100).toFixed(1)} cm ${f.matched}/${f.total}`;
+      });
     view.currentProjectId = current?.id ?? null;
     render();
   }
@@ -271,11 +281,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // own, so another room's planes cannot confuse the fit.
   function bestFit(room: Room): Alignment | null {
     let fit: Alignment | null = null;
+    let any: Alignment | null = null;
     for (const group of roomClusters(rawLive)) {
       if (group.length < MIN_PLANES) continue;
       const a = alignPlanes(room.scan.planes, group);
+      if (a && (!any || a.matched / a.total - a.resid > any.matched / any.total - any.resid)) any = a;
       if (isGoodFit(a) && (!fit || a.matched / a.total - a.resid > fit.matched / fit.total - fit.resid)) fit = a;
     }
+    if (any) fits.set(room.id, { resid: any.resid, matched: any.matched, total: any.total, good: isGoodFit(any) });
     return fit;
   }
 
@@ -376,7 +389,12 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < 2500) return;
     lastTry = now;
     const h = lastHead.pos;
-    const found = live.length >= MIN_PLANES ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id))) : null;
+    const found =
+      live.length >= MIN_PLANES
+        ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id)), (room, a) => {
+            if (a) fits.set(room.id, { resid: a.resid, matched: a.matched, total: a.total, good: isGoodFit(a) });
+          })
+        : null;
     const inside = !!found && isInside(found, [h.x, h.y, h.z]);
     if (recognised) return reconsider(found && inside ? found : null);
     if (live.length < MIN_PLANES) return;
@@ -603,6 +621,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       ignored.clear();
       aligns.clear(); // a new session has a new origin
       misses.clear();
+      fits.clear();
       closeCurrent();
       setRecognised(null);
       void reloadRooms();
