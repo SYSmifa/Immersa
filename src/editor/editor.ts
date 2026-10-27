@@ -7,6 +7,8 @@ import {
   LineBasicMaterial,
   LineLoop,
   Object3D,
+  Points,
+  PointsMaterial,
   Quaternion,
   Raycaster,
   Scene,
@@ -29,7 +31,9 @@ interface Deps {
   controls: OrbitControls;
 }
 
-function drawPlanes(room: RoomFile, into: Group) {
+// Returns how many outlines could be drawn. Plane centres are always marked (yellow dots).
+function drawPlanes(room: RoomFile, into: Group): number {
+  let drawn = 0;
   const mat = new LineBasicMaterial({ color: 0x00c8ff });
   const floor = new LineBasicMaterial({ color: 0x40ff80 });
   for (const p of room.planes) {
@@ -40,7 +44,11 @@ function drawPlanes(room: RoomFile, into: Group) {
     line.matrixAutoUpdate = false;
     line.matrix.compose(new Vector3(...p.pos), new Quaternion(...p.quat), new Vector3(1, 1, 1));
     into.add(line);
+    drawn++;
   }
+  const centres = room.planes.map((p) => new Vector3(...p.pos));
+  into.add(new Points(new BufferGeometry().setFromPoints(centres), new PointsMaterial({ color: 0xffd000, size: 8, sizeAttenuation: false })));
+  return drawn;
 }
 
 // Where a new model starts: middle of the floor, on the floor.
@@ -207,7 +215,7 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     return;
   }
 
-  drawPlanes(room, view);
+  const drawn = drawPlanes(room, view);
   const outlines = new Box3().setFromObject(view);
   const spot = floorSpot(room);
   view.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
@@ -220,11 +228,11 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
 
   layer.sync(room.models);
   select(null);
-  const withPoly = room.planes.filter((p) => p.poly?.length).length;
+  const ext = new Box3().setFromPoints(room.planes.map((p) => new Vector3(...p.pos))).getSize(new Vector3());
   ui.setStatus(
-    withPoly
-      ? `Stanza caricata: ${room.planes.length} piani, ${room.models.length} modelli`
-      : 'Stanza vecchia, senza contorni dei piani: rifai la scansione con ?room=reset',
+    `Stanza: ${room.planes.length} piani (${drawn} con contorno), ${room.models.length} modelli\n` +
+      `Ingombro centri ${ext.x.toFixed(1)} × ${ext.y.toFixed(1)} × ${ext.z.toFixed(1)} m` +
+      (drawn ? '' : '\nNessun contorno disegnabile: se hai appena rifatto ?room=reset, dimmelo'),
   );
 }
 
