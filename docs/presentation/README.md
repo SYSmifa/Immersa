@@ -10,3 +10,6 @@ Rigenerare la versione modificabile (richiede `pip install pymupdf`):
 node docs/presentation/tools/extract.cjs docs/presentation/immersa-meetup.html build/slides
 python3 docs/presentation/tools/build.py build/slides docs/presentation/Immersa-Meetup-modificabile.pdf
 ```
+
+Video demo (montaggio da 3 registrazioni, senza audio): vedi `tools/video/make_demo_video.py`
+(tagli, velocità e titoli di fase sono nella lista `PHASES`). I video non sono nel repo (troppo pesanti).
