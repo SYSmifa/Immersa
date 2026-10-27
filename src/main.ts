@@ -1,3 +1,4 @@
+import { createEditor } from './editor/editor';
 import { createStage } from './scene/stage';
 import { loadTestModel } from './scene/testModel';
 import { createLogin } from './ui/login';
@@ -8,11 +9,13 @@ import { createRoomMode } from './xr/roomMode';
 const params = new URLSearchParams(location.search);
 const probeMode = params.has('probe');
 const roomMode = params.has('room');
-const { renderer, scene, camera } = createStage(
+const editMode = params.has('edit');
+const { renderer, scene, camera, controls } = createStage(
   probeMode ? ['plane-detection', 'mesh-detection', 'anchors'] : roomMode ? ['plane-detection', 'hand-tracking'] : [],
 );
 const stats = createStats(camera);
 createLogin();
+if (editMode) createEditor({ renderer, scene, camera, controls });
 const probe = probeMode ? createProbe(renderer, scene, camera) : null;
 const room = roomMode
   ? createRoomMode(renderer, scene, camera, (t) => stats.setInfo(t))
@@ -25,7 +28,7 @@ renderer.setAnimationLoop((_time, frame) => {
   stats.tick();
 });
 
-if (!roomMode) {
+if (!roomMode && !editMode) {
   loadTestModel().then(({ root, source, triangles }) => {
     scene.add(root);
     stats.setInfo(`${source}: ${(triangles / 1000).toFixed(0)}k tris`);

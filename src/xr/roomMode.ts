@@ -1,22 +1,20 @@
 import {
+  Box3,
   BoxGeometry,
   Color,
-  Euler,
   Group,
   Mesh,
   MeshBasicMaterial,
-  Object3D,
   PerspectiveCamera,
-  Quaternion,
   Scene,
   Vector3,
   WebGLRenderer,
 } from 'three';
 import { alignPlanes, type Alignment } from '../room/align';
 import { readPlanes } from '../room/capture';
+import { createModelLayer } from '../room/modelLayer';
 import { deleteRoom, loadRoom, saveRoom, type StorageKind } from '../room/storage';
-import type { RoomFile, RoomItem, RoomPlane } from '../room/types';
-import { loadTestModel } from '../scene/testModel';
+import type { RoomFile, RoomItem, RoomModel } from '../room/types';
 import { createTextPanel } from '../ui/textPanel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -45,9 +43,9 @@ function pinchPoint(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): 
 // ?room end-to-end test: the room's planes and placed items are saved in the
 // room's own frame; on the next session the saved planes are aligned to the
 // live scan and everything reappears at the same real-world spot.
-// Left pinch: puts the model (public/models/test.glb) exactly at the pinch point,
-// facing you (replaces the previous one). Right pinch: drops a cube 1 m ahead.
-// ?room=reset clears the saved room.
+// The room is captured automatically on first use. Models come from the PC editor
+// (?edit). Left pinch: moves the model you are looking at exactly to the pinch
+// point. Right pinch: drops a cube 1 m ahead. ?room=reset clears the saved room.
 export function createRoomMode(
   renderer: WebGLRenderer,
   scene: Scene,
@@ -74,22 +72,10 @@ export function createRoomMode(
   }
   root.visible = true;
 
-  let modelObj: Object3D | null = null;
-  let modelName = 'test.glb';
-  loadTestModel().then(({ root: m, source, triangles }) => {
-    modelObj = m;
-    modelName = source;
-    setInfo(`${source}: ${(triangles / 1000).toFixed(0)}k tris`);
-    applyModel();
-    modelMsg = 'model ready (left pinch)';
+  let modelMsg = 'models: -';
+  const layer = createModelLayer(root, (t) => {
+    modelMsg = `model error: ${t}`.slice(0, 44);
   });
-
-  function applyModel() {
-    if (!modelObj || !room?.model) return;
-    modelObj.position.set(...room.model.pos);
-    modelObj.rotation.set(0, room.model.yaw, 0);
-    root.add(modelObj);
-  }
 
   let bound: XRSession | null = null;
   let started = 0;
@@ -97,8 +83,6 @@ export function createRoomMode(
   let lastDraw = 0;
   let aligned: Alignment | null = null;
   let ready = false; // room frame is usable in this session (aligned or just captured)
-  let modelMsg = 'model loading...';
-  let livePlanes: RoomPlane[] = [];
   let msg = 'loading room...';
 
   const reset = new URLSearchParams(location.search).get('room') === 'reset';
@@ -108,9 +92,11 @@ export function createRoomMode(
       storage = kind;
       roomLoaded = true;
       r?.items.forEach(addCube);
-      applyModel();
+      layer.sync(room?.models ?? []);
+      modelMsg = `models: ${room?.models.length ?? 0}`;
+      setInfo(modelMsg);
       root.visible = !room || ready;
-      msg = room ? 'aligning...' : reset ? 'room cleared: pinch to start' : 'no room: pinch to start';
+      msg = room ? 'aligning...' : reset ? 'room cleared, capturing...' : 'no room, capturing...';
     })
     .catch((e: Error) => {
       msg = `load FAILED: ${e.message}`;
@@ -149,15 +135,8 @@ export function createRoomMode(
       return false;
     }
     if (!room) {
-      if (livePlanes.length < 4) {
-        msg = 'scan not ready, wait a few s';
-        return false;
-      }
-      // First capture: the room frame is this session's frame.
-      room = { version: 1, savedAt: Date.now(), planes: livePlanes, items: [] };
-      root.matrix.identity();
-      root.visible = true;
-      ready = true;
+      msg = 'scan not ready, wait a few s';
+      return false;
     } else if (!ready) {
       msg = 'not aligned yet, cannot place';
       return false;
@@ -165,26 +144,46 @@ export function createRoomMode(
     return true;
   }
 
+  // The model whose direction best matches where the user is looking.
+  function gazedModel(): RoomModel | null {
+    if (!room?.models.length) return null;
+    const cam = renderer.xr.getCamera();
+    const head = cam.getWorldPosition(new Vector3());
+    const fwd = cam.getWorldDirection(new Vector3());
+    let best: RoomModel | null = null;
+    let bestDot = -2;
+    for (const m of room.models) {
+      const h = layer.holders.get(m.id);
+      if (!h) continue;
+      h.updateWorldMatrix(true, true);
+      const box = new Box3().setFromObject(h);
+      const c = box.isEmpty() ? h.getWorldPosition(new Vector3()) : box.getCenter(new Vector3());
+      const dot = fwd.dot(c.sub(head).normalize());
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = m;
+      }
+    }
+    return best;
+  }
+
   function placeModel(ev: any) {
     const ref = renderer.xr.getReferenceSpace();
     if (!ref) return;
     const point = pinchPoint(ev.frame, ev.inputSource, ref);
     if (!point) return;
-    if (!modelObj) {
-      modelMsg = 'model still loading';
+    if (!ensureRoom() || !room) return;
+    const target = gazedModel();
+    if (!target) {
+      modelMsg = 'no models: add one in ?edit';
       return;
     }
-    if (!ensureRoom() || !room) return;
     root.updateWorldMatrix(true, false);
     const local = root.worldToLocal(point.clone());
-    // Face the user, expressed relative to the room frame.
-    const head = renderer.xr.getCamera().getWorldPosition(new Vector3());
-    const rootYaw = new Euler().setFromQuaternion(root.getWorldQuaternion(new Quaternion()), 'YXZ').y;
-    const yaw = Math.atan2(head.x - point.x, head.z - point.z) - rootYaw;
-    room.model = { name: modelName, pos: [local.x, local.y, local.z], yaw };
-    applyModel();
+    target.pos = [local.x, local.y, local.z];
+    layer.sync(room.models);
     store(room);
-    modelMsg = 'model placed+saved';
+    modelMsg = `moved: ${target.name}`.slice(0, 44);
   }
 
   function place(ev: any) {
@@ -216,7 +215,15 @@ export function createRoomMode(
       const planes = readPlanes(frame, ref);
 
       if (!room) {
-        if (now - started > 4000) livePlanes = planes;
+        // First use of this room: capture the live scan as the room.
+        if (roomLoaded && planes.length >= 4 && now - started > 4000) {
+          room = { version: 1, savedAt: Date.now(), planes, items: [], models: [] };
+          root.matrix.identity();
+          root.visible = true;
+          ready = true;
+          store(room);
+          msg = 'room captured+saved';
+        }
       } else if (!aligned && planes.length && now - started > 3000 && now - lastTry > 1500) {
         lastTry = now;
         const a = alignPlanes(room.planes, planes);
@@ -238,7 +245,7 @@ export function createRoomMode(
         'ROOM',
         `live planes ${planes.length}  store: ${storage}`,
         room
-          ? `saved: ${room.planes.length} planes, ${room.items.length} cubes`
+          ? `saved: ${room.planes.length} planes, ${room.models.length} models, ${room.items.length} cubes`
           : 'saved: none',
         aligned
           ? `align ${(aligned.resid * 100).toFixed(1)}cm ${aligned.matched}/${aligned.total}`

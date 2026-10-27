@@ -53,5 +53,5 @@ export function createStage(optionalFeatures: string[] = []) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { renderer, scene, camera };
+  return { renderer, scene, camera, controls };
 }

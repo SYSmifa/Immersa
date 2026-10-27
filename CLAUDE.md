@@ -7,7 +7,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 
 ## Stack
 - TypeScript, three.js, WebXR, Vite
-- Supabase (auth, DB stanze/progetti, storage modelli) — non ancora usato
+- Supabase (auth, tabella `rooms`, bucket privato `models`)
 - Modelli glTF/GLB; in futuro STEP → GLB + semplificazione
 - Un'unica app: editor su PC + modalità XR nel browser del Quest
 
@@ -21,7 +21,8 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `index.html`, `src/main.ts` — entry point (collega stage, modello, stats)
 - `src/scene/stage.ts` renderer/scena/AR button; `src/scene/testModel.ts` carica `/models/test.glb` o mesh procedurale; `src/ui/stats.ts` fps+tris (DOM e pannello 3D in XR)
 - `src/xr/probe.ts` diagnostica `?probe`: piani/mesh Space Setup + anchor persistente, confronto con sessioni precedenti (localStorage); `src/ui/textPanel.ts` pannello 3D multi-riga
-- `src/room/` formato stanza (`types.ts`), allineamento ICP yaw+traslazione (`align.ts`), lettura piani (`capture.ts`), storage (`storage.ts`: Supabase se loggato, altrimenti localStorage); `src/xr/roomMode.ts` test `?room`
+- `src/room/` formato stanza (`types.ts`), allineamento ICP yaw+traslazione (`align.ts`), lettura piani (`capture.ts`), storage (`storage.ts`: Supabase se loggato, altrimenti localStorage); `modelLayer.ts` carica/posiziona i GLB (scala reale); `src/xr/roomMode.ts` vista visore `?room`
+- `src/editor/` editor PC `?edit` (stanza in wireframe, upload GLB, sposta/ruota/scala, salva)
 - `src/cloud/supabase.ts` client; `src/ui/login.ts` login email+password (2D, prima di entrare in AR); `supabase/schema.sql` tabella `rooms` + bucket `models` con RLS (da incollare nell'SQL Editor)
 - `src/` — moduli piccoli, una responsabilità per file (cartelle per area: `xr/`, `scene/`, `room/`, `ui/`)
 - `public/models/` — GLB di test, ignorati da git
@@ -53,6 +54,6 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `?probe` testato su Quest (Horizon 154): piani Space Setup stabili tra sessioni (scarto <3 cm dopo allineamento); anchor persistenti NON supportati
 - Ogni sessione XR ha origine/yaw/altezza pavimento diversi (dy fino a 40 cm) → la stanza salvata va riallineata ai piani live
 - Dopo standby la vecchia sessione vede 0 piani; ricaricando tornano → riavviare la sessione XR
-- `?room` testato (cubi tornano al punto giusto anche da altra posizione/direzione). Pinch sinistro = `test.glb` alla posizione esatta del pinch (base del modello, rivolto verso l'utente, sostituisce il precedente; usa hand-tracking); pinch destro = cubo 1 m avanti; `?room=reset` cancella
-- Stanza salvata su Supabase (una per utente, da testare); prossimo: editor PC (carica GLB, sposta, salva), modelli nello storage
+- `?room` testato: stanza catturata in automatico al primo uso, salvata su Supabase (una per utente, `?room=reset` la rifà). Pinch sinistro = sposta il modello guardato nel punto del pinch; destro = cubo di test
+- `?edit` (da testare con GLB reale): modelli in `room.models` (`path` nel bucket, pos/yaw/scala reale); stanze vecchie senza contorni piani → `?room=reset`
 - Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione

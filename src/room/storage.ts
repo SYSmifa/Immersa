@@ -5,10 +5,18 @@ const KEY = 'immersa.room';
 
 export type StorageKind = 'cloud' | 'local';
 
+// Rooms saved by older versions lack some fields.
+function normalise(room: RoomFile | null | undefined): RoomFile | null {
+  if (!room) return null;
+  room.items ??= [];
+  room.models ??= [];
+  return room;
+}
+
 function readLocal(): RoomFile | null {
   try {
     const s = localStorage.getItem(KEY);
-    return s ? (JSON.parse(s) as RoomFile) : null;
+    return s ? normalise(JSON.parse(s) as RoomFile) : null;
   } catch {
     return null;
   }
@@ -44,7 +52,7 @@ export async function loadRoom(): Promise<{ room: RoomFile | null; kind: Storage
     if (error) throw new Error(error.message);
     rowId = data?.id ?? null;
     // A room saved locally before the first login is picked up and pushed on the next save.
-    return { room: (data?.data as RoomFile | undefined) ?? readLocal(), kind: 'cloud' };
+    return { room: normalise(data?.data as RoomFile | undefined) ?? readLocal(), kind: 'cloud' };
   }
   return { room: readLocal(), kind: 'local' };
 }

@@ -8,12 +8,9 @@ import {
   TorusKnotGeometry,
   Vector3,
 } from 'three';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { createGltfLoader } from './gltf';
 
 const MODEL_URL = '/models/test.glb';
-const DRACO_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/';
 
 export interface TestModel {
   root: Object3D;
@@ -39,10 +36,7 @@ function proceduralModel(tris: number): Object3D {
 }
 
 async function loadGlb(): Promise<Object3D> {
-  const loader = new GLTFLoader();
-  loader.setDRACOLoader(new DRACOLoader().setDecoderPath(DRACO_PATH));
-  loader.setMeshoptDecoder(MeshoptDecoder);
-  return (await loader.loadAsync(MODEL_URL)).scene;
+  return (await createGltfLoader().loadAsync(MODEL_URL)).scene;
 }
 
 // Scales the model to `size` metres (largest side), centres it on x/z and puts its base on y=0.
