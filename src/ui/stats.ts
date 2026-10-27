@@ -46,7 +46,9 @@ export function createStats(camera: PerspectiveCamera) {
       info = text;
     },
     // Call once per rendered frame; refreshes twice per second.
-    tick() {
+    // The 3D panel is only for the headset; on the PC the DOM readout is enough.
+    tick(inXr = true) {
+      panel.visible = inXr;
       frames++;
       const now = performance.now();
       const dt = now - last;

@@ -25,7 +25,7 @@ renderer.setAnimationLoop((_time, frame) => {
   renderer.render(scene, camera);
   probe?.tick(frame);
   room?.tick(frame);
-  stats.tick();
+  stats.tick(renderer.xr.isPresenting);
 });
 
 if (!roomMode && !editMode) {
