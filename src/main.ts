@@ -1,5 +1,6 @@
 import { createStage } from './scene/stage';
 import { loadTestModel } from './scene/testModel';
+import { createLogin } from './ui/login';
 import { createStats } from './ui/stats';
 import { createProbe } from './xr/probe';
 import { createRoomMode } from './xr/roomMode';
@@ -11,6 +12,7 @@ const { renderer, scene, camera } = createStage(
   probeMode ? ['plane-detection', 'mesh-detection', 'anchors'] : roomMode ? ['plane-detection', 'hand-tracking'] : [],
 );
 const stats = createStats(camera);
+createLogin();
 const probe = probeMode ? createProbe(renderer, scene, camera) : null;
 const room = roomMode
   ? createRoomMode(renderer, scene, camera, (t) => stats.setInfo(t))

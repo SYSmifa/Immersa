@@ -14,7 +14,7 @@ import {
 } from 'three';
 import { alignPlanes, type Alignment } from '../room/align';
 import { readPlanes } from '../room/capture';
-import { loadRoom, saveRoom } from '../room/storage';
+import { deleteRoom, loadRoom, saveRoom, type StorageKind } from '../room/storage';
 import type { RoomFile, RoomItem, RoomPlane } from '../room/types';
 import { loadTestModel } from '../scene/testModel';
 import { createTextPanel } from '../ui/textPanel';
@@ -54,8 +54,9 @@ export function createRoomMode(
   camera: PerspectiveCamera,
   setInfo: (text: string) => void,
 ) {
-  if (new URLSearchParams(location.search).get('room') === 'reset') saveRoom(null);
-  let room: RoomFile | null = loadRoom();
+  let room: RoomFile | null = null;
+  let roomLoaded = false; // never create/overwrite a room before the saved one is known
+  let storage: StorageKind | '?' = '?';
 
   const panel = createTextPanel(camera, 0.3, -0.1, -0.9);
   const root = new Group(); // room frame -> session frame
@@ -71,8 +72,7 @@ export function createRoomMode(
     cube.position.set(...item.pos);
     root.add(cube);
   }
-  room?.items.forEach(addCube);
-  root.visible = !room;
+  root.visible = true;
 
   let modelObj: Object3D | null = null;
   let modelName = 'test.glb';
@@ -99,7 +99,31 @@ export function createRoomMode(
   let ready = false; // room frame is usable in this session (aligned or just captured)
   let modelMsg = 'model loading...';
   let livePlanes: RoomPlane[] = [];
-  let msg = room ? 'aligning...' : 'no room: pinch to start';
+  let msg = 'loading room...';
+
+  const reset = new URLSearchParams(location.search).get('room') === 'reset';
+  (reset ? deleteRoom().then(() => ({ room: null, kind: '?' as const })) : loadRoom())
+    .then(({ room: r, kind }) => {
+      room = r;
+      storage = kind;
+      roomLoaded = true;
+      r?.items.forEach(addCube);
+      applyModel();
+      root.visible = !room || ready;
+      msg = room ? 'aligning...' : reset ? 'room cleared: pinch to start' : 'no room: pinch to start';
+    })
+    .catch((e: Error) => {
+      msg = `load FAILED: ${e.message}`;
+    });
+
+  const store = (r: RoomFile) =>
+    saveRoom(r)
+      .then((kind) => {
+        storage = kind;
+      })
+      .catch((e: Error) => {
+        msg = `save FAILED: ${e.message}`;
+      });
 
   function bind(session: XRSession) {
     bound = session;
@@ -107,7 +131,7 @@ export function createRoomMode(
     lastTry = 0;
     aligned = null;
     ready = false;
-    root.visible = !room;
+    root.visible = !room || !roomLoaded;
     root.matrix.identity();
     // selectstart = fingers touching, so the pinch position is exact.
     session.addEventListener('selectstart', (ev: any) => {
@@ -120,6 +144,10 @@ export function createRoomMode(
 
   // The saved room can be edited once aligned, or created from the live scan.
   function ensureRoom(): boolean {
+    if (!roomLoaded) {
+      msg = 'room not loaded yet';
+      return false;
+    }
     if (!room) {
       if (livePlanes.length < 4) {
         msg = 'scan not ready, wait a few s';
@@ -155,7 +183,7 @@ export function createRoomMode(
     const yaw = Math.atan2(head.x - point.x, head.z - point.z) - rootYaw;
     room.model = { name: modelName, pos: [local.x, local.y, local.z], yaw };
     applyModel();
-    saveRoom(room);
+    store(room);
     modelMsg = 'model placed+saved';
   }
 
@@ -174,7 +202,7 @@ export function createRoomMode(
     const item: RoomItem = { id: String(Date.now()), pos: [local.x, local.y, local.z] };
     room.items.push(item);
     addCube(item, room.items.length - 1);
-    saveRoom(room);
+    store(room);
     msg = `cube ${room.items.length} saved`;
   }
 
@@ -208,7 +236,7 @@ export function createRoomMode(
       lastDraw = now;
       const lines = [
         'ROOM',
-        `live planes ${planes.length}`,
+        `live planes ${planes.length}  store: ${storage}`,
         room
           ? `saved: ${room.planes.length} planes, ${room.items.length} cubes`
           : 'saved: none',

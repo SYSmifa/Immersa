@@ -21,7 +21,8 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `index.html`, `src/main.ts` — entry point (collega stage, modello, stats)
 - `src/scene/stage.ts` renderer/scena/AR button; `src/scene/testModel.ts` carica `/models/test.glb` o mesh procedurale; `src/ui/stats.ts` fps+tris (DOM e pannello 3D in XR)
 - `src/xr/probe.ts` diagnostica `?probe`: piani/mesh Space Setup + anchor persistente, confronto con sessioni precedenti (localStorage); `src/ui/textPanel.ts` pannello 3D multi-riga
-- `src/room/` formato stanza (`types.ts`), allineamento ICP yaw+traslazione (`align.ts`), lettura piani (`capture.ts`), storage locale (`storage.ts`); `src/xr/roomMode.ts` test `?room`
+- `src/room/` formato stanza (`types.ts`), allineamento ICP yaw+traslazione (`align.ts`), lettura piani (`capture.ts`), storage (`storage.ts`: Supabase se loggato, altrimenti localStorage); `src/xr/roomMode.ts` test `?room`
+- `src/cloud/supabase.ts` client; `src/ui/login.ts` login email+password (2D, prima di entrare in AR); `supabase/schema.sql` tabella `rooms` + bucket `models` con RLS (da incollare nell'SQL Editor)
 - `src/` — moduli piccoli, una responsabilità per file (cartelle per area: `xr/`, `scene/`, `room/`, `ui/`)
 - `public/models/` — GLB di test, ignorati da git
 
@@ -29,6 +30,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `npm run dev` — HTTPS su LAN (cert autofirmato), Quest apre `https://<IP-PC>:5173`, accetta l'avviso
 - `npm run dev:usb` — HTTP su localhost; poi `adb reverse tcp:5173 tcp:5173`, Quest apre `http://localhost:5173`
 - `npm run build` / `npm run typecheck`
+- `.env.local` (ignorato da git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (solo chiave anon); senza, l'app resta locale
 - Windows: IP del PC con `ipconfig`; consentire Node nel firewall (reti private)
 
 ## Convenzioni
@@ -52,5 +54,5 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Ogni sessione XR ha origine/yaw/altezza pavimento diversi (dy fino a 40 cm) → la stanza salvata va riallineata ai piani live
 - Dopo standby la vecchia sessione vede 0 piani; ricaricando tornano → riavviare la sessione XR
 - `?room` testato (cubi tornano al punto giusto anche da altra posizione/direzione). Pinch sinistro = `test.glb` alla posizione esatta del pinch (base del modello, rivolto verso l'utente, sostituisce il precedente; usa hand-tracking); pinch destro = cubo 1 m avanti; `?room=reset` cancella
-- Da fare: test dopo riavvio visore e giorno dopo
-- Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione; passi 3-4 (piani/mesh stanza, anchor)
+- Stanza salvata su Supabase (una per utente, da testare); prossimo: editor PC (carica GLB, sposta, salva), modelli nello storage
+- Idee: `?model=`, foveation/framebuffer scale, LOD/semplificazione
