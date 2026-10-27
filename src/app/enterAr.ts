@@ -9,7 +9,15 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
   const note = document.createElement('div');
 
   async function use(session: XRSession) {
-    await renderer.xr.setSession(session);
+    try {
+      await renderer.xr.setSession(session);
+    } catch (e) {
+      // The browser does not offer the unbounded space: end this session and retry with local-floor.
+      session.end().catch(() => undefined);
+      renderer.xr.setReferenceSpaceType('local-floor');
+      await renderer.xr.setSession(await navigator.xr!.requestSession('immersive-ar', init));
+      return;
+    }
     session.addEventListener('end', () => offer());
   }
 

@@ -1,4 +1,5 @@
-import { PlaneGeometry, Vector2, Vector3 } from 'three';
+import { PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
+import { buildOccluders, createOccluderMaterial } from '../room/occluders';
 import { createStage } from '../scene/stage';
 import { createAppCore } from './core';
 import { asLive, asLiveBoxes, boxRoom, boxRoomBoxes, createFakeBackend } from './fakeBackend';
@@ -67,6 +68,16 @@ export function runUiTest() {
         return asLive(src, (yaw * Math.PI) / 180, tx, ty, tz);
       });
       core.setLivePlanes(planes, []);
+    },
+    // Does a ray from `from` towards `to` hit the room's occluders? (room frame)
+    rayHitsOccluders(roomName: string, from: [number, number, number], to: [number, number, number]) {
+      const room = backend.rooms.find((r) => r.name === roomName)!;
+      const group = buildOccluders(room.scan.planes, createOccluderMaterial());
+      group.updateMatrixWorld(true);
+      const o = new Vector3(...from);
+      const ray = new Raycaster(o, new Vector3(...to).sub(o).normalize());
+      ray.far = new Vector3(...to).distanceTo(o);
+      return ray.intersectObject(group, true).length;
     },
     // Screen position of a widget, to click it with the mouse.
     screenOf(which: 'menu' | 'keyboard', text: string) {

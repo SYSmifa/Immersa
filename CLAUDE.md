@@ -6,55 +6,39 @@ modelli 3D, si posizionano nella stanza, si salva il progetto. Riaperto nel viso
 nella posizione reale. Target: aziende (macchinari, allestitori).
 
 ## Stack
-- TypeScript, three.js, WebXR, Vite
-- Supabase (auth, tabella `rooms`, bucket privato `models`)
-- Modelli glTF/GLB; in futuro STEP → GLB + semplificazione
-- Un'unica app: editor su PC + modalità XR nel browser del Quest
+- TypeScript, three.js, WebXR, Vite; Supabase (auth, tabelle `rooms`/`projects`, bucket privato `models`)
+- Modelli glTF/GLB (futuro: STEP → GLB + semplificazione); un'unica app: editor PC + modalità XR nel Quest
 
 ## Vincoli
-- Quest 3: budget iniziale 100-300k tris a 72 fps (prudente, vedi Stato: misure reali molto più alte)
+- Quest 3: budget 100-300k tris a 72 fps (prudente; misure reali molto più alte, vedi Stato)
 - Formato stanza (JSON) nostro; la scansione Meta è solo un adattatore sostituibile
-- Piano B: allineamento manuale a 2-3 punti
-- Test su visore solo dall'utente (riporta errori/comportamento)
+- Piano B: allineamento manuale a 2-3 punti. Test su visore solo dall'utente (riporta errori/comportamento)
 
 ## Struttura
-- `src/main.ts` router: visore → app AR (`app/headset.ts`); PC → editor. `?test` (modello di prova, `?tris=`/`?size=`), `?probe` (diagnostica Space Setup), `?edit`, `?uitest`/`?edittest` (menu AR/editor sul PC con backend finto)
-- `src/app/` app visore: `launcher.ts` (login 2D + "Entra in AR"), `xrApp.ts` (raggi mani, piani, pinch, bottone al polso), `core.ts` (stato: riconoscimento stanza, scan, progetti, menu), `fakeBackend.ts`/`uitest.ts`/`edittest.ts` (test)
-- `src/ui3d/` UI 3D: `panel.ts` (widget su canvas), `host.ts` (raggi→hover/click), `keyboard.ts` (tastiera tipo Meta), `menu.ts` (tab Load/Scan/Options/Account)
-- `src/room/` tipi (`types.ts`: Room=scansione, Project=stanze+modelli, ogni modello ha `roomId`), allineamento ICP (`align.ts`), riconoscimento (`recognize.ts`), `modelLayer.ts` (GLB, scala reale), `draw.ts`, `capture.ts`
-- `src/cloud/` `backend.ts` (interfaccia), `repo.ts` (Supabase rooms/projects), `models.ts` (bucket), `auth.ts`; `supabase/schema.sql` da incollare nell'SQL Editor (rooms, projects, bucket `models`, RLS)
-- `src/editor/` editor PC: progetto → sue stanze (aggiungi/togli) → modelli per stanza (GLB, sposta/ruota/scala), salva
-- `src/scene/` stage, testModel, testScene; `src/xr/probe.ts`, `pinch.ts`; `src/ui/` login, stats, textPanel
-- `public/models/` — GLB di test, ignorati da git
+- `src/main.ts` router: visore → `app/headset.ts`; PC → editor. `?test` (modello di prova, `?tris=`/`?size=`), `?probe` (diagnostica), `?edit`, `?uitest`/`?edittest` (menu AR/editor sul PC con backend finto)
+- `src/app/` app visore: `launcher.ts` (login 2D + "Entra in AR"), `enterAr.ts` (sessione, fallback reference space), `xrApp.ts` (raggi, piani, pinch, reset), `core.ts` (stato: riconoscimento, scan, progetti, case, menu)
+- `src/ui3d/` UI 3D: `panel.ts`, `host.ts` (raggi→click), `keyboard.ts` (tastiera tipo Meta), `menu.ts` (tab Load/Scan/Options/Account)
+- `src/room/` `types.ts` (Room=scansione, Project=stanze+modelli, modello ha `roomId`), `align.ts` (allineamento), `recognize.ts`, `around.ts` (stanza sotto la testa, cluster), `occluders.ts` (pareti invisibili), `draw.ts`, `modelLayer.ts`, `capture.ts`
+- `src/cloud/` `backend.ts` (interfaccia), `repo.ts` (Supabase), `models.ts` (bucket), `auth.ts`; `supabase/schema.sql` da incollare nell'SQL Editor (idempotente)
+- `src/editor/` editor PC: progetto → sue stanze → modelli per stanza (GLB, sposta/ruota/scala), salva. `public/models/`: GLB di test, ignorati da git
 
 ## Comandi
-- `npm run dev` — HTTPS su LAN (cert autofirmato), Quest apre `https://<IP-PC>:5173`, accetta l'avviso
-- `npm run dev:usb` — HTTP su localhost; poi `adb reverse tcp:5173 tcp:5173`, Quest apre `http://localhost:5173`
-- `npm run build` / `npm run typecheck`
-- `.env.local` (ignorato da git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (solo chiave anon); senza, l'app resta locale
-- Windows: IP del PC con `ipconfig`; consentire Node nel firewall (reti private)
+- `npm run dev` HTTPS LAN (Quest apre `https://<IP-PC>:5173`); `npm run dev:usb` HTTP su 127.0.0.1 + `adb reverse tcp:5173 tcp:5173` (da rifare dopo standby/cavo)
+- `npm run build` / `npm run typecheck`; `.env.local` (non in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (solo anon)
+- Windows: IP del PC con `ipconfig`; consentire Node nel firewall. Aperto: `npm run dev` non stampa nulla sul PC dell'utente
 
 ## Convenzioni
 - Codice e commenti in inglese; questo file in italiano, max 60 righe
-- Commit piccoli e frequenti; piano breve → ok utente → implementazione
-- Niente riscritture non richieste
-
-## Decisioni
-- TypeScript strict, three.js senza framework
-- Due modalità di serving: LAN HTTPS (principale) e USB/adb
+- Commit piccoli e frequenti; piano breve → ok utente → implementazione; niente riscritture non richieste
+- TypeScript strict, three.js senza framework; prove sul PC con Playwright su `?uitest`/`?edittest`
 
 ## Stato
-- Fase 1 testata su Quest 3 (USB): 300k tris 90 fps; GLB 130k 90 fps; 3,9M tris 25-45 fps (limite = pixel/overdraw)
-- `dev:usb` lega 127.0.0.1 (Windows: localhost=IPv6 rompe adb); `adb reverse` va rifatto dopo standby/cavo
-- Aperto: `npm run dev` (HTTPS LAN) non stampa nulla su PC Windows dell'utente (cert basic-ssl)
-- Space Setup: piani stabili tra sessioni (scarto <3 cm dopo allineamento); anchor persistenti NON supportati (Horizon 154)
-- Ogni sessione XR ha origine/yaw/altezza diversi → riallineare la stanza salvata ai piani live: solo piani strutturali, prima centri (ICP), poi distanza lungo le normali (i centri dipendono dall'estensione del contorno, che cambia tra scansioni), più partenze per la simmetria di 180°. Dopo standby la vecchia sessione vede 0 piani → riavviare la sessione
-- Flusso (testato solo sul PC con `?uitest`/`?edittest`, DA TESTARE su visore): login 2D → AR → menu che segue la testa (bottone ☰ al polso, squeeze o X/Y sinistro) → riconosce la stanza tra quelle su Supabase; Scan: salva (nome con tastiera 3D) o avvia scan (`initiateRoomCapture`, se esiste); Load: progetti della stanza; pinch sinistro sposta il modello guardato
-- Il browser riporta i piani di TUTTE le stanze memorizzate nel visore, anche dove non sei: `around.ts` tiene solo il pavimento sotto la testa + ciò che gli sta intorno (senza pavimento = stanza non scansionata); `recognize.ts` ricontrolla che la testa sia dentro, altrimenti chiede conferma
-- La stanza si ricontrolla ogni ~2,5 s: cambio dopo 2 conferme, "uscito" dopo 3 senza pavimento; tornando nella stessa stanza il progetto si riapre
-- Progetto = più stanze (una casa), modelli per stanza nel frame di quella stanza. Nel visore ogni stanza del progetto si allinea da sola ai piani che il visore riporta (`roomClusters` + ICP, `alignFar`); allineate = visibili, le altre nascoste. Se nessuna è allineabile il progetto si ancora al centro del pavimento attuale (orientamento come salvato). Load elenca tutti i progetti (stanza attuale prima, sotto il nome le sue stanze)
-- Gli allineamenti si ricontrollano di continuo (stanza sotto la testa: ogni ~2,5 s; stanze lontane: una ogni 1,2 s): se il visore sposta il suo frame (nuovo confine) le stanze lo seguono, se non si ritrovano più sparisce (2 miss); evento `reset` del reference space = tutto da rifare. Confine non disattivabile da web; adb `setprop debug.oculus.guardian_pause 1` lo sospende (solo sviluppo); prova `?ref=unbounded` (reference space senza confine, da verificare)
-- Da fare: pareti invisibili che occludono i modelli di altre stanze (con buchi per porte/finestre), dopo test su visore di quanto sono precise le stanze lontane
-- Volumi dei mobili: letti da `detectedMeshes` (non "global mesh", ≤64 vertici) come box orientati (`RoomScan.boxes`), disegnati con 12 spigoli (arancio); editor: pavimento/mobili semitrasparenti, pareti nascondibili, soffitto mai disegnato; visore: solo contorno (acceso di default, Options); DA VERIFICARE che il Quest 154 li esponga (`?probe`: riga `mesh:`)
-- Incognite: `initiateRoomCapture` in 154, sessione dopo scan, avvio AR senza tocco (offerSession), gesto menu; stanze vecchie senza contorni → rifare scan
-- Idee: `?model=`, foveation, LOD; login con codice dispositivo; opzioni
+- Perf Quest 3: 300k tris 90 fps; GLB 130k 90 fps; 3,9M tris 25-45 fps (limite = pixel/overdraw)
+- Quest/WebXR (Horizon 154): anchor persistenti NO; il browser riporta i piani di TUTTE le stanze salvate nel visore; ogni sessione ha origine/yaw/altezza diversi; dopo standby la vecchia sessione vede 0 piani
+- Confine (Guardian): non disattivabile da web; `?ref=local-floor` torna al vecchio reference space. Predefinito `unbounded` (con fallback): niente confini. adb `setprop debug.oculus.guardian_pause 1` lo sospende (si azzera dopo standby)
+- Allineamento stanza↔piani live: solo piani strutturali; centri (ICP) poi distanza lungo le normali (i centri dipendono dal contorno), più partenze (simmetria 180°). Ricontrollato di continuo; reset del reference space = si rifà; stanza non ritrovata = nascosta. Options mostra l'esito per stanza
+- Flusso visore: login 2D → AR → menu che segue la testa (☰ al polso, squeeze, X/Y sx) → riconosce la stanza (pavimento sotto la testa + `isInside`) → Scan: salva con nome (tastiera 3D) o `initiateRoomCapture`; Load: tutti i progetti; pinch sx sposta il modello guardato
+- Progetto = casa: modelli per stanza nel frame di quella stanza; ogni stanza del progetto si allinea da sola (`roomClusters`+`alignFar`). Contorno stanza solo senza progetto aperto; pareti invisibili (depth-only, porte/finestre = buchi, spinte 5 cm all'esterno) coprono i modelli delle altre stanze (Options: mostrale)
+- Scansione: piani con contorno + volumi dei mobili (box da `detectedMeshes`, 12 spigoli). Editor: pavimento/mobili semitrasparenti, pareti nascondibili, soffitto mai disegnato
+- DA TESTARE su visore: pareti invisibili (precisione, tagli ai bordi), `initiateRoomCapture`, sessione dopo scan, avvio AR senza tocco, tenuta di `unbounded` dopo standby
+- Idee: allineamento manuale a 2 punti se la scena del visore è sfasata; `?model=`, foveation, LOD; login con codice dispositivo; app nativa (Unity) solo se il web non basta

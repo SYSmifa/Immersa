@@ -2,6 +2,7 @@ import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
+import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { floorCentre } from '../room/floor';
 import { createModelLayer, type ModelLayer } from '../room/modelLayer';
 import { roomAround, roomClusters } from '../room/around';
@@ -61,7 +62,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   interface House {
     root: Group;
     layer: ModelLayer;
+    occluder: Group; // the room's walls, floor and ceiling as depth-only surfaces
   }
+  const occluderMaterial = createOccluderMaterial();
   const houses = new Map<string, House>();
 
   const view: MenuView = {
@@ -79,6 +82,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     currentProjectId: null,
     page: 0,
     outline: true,
+    showOccluders: false,
     message: '',
   };
   let rooms: Room[] = [];
@@ -154,6 +158,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         return `${r.name}: ${f.good ? 'ok' : 'NO'} ${(f.resid * 100).toFixed(1)} cm ${f.matched}/${f.total}`;
       });
     view.currentProjectId = current?.id ?? null;
+    outline.visible = view.outline && !current; // with a project open the models are the point
     render();
   }
 
@@ -216,7 +221,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       root.matrixAutoUpdate = false;
       root.visible = false;
       scene.add(root);
-      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)) };
+      const occluder = buildOccluders(rooms.find((r) => r.id === roomId)?.scan.planes ?? [], occluderMaterial);
+      root.add(occluder);
+      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), occluder };
       houses.set(roomId, h);
     }
     return h;
@@ -273,6 +280,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (a) h.root.matrix.copy(alignMatrix(a));
       else if (foreign?.roomId === id) h.root.matrix.copy(foreign.matrix);
       h.root.visible = !!a || foreign?.roomId === id;
+      h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
       h.layer.sync(modelsOf(id));
     }
   }
@@ -346,7 +354,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
       drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? []);
       drawBoxes(r.room.scan.boxes ?? [], outline);
-      outline.visible = view.outline;
       if (autoTab) view.tab = 'load';
     }
     syncHouses();
@@ -533,7 +540,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     },
     toggleOutline() {
       view.outline = !view.outline;
-      outline.visible = view.outline;
+      refreshView();
+    },
+    toggleOccluders() {
+      view.showOccluders = !view.showOccluders;
+      showOccluders(occluderMaterial, view.showOccluders);
       render();
     },
     closeProject() {
@@ -599,6 +610,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   return {
     host,
     roomRoot,
+    houses: () => houses, // test hook
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     keyboard,

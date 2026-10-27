@@ -97,7 +97,7 @@ const structural = (planes: RoomPlane[]) => {
 };
 
 // Unit normal of a plane: its local Y axis rotated by the plane's orientation.
-function normalOf(q: [number, number, number, number]): Vec3 {
+export function planeNormal(q: [number, number, number, number]): Vec3 {
   const [x, y, z, w] = q;
   return [2 * x * y - 2 * w * z, 1 - 2 * (z * z + x * x), 2 * w * x + 2 * y * z];
 }
@@ -125,12 +125,12 @@ function refine(from: RoomPlane[], to: RoomPlane[], start: Alignment): Alignment
       const rx = c * p.pos[0] - s * p.pos[2];
       const rz = s * p.pos[0] + c * p.pos[2];
       const P: Vec3 = [rx + tx, p.pos[1] + ty, rz + tz];
-      const n0 = normalOf(p.quat!);
+      const n0 = planeNormal(p.quat!);
       const n: Vec3 = [c * n0[0] - s * n0[2], n0[1], s * n0[0] + c * n0[2]];
       let best: { m: Vec3; r: number } | null = null;
       for (const q of toQ) {
         if (q.label !== p.label) continue;
-        const m = normalOf(q.quat!);
+        const m = planeNormal(q.quat!);
         if (Math.abs(n[0] * m[0] + n[1] * m[1] + n[2] * m[2]) < 0.9) continue; // not the same orientation
         const r = m[0] * (P[0] - q.pos[0]) + m[1] * (P[1] - q.pos[1]) + m[2] * (P[2] - q.pos[2]);
         if (Math.abs(r) < gate && (!best || Math.abs(r) < Math.abs(best.r))) best = { m, r };
@@ -160,12 +160,12 @@ function refine(from: RoomPlane[], to: RoomPlane[], start: Alignment): Alignment
   const errors: number[] = [];
   for (const p of fromQ) {
     const P: Vec3 = [c * p.pos[0] - s * p.pos[2] + tx, p.pos[1] + ty, s * p.pos[0] + c * p.pos[2] + tz];
-    const n0 = normalOf(p.quat!);
+    const n0 = planeNormal(p.quat!);
     const n: Vec3 = [c * n0[0] - s * n0[2], n0[1], s * n0[0] + c * n0[2]];
     let e = Infinity;
     for (const q of toQ) {
       if (q.label !== p.label) continue;
-      const m = normalOf(q.quat!);
+      const m = planeNormal(q.quat!);
       if (Math.abs(n[0] * m[0] + n[1] * m[1] + n[2] * m[2]) < 0.9) continue;
       e = Math.min(e, Math.abs(m[0] * (P[0] - q.pos[0]) + m[1] * (P[1] - q.pos[1]) + m[2] * (P[2] - q.pos[2])));
     }

@@ -17,6 +17,7 @@ export interface MenuView {
   currentProjectId: string | null;
   page: number;
   outline: boolean;
+  showOccluders: boolean;
   message: string;
 }
 
@@ -31,6 +32,7 @@ export interface MenuActions {
   scan(): void;
   reread(): void;
   toggleOutline(): void;
+  toggleOccluders(): void;
   closeProject(): void;
   signOut(): void;
   close(): void;
@@ -141,10 +143,11 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(button('Rileggi', top + 170, a.reread, { primary: true }));
     }
   } else if (v.tab === 'options') {
-    out.push(button(`Contorno della stanza: ${v.outline ? 'sì' : 'no'}`, top, a.toggleOutline));
-    out.push(button('Chiudi il progetto aperto', top + 80, a.closeProject, { disabled: !v.currentProjectId }));
-    out.push(label('Allineamento delle stanze (diagnostica)', top + 160, 30, 20, '#8e99b3'));
-    v.fits.forEach((line, i) => out.push(label(line, top + 192 + i * 28, 28, 22, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
+    out.push(button(`Contorno (senza progetto aperto): ${v.outline ? 'sì' : 'no'}`, top, a.toggleOutline));
+    out.push(button('Chiudi il progetto aperto', top + 72, a.closeProject, { disabled: !v.currentProjectId }));
+    out.push(button(`Pareti invisibili in vista: ${v.showOccluders ? 'sì' : 'no'}`, top + 144, a.toggleOccluders));
+    out.push(label('Allineamento delle stanze (diagnostica)', top + 214, 28, 20, '#8e99b3'));
+    v.fits.forEach((line, i) => out.push(label(line, top + 242 + i * 26, 26, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
