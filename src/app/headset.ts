@@ -17,8 +17,8 @@ export async function runHeadsetApp() {
   const features = UNBOUNDED ? [...FEATURES, 'unbounded'] : FEATURES;
   const { renderer, scene, camera } = createStage({ features, arButton: false });
   renderer.xr.setReferenceSpaceType(UNBOUNDED ? 'unbounded' : 'local-floor');
-  const app = createXrApp(renderer, scene, camera, backend, UNBOUNDED ? 'unbounded' : 'local-floor');
   const enter = createEnterAr(renderer, features);
+  const app = createXrApp(renderer, scene, camera, backend, () => void enter.restart());
   const launcher = await createLauncher(backend, enter);
   renderer.xr.addEventListener('sessionend', () => void launcher.show());
   renderer.setAnimationLoop((_t, frame) => {

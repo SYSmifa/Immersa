@@ -36,7 +36,16 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
     xr?.offerSession?.('immersive-ar', init).then(use).catch(() => undefined);
   }
 
+  // End the running session and start a new one (a fresh session has no Guardian with the
+  // unbounded space). Starting needs a user gesture in some browsers: if it is refused the
+  // launcher page shows again and one tap on "Entra in AR" does it.
+  async function restart() {
+    await renderer.xr.getSession()?.end().catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 400));
+    await start();
+  }
+
   button.onclick = start;
   offer();
-  return { button, note, start };
+  return { button, note, start, restart };
 }

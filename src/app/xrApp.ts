@@ -9,7 +9,7 @@ import { createAppCore, type Capture, type Head } from './core';
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, refType: XRReferenceSpaceType = 'local-floor') {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
   const core = createAppCore({
     scene,
     backend,
@@ -69,26 +69,19 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => core.host.cancel(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('squeezestart', () => core.menu.toggle());
-    // Standby / resume: the system may bring the Guardian back. Log it, and on return ask again
-    // for the reference space the session was set up with (experimental; the Options tab shows the events).
+    // Standby / resume: the system brings the Guardian back, whatever reference space we ask for.
+    // A fresh session does not have it, so restart the session and reopen the project.
     let wasAway = false;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
       if (session.visibilityState !== 'visible') {
         wasAway = true;
-        return;
+      } else if (wasAway) {
+        wasAway = false;
+        core.logEvent('risveglio: riavvio la sessione');
+        core.prepareResume();
+        onResume();
       }
-      if (!wasAway) return;
-      wasAway = false;
-      const type = refType;
-      session
-        .requestReferenceSpace(type)
-        .then((space) => {
-          renderer.xr.setReferenceSpace(space);
-          core.referenceReset(); // the origin may have changed: align everything again
-          core.logEvent(`riferimento ${type} richiesto di nuovo`);
-        })
-        .catch((e: Error) => core.logEvent(`riferimento non rinnovato: ${e.message}`.slice(0, 40)));
     });
     session.addEventListener('end', () => {
       bound = null;

@@ -30,6 +30,7 @@ interface Options {
 const MENU_DISTANCE = 0.85;
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
+const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawOf = (f: Vector3) => Math.atan2(f.x, f.z); // horizontal direction (sin a, cos a)
@@ -99,6 +100,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let foreignMode = false; // the project was opened with none of its rooms found: shown away from them
   let lastFar = 0;
   let farIndex = 0;
+  let resumePending: { id: string; since: number } | null = null; // reopen this project once the rooms are found
   const fits = new Map<string, { resid: number; matched: number; total: number; good: boolean }>(); // last attempt per room, for the Options diagnostics
   const events: string[] = []; // what happened to the XR session (standby, resume, resets), newest last
   const misses = new Map<string, number>(); // consecutive checks that could not find an aligned room any more
@@ -631,6 +633,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     // A new XR session has a new origin: forget the old alignment and start over.
     sessionStarted(cap: Capture | null) {
       capture = cap;
+      const saved = sessionStorage.getItem(RESUME_KEY);
+      sessionStorage.removeItem(RESUME_KEY);
+      resumePending = saved ? { id: saved, since: performance.now() } : null;
       autoTab = true;
       view.tab = 'scan';
       rawLive = [];
@@ -664,11 +669,20 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       tryRecognise(now);
       alignFar(now);
+      if (resumePending && projectsLoaded && (aligns.size > 0 || now - resumePending.since > 12000)) {
+        const p = allProjects.find((x) => x.id === resumePending!.id);
+        resumePending = null;
+        if (p) openProject(p);
+      }
       checkPending();
       followHead(head, dt);
       host.update();
     },
     logEvent,
+    // Called just before the session is restarted: remember which project to reopen.
+    prepareResume() {
+      if (current) sessionStorage.setItem(RESUME_KEY, current.id);
+    },
     // The headset moved its coordinate frame (new boundary, recentring): every alignment is void.
     referenceReset() {
       logEvent('reset del riferimento');
