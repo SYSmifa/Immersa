@@ -84,6 +84,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let lastHere = 0;
   let capture: Capture | null = null;
   let lastTry = 0;
+  let switching = 0; // consecutive checks that found another saved room under the head
+  let lost = 0; // consecutive checks that found none
+  let resume: { roomId: string; projectId: string } | null = null; // project to reopen if we come back
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
@@ -180,6 +183,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           if (recognised !== r) return;
           projects = list;
           projectsLoaded = true;
+          const back = resume?.roomId === r.room.id ? projects.find((p) => p.id === resume!.projectId) : undefined;
+          if (back) {
+            current = back; // we left this room and came back: the project is still open
+            layer.sync(back.models);
+          }
           refreshView();
         })
         .catch((e) => say(`Errore: ${errText(e)}`));
@@ -187,23 +195,56 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     refreshView();
   }
 
+  // Walking into another room changes which room we are in: leave the old one after a few
+  // consecutive checks (no flicker in doorways), switch to the new saved one, remember the project.
+  function reconsider(found: Recognised | null) {
+    if (found && found.room.id === recognised!.room.id) {
+      switching = lost = 0;
+    } else if (found) {
+      lost = 0;
+      if (++switching >= 2) {
+        switching = 0;
+        rememberProject();
+        setRecognised(found);
+        say(`Ora sei in: ${found.room.name}`);
+        openMenu();
+      }
+    } else {
+      switching = 0;
+      if (++lost >= 3) {
+        lost = 0;
+        const name = recognised!.room.name;
+        rememberProject();
+        setRecognised(null);
+        say(`Sei uscito da: ${name}`);
+      }
+    }
+  }
+
+  function rememberProject() {
+    if (recognised && current) resume = { roomId: recognised.room.id, projectId: current.id };
+  }
+
   function tryRecognise(now: number) {
-    if (recognised || !roomsLoaded || !lastHead || live.length < MIN_PLANES || now < readyAt || now - lastTry < 2500) return;
+    if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < 2500) return;
     lastTry = now;
-    const r = recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id)));
-    if (!r) {
+    const h = lastHead.pos;
+    const found = live.length >= MIN_PLANES ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id))) : null;
+    const inside = !!found && isInside(found, [h.x, h.y, h.z]);
+    if (recognised) return reconsider(found && inside ? found : null);
+    if (live.length < MIN_PLANES) return;
+    if (!found) {
       candidate = null;
       failedTries++;
       return refreshView();
     }
-    const h = lastHead.pos;
-    if (isInside(r, [h.x, h.y, h.z])) {
+    if (inside) {
       candidate = null;
-      return setRecognised(r);
+      return setRecognised(found);
     }
     // The headset reports this room's planes, but you are not in it: ask instead of assuming.
     const first = !candidate;
-    candidate = r;
+    candidate = found;
     failedTries++;
     if (first && autoTab) view.tab = 'scan';
     refreshView();
@@ -391,6 +432,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       failedTries = 0;
       readyAt = 0;
       candidate = null;
+      switching = lost = 0;
+      resume = null;
       ignored.clear();
       setRecognised(null);
       void reloadRooms();
