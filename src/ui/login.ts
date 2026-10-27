@@ -1,3 +1,4 @@
+import { authenticate } from '../cloud/auth';
 import { supabase } from '../cloud/supabase';
 
 // Small DOM login box (top right). Done on the 2D page before entering AR:
@@ -43,15 +44,9 @@ export async function createLogin() {
 
   const run = async (signUp: boolean) => {
     status.textContent = '...';
-    const creds = { email: email.value.trim(), password: password.value };
-    const { data: res, error } = signUp ? await sb.auth.signUp(creds) : await sb.auth.signInWithPassword(creds);
-    if (error) {
-      status.textContent = error.message;
-    } else if (!res.session) {
-      status.textContent = 'Controlla la mail per confermare, poi Accedi';
-    } else {
-      location.reload();
-    }
+    const res = await authenticate(email.value, password.value, signUp);
+    if (res.ok) location.reload();
+    else status.textContent = res.message;
   };
   box.append(email, password, button('Accedi', () => run(false)), button('Registrati', () => run(true)), status);
 }

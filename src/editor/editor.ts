@@ -1,15 +1,9 @@
 import {
   Box3,
-  BufferGeometry,
   Camera,
   GridHelper,
   Group,
-  LineBasicMaterial,
-  LineLoop,
   Object3D,
-  Points,
-  PointsMaterial,
-  Quaternion,
   Raycaster,
   Scene,
   Vector2,
@@ -18,10 +12,14 @@ import {
 } from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import type { Backend } from '../cloud/backend';
 import { uploadModel } from '../cloud/models';
+import { createSupabaseBackend } from '../cloud/repo';
+import { drawPlanes } from '../room/draw';
 import { createModelLayer } from '../room/modelLayer';
-import { loadRoom, saveRoom } from '../room/storage';
-import type { RoomFile, Vec3 } from '../room/types';
+import type { Project, Room, Vec3 } from '../room/types';
+import { createStage } from '../scene/stage';
+import { createLogin } from '../ui/login';
 import { createEditorUi } from './editorUi';
 
 interface Deps {
@@ -29,48 +27,45 @@ interface Deps {
   scene: Scene;
   camera: Camera;
   controls: OrbitControls;
+  backend: Backend;
+  upload?: (file: File) => Promise<{ path: string; name: string }>;
 }
 
-// Returns how many outlines could be drawn. Plane centres are always marked (yellow dots).
-function drawPlanes(room: RoomFile, into: Group): number {
-  let drawn = 0;
-  const mat = new LineBasicMaterial({ color: 0x00c8ff });
-  const floor = new LineBasicMaterial({ color: 0x40ff80 });
-  for (const p of room.planes) {
-    if (!p.poly || !p.quat || p.poly.length < 6) continue;
-    const pts: Vector3[] = [];
-    for (let i = 0; i < p.poly.length; i += 2) pts.push(new Vector3(p.poly[i], 0, p.poly[i + 1]));
-    const line = new LineLoop(new BufferGeometry().setFromPoints(pts), p.label === 'floor' ? floor : mat);
-    line.matrixAutoUpdate = false;
-    line.matrix.compose(new Vector3(...p.pos), new Quaternion(...p.quat), new Vector3(1, 1, 1));
-    into.add(line);
-    drawn++;
-  }
-  const centres = room.planes.map((p) => new Vector3(...p.pos));
-  into.add(new Points(new BufferGeometry().setFromPoints(centres), new PointsMaterial({ color: 0xffd000, size: 8, sizeAttenuation: false })));
-  return drawn;
-}
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Where a new model starts: middle of the floor, on the floor.
-function floorSpot(room: RoomFile): Vec3 {
-  const floors = room.planes.filter((p) => p.label === 'floor');
-  const src = floors.length ? floors : room.planes;
+function floorSpot(room: Room): Vec3 {
+  const planes = room.scan.planes;
+  const floors = planes.filter((p) => p.label === 'floor');
+  const src = floors.length ? floors : planes;
   if (!src.length) return [0, 0, 0];
   const mean = (i: number) => src.reduce((a, p) => a + p.pos[i], 0) / src.length;
   return [mean(0), floors.length ? mean(1) : Math.min(...src.map((p) => p.pos[1])), mean(2)];
 }
 
-// PC editor (?edit): the saved room as wireframe, models from the cloud that can
-// be added, moved, rotated, scaled and saved back to the same room.
-export async function createEditor({ renderer, scene, camera, controls }: Deps) {
-  document.getElementById('ARButton')?.remove();
-  let room: RoomFile | null = null;
+// Entry for the PC: stage without AR, login box, then the editor.
+export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload']) {
+  const { renderer, scene, camera, controls } = createStage({ arButton: false });
+  createLogin();
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  return createEditor({ renderer, scene, camera, controls, backend, upload });
+}
+
+// PC editor: pick a room (named scans from the headset), pick or create a project,
+// add .glb models, move / rotate / scale them in real size, save the project.
+export async function createEditor({ renderer, scene, camera, controls, backend, upload = uploadModel }: Deps) {
+  let rooms: Room[] = [];
+  let room: Room | null = null;
+  let projects: Project[] = [];
+  let project: Project | null = null;
   let selectedId: string | null = null;
   let dirty = false;
+  let lastDrag = 0;
 
-  const view = new Group(); // room frame
-  scene.add(view);
-  const layer = createModelLayer(view, (t) => ui.setStatus(`Errore modello: ${t}`));
+  const planesGroup = new Group();
+  const modelsGroup = new Group();
+  scene.add(planesGroup, modelsGroup);
+  const layer = createModelLayer(modelsGroup, (t) => ui.setStatus(`Errore modello: ${t}`));
 
   const transform = new TransformControls(camera, renderer.domElement);
   scene.add(transform.getHelper());
@@ -78,12 +73,12 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     controls.enabled = !e.value;
     lastDrag = Date.now();
   });
-  let lastDrag = 0;
 
-  const find = (id: string | null) => room?.models.find((m) => m.id === id) ?? null;
+  const models = () => project?.models ?? [];
+  const find = (id: string | null) => models().find((m) => m.id === id) ?? null;
 
   function refresh() {
-    ui.setModels(room?.models ?? [], selectedId);
+    ui.setModels(models(), selectedId);
     const m = find(selectedId);
     const holder = selectedId ? layer.holders.get(selectedId) : null;
     if (!m || !holder) return ui.setSelection(null);
@@ -106,9 +101,9 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     refresh();
   }
 
-  function markDirty() {
-    dirty = true;
-    ui.setDirty(true);
+  function markDirty(on = true) {
+    dirty = on;
+    ui.setDirty(on);
   }
 
   // The holder is the source of truth while dragging; copy it back to the model.
@@ -121,20 +116,121 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     markDirty();
   });
 
+  const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
+
+  function showRoom(r: Room | null) {
+    room = r;
+    planesGroup.clear();
+    project = null;
+    projects = [];
+    layer.sync([]);
+    select(null);
+    markDirty(false);
+    ui.setRooms(rooms, r?.id ?? null);
+    if (!r) {
+      ui.setProjects([], null, false);
+      return;
+    }
+    const drawn = drawPlanes(r.scan.planes, planesGroup, true);
+    const spot = floorSpot(r);
+    planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
+    const bounds = new Box3().setFromObject(planesGroup);
+    const centre = bounds.getCenter(new Vector3());
+    const span = Math.max(3, bounds.getSize(new Vector3()).length());
+    controls.target.copy(centre);
+    camera.position.set(centre.x, centre.y + span * 0.7, centre.z + span * 0.9);
+    controls.update();
+    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${drawn} con contorno)`);
+  }
+
+  function showProject(p: Project | null) {
+    project = p;
+    layer.sync(models());
+    select(null);
+    markDirty(false);
+    ui.setProjects(projects, p?.id ?? null, !!room);
+  }
+
+  async function chooseRoom(id: string) {
+    if (!confirmLeave()) return ui.setRooms(rooms, room?.id ?? null);
+    const r = rooms.find((x) => x.id === id) ?? null;
+    showRoom(r);
+    if (!r) return;
+    try {
+      projects = await backend.listProjects(r.id);
+    } catch (e) {
+      return ui.setStatus(`Errore: ${errText(e)}`);
+    }
+    showProject(projects[0] ?? null); // the most recently saved one
+    if (!projects.length) ui.setStatus(`Stanza "${r.name}": nessun progetto, creane uno con "Nuovo".`);
+  }
+
   const ui = createEditorUi({
+    onRoom: (id) => void chooseRoom(id),
+    async onRenameRoom() {
+      if (!room) return;
+      const name = prompt('Nome della stanza', room.name)?.trim();
+      if (!name || name === room.name) return;
+      try {
+        await backend.renameRoom(room.id, name);
+        room.name = name;
+        ui.setRooms(rooms, room.id);
+      } catch (e) {
+        ui.setStatus(`Errore: ${errText(e)}`);
+      }
+    },
+    onProject(id) {
+      if (!confirmLeave()) return ui.setProjects(projects, project?.id ?? null, !!room);
+      showProject(projects.find((p) => p.id === id) ?? null);
+    },
+    async onNewProject() {
+      if (!room || !confirmLeave()) return;
+      const name = prompt('Nome del progetto')?.trim();
+      if (!name) return;
+      try {
+        const p = await backend.createProject(room.id, name, []);
+        projects.unshift(p);
+        showProject(p);
+        ui.setStatus(`Progetto "${name}" creato`);
+      } catch (e) {
+        ui.setStatus(`Errore: ${errText(e)}`);
+      }
+    },
+    async onRenameProject() {
+      if (!project) return;
+      const name = prompt('Nome del progetto', project.name)?.trim();
+      if (!name || name === project.name) return;
+      try {
+        await backend.saveProject(project.id, { name });
+        project.name = name;
+        ui.setProjects(projects, project.id, true);
+      } catch (e) {
+        ui.setStatus(`Errore: ${errText(e)}`);
+      }
+    },
+    async onDeleteProject() {
+      if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
+      try {
+        await backend.deleteProject(project.id);
+        projects = projects.filter((p) => p !== project);
+        showProject(projects[0] ?? null);
+      } catch (e) {
+        ui.setStatus(`Errore: ${errText(e)}`);
+      }
+    },
     async onUpload(file) {
-      if (!room) return ui.setStatus('Nessuna stanza: scansiona prima dal visore (?room)');
+      if (!room || !project) return ui.setStatus('Scegli una stanza e un progetto prima di caricare un modello');
       ui.setStatus(`Carico ${file.name}...`);
       try {
-        const { path, name } = await uploadModel(file);
+        const { path, name } = await upload(file);
         const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-        room.models.push({ id, name, path, pos: floorSpot(room), yaw: 0, scale: 1 });
-        layer.sync(room.models);
+        project.models.push({ id, name, path, pos: floorSpot(room), yaw: 0, scale: 1 });
+        layer.sync(project.models);
         select(id);
         markDirty();
         ui.setStatus('Caricato. Ricorda di salvare.');
       } catch (e) {
-        ui.setStatus(`Upload FALLITO: ${(e as Error).message}`);
+        ui.setStatus(`Upload FALLITO: ${errText(e)}`);
       }
     },
     onSelect: select,
@@ -146,30 +242,28 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     },
     onScale(value) {
       const m = find(selectedId);
-      if (!room || !m) return;
+      if (!m) return;
       m.scale = value;
-      layer.sync(room.models);
+      layer.sync(models());
       markDirty();
       refresh();
     },
-    onDelete() {
-      if (!room || !selectedId) return;
-      room.models = room.models.filter((m) => m.id !== selectedId);
-      layer.sync(room.models);
+    onDeleteModel() {
+      if (!project || !selectedId) return;
+      project.models = project.models.filter((m) => m.id !== selectedId);
+      layer.sync(project.models);
       select(null);
       markDirty();
     },
     async onSave() {
-      if (!room) return;
+      if (!project) return;
       ui.setStatus('Salvo...');
       try {
-        room.savedAt = Date.now();
-        const kind = await saveRoom(room);
-        dirty = false;
-        ui.setDirty(false);
-        ui.setStatus(kind === 'cloud' ? 'Salvato nel cloud' : 'Salvato solo in locale (non sei loggato)');
+        await backend.saveProject(project.id, { models: project.models });
+        markDirty(false);
+        ui.setStatus(`Progetto "${project.name}" salvato`);
       } catch (e) {
-        ui.setStatus(`Salvataggio FALLITO: ${(e as Error).message}`);
+        ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
       }
     },
   });
@@ -194,45 +288,23 @@ export async function createEditor({ renderer, scene, camera, controls }: Deps) 
     while (o && !o.userData.modelId) o = o.parent;
     select(o ? (o.userData.modelId as string) : null);
   });
+  setInterval(() => selectedId && refresh(), 1000); // late-loading models change the size readout
 
-  // Reflect late-loading models in the size readout.
-  setInterval(() => selectedId && refresh(), 1000);
-
-  ui.setStatus('Carico la stanza...');
+  ui.setRooms([], null);
+  ui.setProjects([], null, false);
+  ui.setStatus('Carico le stanze...');
   try {
-    const { room: loaded, kind } = await loadRoom();
-    room = loaded;
-    if (!room) {
-      ui.setStatus(
-        kind === 'local'
-          ? 'Nessuna stanza: accedi (in alto a destra), con lo stesso account del visore.'
-          : 'Nessuna stanza salvata: aprila nel visore con ?room per scansionarla.',
-      );
-      return;
-    }
+    if (!(await backend.email())) return ui.setStatus('Accedi (in alto a destra) con lo stesso account del visore.');
+    rooms = await backend.listRooms();
   } catch (e) {
-    ui.setStatus(`Caricamento FALLITO: ${(e as Error).message}`);
-    return;
+    return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);
   }
-
-  const drawn = drawPlanes(room, view);
-  const outlines = new Box3().setFromObject(view);
-  const spot = floorSpot(room);
-  view.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
-  const bounds = outlines.isEmpty() ? new Box3().setFromPoints(room.planes.map((p) => new Vector3(...p.pos))) : outlines;
-  const centre = bounds.getCenter(new Vector3());
-  const span = Math.max(3, bounds.getSize(new Vector3()).length());
-  controls.target.copy(centre);
-  camera.position.set(centre.x, centre.y + span * 0.7, centre.z + span * 0.9);
-  controls.update();
-
-  layer.sync(room.models);
-  select(null);
-  const ext = new Box3().setFromPoints(room.planes.map((p) => new Vector3(...p.pos))).getSize(new Vector3());
+  ui.setRooms(rooms, null);
   ui.setStatus(
-    `Stanza: ${room.planes.length} piani (${drawn} con contorno), ${room.models.length} modelli\n` +
-      `Ingombro centri ${ext.x.toFixed(1)} × ${ext.y.toFixed(1)} × ${ext.z.toFixed(1)} m` +
-      (drawn ? '' : '\nNessun contorno disegnabile: se hai appena rifatto ?room=reset, dimmelo'),
+    rooms.length
+      ? 'Scegli la stanza da aprire.'
+      : 'Nessuna stanza salvata: scansionala e salvala dal visore (tab Scan).',
   );
+  if (rooms.length === 1) void chooseRoom(rooms[0].id);
+  return { select };
 }
-

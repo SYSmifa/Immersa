@@ -1,36 +1,18 @@
-import { createEditor } from './editor/editor';
-import { createStage } from './scene/stage';
-import { loadTestModel } from './scene/testModel';
-import { createLogin } from './ui/login';
-import { createStats } from './ui/stats';
-import { createProbe } from './xr/probe';
-import { createRoomMode } from './xr/roomMode';
+import { runHeadsetApp } from './app/headset';
+import { createEditorPage } from './editor/editor';
+import { runTestScene } from './scene/testScene';
 
+// Routes: ?test / ?probe (diagnostics), ?uitest (3D menu on the PC), ?edit (PC editor);
+// otherwise the headset gets the AR app and the PC gets the editor.
 const params = new URLSearchParams(location.search);
-const probeMode = params.has('probe');
-const roomMode = params.has('room');
-const editMode = params.has('edit');
-const { renderer, scene, camera, controls } = createStage(
-  probeMode ? ['plane-detection', 'mesh-detection', 'anchors'] : roomMode ? ['plane-detection', 'hand-tracking'] : [],
-);
-const stats = createStats(camera);
-createLogin();
-if (editMode) createEditor({ renderer, scene, camera, controls });
-const probe = probeMode ? createProbe(renderer, scene, camera) : null;
-const room = roomMode
-  ? createRoomMode(renderer, scene, camera, (t) => stats.setInfo(t))
-  : null;
 
-renderer.setAnimationLoop((_time, frame) => {
-  renderer.render(scene, camera);
-  probe?.tick(frame);
-  room?.tick(frame);
-  stats.tick(renderer.xr.isPresenting);
-});
-
-if (!roomMode && !editMode) {
-  loadTestModel().then(({ root, source, triangles }) => {
-    scene.add(root);
-    stats.setInfo(`${source}: ${(triangles / 1000).toFixed(0)}k tris`);
-  });
+async function main() {
+  if (params.has('test') || params.has('probe')) return runTestScene(params.has('probe'));
+  if (params.has('uitest')) return (await import('./app/uitest')).runUiTest();
+  if (params.has('edittest')) return (await import('./app/edittest')).runEditTest();
+  if (params.has('edit')) return createEditorPage();
+  const inHeadset = (await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false)) ?? false;
+  return inHeadset ? runHeadsetApp() : createEditorPage();
 }
+
+void main();

@@ -88,6 +88,7 @@ export function createProbe(renderer: WebGLRenderer, scene: Scene, camera: Persp
     started = performance.now();
     saved = false;
     features = ((session as Any).enabledFeatures ?? []).join(',') || '(enabledFeatures n/a)';
+    status[0] = `roomCapture: ${typeof (session as Any).initiateRoomCapture === 'function' ? 'YES' : 'no'}`;
     if (storedAnchor && (session as Any).restorePersistentAnchor) {
       (session as Any)
         .restorePersistentAnchor(storedAnchor.uuid)

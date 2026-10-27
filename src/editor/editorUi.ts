@@ -1,10 +1,16 @@
 // DOM side panel of the PC editor (Italian labels, like the login box).
 export interface EditorHandlers {
+  onRoom(id: string): void;
+  onRenameRoom(): void;
+  onProject(id: string): void;
+  onNewProject(): void;
+  onRenameProject(): void;
+  onDeleteProject(): void;
   onUpload(file: File): void;
   onSelect(id: string): void;
   onMode(mode: 'translate' | 'rotate'): void;
   onScale(value: number): void;
-  onDelete(): void;
+  onDeleteModel(): void;
   onSave(): void;
 }
 
@@ -13,11 +19,13 @@ export interface SelectionInfo {
   size: [number, number, number] | null; // metres, null while the file is loading
 }
 
+type Option = { id: string; name: string };
+
 export function createEditorUi(h: EditorHandlers) {
   const box = document.createElement('div');
   box.style.cssText =
-    'position:fixed;top:56px;left:8px;width:260px;padding:10px;background:#000c;color:#fff;' +
-    'font:13px sans-serif;z-index:10;display:flex;flex-direction:column;gap:8px';
+    'position:fixed;top:8px;left:8px;width:280px;max-height:calc(100vh - 16px);overflow:auto;padding:10px;' +
+    'background:#000c;color:#fff;font:13px sans-serif;z-index:10;display:flex;flex-direction:column;gap:8px';
   document.body.appendChild(box);
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '') => {
@@ -36,9 +44,36 @@ export function createEditorUi(h: EditorHandlers) {
     b.onclick = onClick;
     return b;
   };
+  const section = (title: string) => {
+    const t = el('div', title);
+    t.style.cssText = 'color:#9fb0d0;margin-top:4px';
+    return t;
+  };
+  const select = (onChange: (id: string) => void) => {
+    const s = el('select');
+    s.style.cssText = 'width:100%';
+    s.onchange = () => onChange(s.value);
+    return s;
+  };
+  const fill = (s: HTMLSelectElement, items: Option[], selected: string | null, placeholder: string) => {
+    s.replaceChildren(
+      Object.assign(el('option', placeholder), { value: '' }),
+      ...items.map((i) => Object.assign(el('option', i.name), { value: i.id })),
+    );
+    s.value = selected ?? '';
+  };
 
   const status = el('div');
   status.style.cssText = 'color:#8f8;min-height:1.2em;white-space:pre-wrap';
+
+  const rooms = select(h.onRoom);
+  const renameRoom = button('Rinomina stanza', h.onRenameRoom);
+  const projects = select(h.onProject);
+  const projectButtons = [
+    button('Nuovo', h.onNewProject),
+    button('Rinomina', h.onRenameProject),
+    button('Elimina', h.onDeleteProject),
+  ];
 
   const file = el('input');
   file.type = 'file';
@@ -49,7 +84,7 @@ export function createEditorUi(h: EditorHandlers) {
   };
 
   const list = el('div');
-  list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:30vh;overflow:auto';
+  list.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:25vh;overflow:auto';
 
   const scale = el('input');
   scale.type = 'number';
@@ -64,23 +99,52 @@ export function createEditorUi(h: EditorHandlers) {
   const selection = row(
     button('Sposta', () => h.onMode('translate')),
     button('Ruota', () => h.onMode('rotate')),
-    button('Elimina', () => h.onDelete()),
+    button('Elimina modello', h.onDeleteModel),
     row(el('span', 'Scala'), scale, size),
   );
   selection.style.display = 'none';
 
-  const save = button('Salva stanza', () => h.onSave());
-  box.append(el('b', 'Editor stanza'), status, el('div', 'Carica modello (.glb)'), file, list, selection, save);
+  const save = button('Salva progetto', h.onSave);
+  const projectControls = [...projectButtons, file, save];
+
+  box.append(
+    el('b', 'Editor Immersa'),
+    status,
+    section('Stanza'),
+    rooms,
+    renameRoom,
+    section('Progetto'),
+    projects,
+    row(...projectButtons),
+    section('Modelli (.glb)'),
+    file,
+    list,
+    selection,
+    save,
+  );
+  const enableProject = (on: boolean) => projectControls.forEach((c) => ((c as HTMLButtonElement).disabled = !on));
+  renameRoom.disabled = true;
+  enableProject(false);
 
   return {
     setStatus(text: string) {
       status.textContent = text;
     },
     setDirty(dirty: boolean) {
-      save.textContent = dirty ? 'Salva stanza *' : 'Salva stanza';
+      save.textContent = dirty ? 'Salva progetto *' : 'Salva progetto';
       save.style.fontWeight = dirty ? 'bold' : 'normal';
     },
-    setModels(models: { id: string; name: string }[], selectedId: string | null) {
+    setRooms(items: Option[], selected: string | null) {
+      fill(rooms, items, selected, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
+      renameRoom.disabled = !selected;
+    },
+    // `enabled`: a room is chosen, so projects can be created.
+    setProjects(items: Option[], selected: string | null, enabled: boolean) {
+      fill(projects, items, selected, items.length ? '— scegli un progetto —' : '(nessun progetto)');
+      projectButtons[0].disabled = !enabled;
+      for (const b of [projectButtons[1], projectButtons[2], file, save]) (b as HTMLButtonElement).disabled = !selected;
+    },
+    setModels(models: Option[], selectedId: string | null) {
       list.replaceChildren(
         ...models.map((m) => {
           const b = button(m.name, () => h.onSelect(m.id));
