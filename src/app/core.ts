@@ -78,6 +78,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     captureAvailable: false,
     projectName: null,
     fits: [],
+    events: [],
     projects: null,
     currentProjectId: null,
     page: 0,
@@ -99,6 +100,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let lastFar = 0;
   let farIndex = 0;
   const fits = new Map<string, { resid: number; matched: number; total: number; good: boolean }>(); // last attempt per room, for the Options diagnostics
+  const events: string[] = []; // what happened to the XR session (standby, resume, resets), newest last
   const misses = new Map<string, number>(); // consecutive checks that could not find an aligned room any more
   let rawLive: RoomPlane[] = []; // everything the headset reports (may include other rooms)
   let rawBoxes: RoomBox[] = [];
@@ -149,6 +151,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
       : null;
     view.projectName = current?.name ?? null;
+    view.events = events.slice(-2);
     const listed = current ? rooms.filter((r) => current!.roomIds.includes(r.id)) : rooms;
     view.fits = listed
       .filter((r) => fits.has(r.id))
@@ -606,6 +609,15 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (info !== view.info || live.length >= MIN_PLANES !== view.liveReady) refreshView();
   }
 
+  // For the Options diagnostics: session visibility changes, resets, ...
+  function logEvent(text: string) {
+    const t = new Date();
+    const hms = [t.getHours(), t.getMinutes(), t.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+    events.push(`${hms} ${text}`);
+    if (events.length > 8) events.shift();
+    refreshView();
+  }
+
   render();
   return {
     host,
@@ -656,8 +668,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       followHead(head, dt);
       host.update();
     },
+    logEvent,
     // The headset moved its coordinate frame (new boundary, recentring): every alignment is void.
     referenceReset() {
+      logEvent('reset del riferimento');
       aligns.clear();
       misses.clear();
       lastTry = 0;

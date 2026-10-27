@@ -9,7 +9,7 @@ import { createAppCore, type Capture, type Head } from './core';
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, refType: XRReferenceSpaceType = 'local-floor') {
   const core = createAppCore({
     scene,
     backend,
@@ -69,6 +69,27 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => core.host.cancel(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('squeezestart', () => core.menu.toggle());
+    // Standby / resume: the system may bring the Guardian back. Log it, and on return ask again
+    // for the reference space the session was set up with (experimental; the Options tab shows the events).
+    let wasAway = false;
+    session.addEventListener('visibilitychange', () => {
+      core.logEvent(`sessione ${session.visibilityState}`);
+      if (session.visibilityState !== 'visible') {
+        wasAway = true;
+        return;
+      }
+      if (!wasAway) return;
+      wasAway = false;
+      const type = refType;
+      session
+        .requestReferenceSpace(type)
+        .then((space) => {
+          renderer.xr.setReferenceSpace(space);
+          core.referenceReset(); // the origin may have changed: align everything again
+          core.logEvent(`riferimento ${type} richiesto di nuovo`);
+        })
+        .catch((e: Error) => core.logEvent(`riferimento non rinnovato: ${e.message}`.slice(0, 40)));
+    });
     session.addEventListener('end', () => {
       bound = null;
       wrist.mesh.visible = false;

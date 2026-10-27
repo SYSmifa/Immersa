@@ -12,6 +12,7 @@ export interface MenuView {
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
   projectName: string | null; // the open project
+  events: string[]; // recent session events (standby, resume, resets)
   fits: string[]; // how well each room's saved planes match the live scan (diagnostics)
   projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
@@ -147,7 +148,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(button('Chiudi il progetto aperto', top + 72, a.closeProject, { disabled: !v.currentProjectId }));
     out.push(button(`Pareti invisibili in vista: ${v.showOccluders ? 'sì' : 'no'}`, top + 144, a.toggleOccluders));
     out.push(label('Allineamento delle stanze (diagnostica)', top + 214, 28, 20, '#8e99b3'));
-    v.fits.forEach((line, i) => out.push(label(line, top + 242 + i * 26, 26, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
+    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 242 + i * 24, 24, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
+    v.events.forEach((line, i) => out.push(label(line, top + 318 + i * 24, 24, 19, '#8e99b3')));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
