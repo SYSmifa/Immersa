@@ -15,14 +15,14 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 
 ## Slide (9)
 
-1. Titolo — badge, IMMERSA, sottotitolo su Unreal, card: Unreal Engine 5 · Meta Quest 3 (MR) · Database Online (Cloud)
+1. Titolo — badge, IMMERSA, sottotitolo SHAPE YOUR SPACE, card: Unreal Engine 5 · Meta Quest 3 (MR) · Database Online (Cloud)
 2. Un motore, due app — app desktop Windows e app Quest, collegate dal cloud (API REST · VaRest)
 3. Come funziona Immersa — 4 passaggi: scansione, progettazione su PC, visualizzazione nel visore, hand tracking
 4. Video Demo & Showcase (segnaposto del video)
 5. Lo stack in Unreal Engine — Meta XR SDK, glTFRuntime, VaRest, Blueprint
-6. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, terzo riquadro vuoto (da riempire)
-7. Potenzialità della Realtà Mista e di Immersa (testi proposti da Claude, da approvare)
-8. Sviluppi futuri & Roadmap — colocation multi-utente, casi d'uso professionali
+6. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, Undo e Redo
+7. Potenzialità della Realtà Mista e di Immersa (testi rivisti dall'autore)
+8. Sviluppi futuri — Immersa Industry, Immersa Design
 9. Domande & Prova Visore (titolo lasciato vuoto come nel PDF modificato dall'autore)
 
 Storia: partita come 6 slide generiche con testi forniti dall'autore parola per parola; poi la slide
