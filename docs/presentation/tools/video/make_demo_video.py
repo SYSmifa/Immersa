@@ -23,11 +23,11 @@ ENC = ['-c:v', 'libx264', '-crf', '17', '-preset', 'fast', '-pix_fmt', 'yuv420p'
 # (start, end, speed) in source seconds
 PHASES = [
   ('f1.mp4', None, False, 'FASE 1', 'Scansione della stanza con il Meta Quest 3',
-   [(5.5, 8.3, 1), (10, 14, 1), (16, 23, 1.25), (24, 30, 1), (35, 40, 1), (44, 49, 1), (76, 84, 1)]),
+   [(5.2, 7.7, 1), (9.3, 20.2, 1.25), (20.2, 26, 1), (29, 35, 1), (39, 46, 1), (59.8, 78.5, 1)]),
   ('f2.mp4', 'crop=2560:1340:0:40,', False, 'FASE 2', "Progettazione del layout sull’app desktop",
-   [(0, 8, 1.5), (8, 27, 1.5), (27, 34, 1), (34, 50, 1.5), (50, 59, 1)]),
+   [(0, 16, 1.5), (16, 22, 1), (22, 30, 1.5), (34, 88.5, 1.5)]),
   ('f34.mp4', None, False, 'FASE 3 e 4', 'Nel visore: caricamento e manipolazione oggetti',
-   [(3.5, 31, 1), (37, 45, 1), (45, 47, 1)]),
+   [(0.3, 41.5, 1)]),
 ]
 
 def run(*a): subprocess.run(['ffmpeg', '-v', 'error', '-y', *a], check=True)
