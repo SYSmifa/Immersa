@@ -25,7 +25,7 @@ PHASES = [
   ('f1.mp4', None, False, 'FASE 1', 'Scansione della stanza con il Meta Quest 3',
    [(5.2, 7.7, 1), (9.3, 20.2, 1.25), (20.2, 26, 1), (29, 35, 1), (39, 46, 1), (59.8, 78.5, 1)]),
   ('f2.mp4', 'crop=2560:1340:0:40,', False, 'FASE 2', "Progettazione del layout sull’app desktop",
-   [(0, 16, 1.5), (16, 22, 1), (22, 30, 1.5), (34, 88.5, 1.5)]),
+   [(0, 10.5, 1.5), (10.5, 19, 1), (19, 30, 1.5), (36, 83, 1.5)]),
   ('f34.mp4', None, False, 'FASE 3 e 4', 'Nel visore: caricamento e manipolazione oggetti',
    [(0.3, 41.5, 1)]),
 ]
