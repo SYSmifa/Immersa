@@ -24,6 +24,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `src/room/` formato stanza (`types.ts`), allineamento ICP yaw+traslazione (`align.ts`), lettura piani (`capture.ts`), storage locale (`storage.ts`); `src/xr/roomMode.ts` test `?room`
 - `src/` — moduli piccoli, una responsabilità per file (cartelle per area: `xr/`, `scene/`, `room/`, `ui/`)
 - `public/models/` — GLB di test, ignorati da git
+- `docs/presentation/` — slide e video demo del meetup Unreal Engine (31 ott); tutto nel README lì
 
 ## Comandi
 - `npm run dev` — HTTPS su LAN (cert autofirmato), Quest apre `https://<IP-PC>:5173`, accetta l'avviso
@@ -39,6 +40,9 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 ## Decisioni
 - TypeScript strict, three.js senza framework
 - Due modalità di serving: LAN HTTPS (principale) e USB/adb
+
+## Meetup Unreal (31 ott, 15 min)
+- Slide + video in `docs/presentation/` (README = storia, regole, come rigenerare). Il progetto presentato è in UE5 solo Blueprint, non questo repo
 
 ## Stato
 - Fase 1, passi 1-2 testati su Quest 3 via USB (render semplice, 2 luci, niente ombre):
