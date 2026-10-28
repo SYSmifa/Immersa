@@ -13,21 +13,22 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 - `tools/extract.cjs`, `tools/build.py` — generano il PDF modificabile
 - `tools/video/make_demo_video.py`, `logo.png` — montaggio del video demo
 
-## Slide (8)
+## Slide (9)
 
-1. Titolo — badge, IMMERSA, sottotitolo su Unreal, card: Unreal Engine 5 · 100% Blueprint · Meta Quest 3
+1. Titolo — badge, IMMERSA, sottotitolo su Unreal, card: Unreal Engine 5 · Meta Quest 3 (MR) · Database Online (Cloud)
 2. Un motore, due app — app desktop Windows e app Quest, collegate dal cloud (API REST · VaRest)
 3. Come funziona Immersa — 4 passaggi: scansione, progettazione su PC, visualizzazione nel visore, hand tracking
-4. Lo stack in Unreal Engine — Meta XR SDK, glTFRuntime, VaRest, Blueprint
-5. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, sincronizzazione PC e visore
-6. Video Demo & Showcase (segnaposto del video)
-7. Sviluppi futuri & Roadmap — colocation multi-utente, casi d'uso professionali
-8. Domande & Prova Visore
+4. Video Demo & Showcase (segnaposto del video)
+5. Lo stack in Unreal Engine — Meta XR SDK, glTFRuntime, VaRest, Blueprint
+6. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, terzo riquadro vuoto (da riempire)
+7. Potenzialità della Realtà Mista e di Immersa (testi proposti da Claude, da approvare)
+8. Sviluppi futuri & Roadmap — colocation multi-utente, casi d'uso professionali
+9. Domande & Prova Visore (titolo lasciato vuoto come nel PDF modificato dall'autore)
 
 Storia: partita come 6 slide generiche con testi forniti dall'autore parola per parola; poi la slide
 "Come funziona" è stata riscritta sui passaggi reali (titoli approvati, testi riscritti due volte) e
 la presentazione è stata rifocalizzata su Unreal (slide 2, 4, 5 nuove). Scaletta a tempo suggerita:
-titolo 0:30, due app 1:00, come funziona 1:30, demo ~2:00 (video), stack 2:00, sfide 2:30, roadmap 0:45, domande.
+titolo 0:30, due app 1:00, come funziona 1:30, demo ~2:00 (video, slide 4), stack 2:00, sfide 2:00, potenzialità 1:00, roadmap 0:45, domande.
 
 Da verificare con l'autore (dedotto, non dichiarato): glTFRuntime scarica i modelli dal catalogo cloud;
 "senza una riga di C++"; mouse e tastiera su PC; sincronizzazione in JSON via VaRest. Non indicati:

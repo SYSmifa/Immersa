@@ -127,54 +127,35 @@
   <span class="badge">UNREAL ENGINE MEETUP — 31 OTTOBRE</span>
   <h1 class="title"><span style="color:#c4b5fd">I</span><span style="color:#9ab7fb">M</span><span style="color:#6fbafa">M</span><span style="color:#45bcf8">E</span><span style="color:#37c3df">R</span><span style="color:#35cbbc">S</span><span style="color:#34d399">A</span></h1>
   <p class="subtitle">Realtà Mista con Unreal Engine 5: dalla stanza reale al progetto 3D</p>
-  <p class="desc">Come ho sviluppato interamente in Blueprint un'applicazione MR per Meta Quest 3 e un'app desktop che riconoscono la stanza reale, posizionano modelli 3D e salvano i progetti nel cloud.</p>
+  <p class="desc">Come ho creato un'applicazione VR che riconosce la tua stanza reale permettendoti di posizionare oggetti 3D e salvare i tuoi progetti online</p>
   <div class="specs">
     <div class="spec v"><div class="k">MOTORE GRAFICO</div><div class="val">Unreal Engine 5</div></div>
-    <div class="spec c"><div class="k">LOGICA</div><div class="val">100% Blueprint</div></div>
-    <div class="spec e"><div class="k">TECNOLOGIA VISORE</div><div class="val">Meta Quest 3 (MR)</div></div>
+    <div class="spec c"><div class="k">TECNOLOGIA VISORE</div><div class="val">Meta Quest 3 (MR)</div></div>
+    <div class="spec e"><div class="k">SALVATAGGIO DATI</div><div class="val">Database Online (Cloud)</div></div>
   </div>
 </section>
 
 <section class="slide">
   <div class="head"><span class="bar"></span><h2>2. Un motore, due app</h2></div>
   <div class="duo">
-    <div class="card v"><span class="accent"></span><span class="tag">PC</span><h3>App Desktop (Windows)</h3><p>Si carica la stanza scansionata, si importano i modelli 3D, si posizionano e configurano con mouse e tastiera, poi si salva il progetto.</p></div>
+    <div class="card v"><span class="accent"></span><span class="tag">PC</span><h3>App Desktop (Windows)</h3><p>La parte di gestione e di configurazione dei modelli 3D e di quello che vedremo all'interno del visore</p></div>
     <div class="link"><span class="link-k">CLOUD</span><span class="link-v">API REST · VaRest</span></div>
-    <div class="card c"><span class="accent"></span><span class="tag">VISORE</span><h3>App Meta Quest 3 (MR)</h3><p>Si scansiona la stanza, si apre il progetto e i modelli compaiono nella stanza reale, manipolabili con le mani grazie all'hand tracking.</p></div>
+    <div class="card c"><span class="accent"></span><span class="tag">VISORE</span><h3>App Meta Quest 3 (MR)</h3><p>La parte di scansione delle stanze reali e di visualizzazione finale con l'aggiunta dei modelli caricati</p></div>
   </div>
 </section>
 
 <section class="slide">
   <div class="head"><span class="bar"></span><h2>3. Come funziona Immersa</h2></div>
   <div class="grid2x2">
-    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>1. Scansione della Stanza</h3><p>Tramite l'SDK di Meta è possibile utilizzare il visore per scansionare una stanza reale che può essere salvata nel database cloud.</p></div>
-    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>2. Progettazione su PC</h3><p>Dall'app desktop si apre la stanza scansionata, si importano i modelli 3D, si posizionano e configurano liberamente e si salva il progetto nel cloud.</p></div>
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>1. Scansione della Stanza</h3><p>Tramite l'SDK di Meta e il Quest è possibile utilizzare Immersa per scansionare una stanza reale che può essere salvata nel database cloud.</p></div>
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>2. Progettazione su PC</h3><p>Dall'app desktop si apre la stanza scansionata, si importano i modelli 3D, si posizionano e configurano liberamente, salvando poi il progetto nel cloud.</p></div>
     <div class="card e"><span class="accent"></span><span class="dot"></span><h3>3. Visualizzazione nel Visore</h3><p>Tornati sul visore, si apre il progetto: trovandosi nella stessa stanza, i modelli si riallineano automaticamente e compaiono nel punto esatto in cui sono stati posizionati.</p></div>
-    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>4. Interazione con Hand Tracking</h3><p>In realtà mista gli oggetti si selezionano, spostano, ruotano e scalano direttamente con le mani grazie all'hand tracking, senza controller.</p></div>
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>4. Interazione con Hand Tracking</h3><p>In Immersa gli oggetti si selezionano, spostano, ruotano e scalano direttamente con le mani grazie all'hand tracking, senza controller.</p></div>
   </div>
 </section>
 
 <section class="slide">
-  <div class="head"><span class="bar"></span><h2>4. Lo stack in Unreal Engine</h2></div>
-  <div class="grid2x2">
-    <div class="card v"><span class="accent"></span><span class="tag">SDK</span><h3>Meta XR SDK</h3><p>Passthrough, scansione della stanza, ancore spaziali e hand tracking: tutta la parte di realtà mista sul Meta Quest 3.</p></div>
-    <div class="card c"><span class="accent"></span><span class="tag">PLUGIN</span><h3>glTFRuntime</h3><p>Importazione dei modelli GLB/glTF a runtime: i modelli non sono inclusi nella build, ma scaricati dal catalogo cloud e costruiti al volo.</p></div>
-    <div class="card e"><span class="accent"></span><span class="tag">PLUGIN</span><h3>VaRest</h3><p>Chiamate REST e gestione JSON verso il database cloud: login degli utenti, stanze, progetti e catalogo dei modelli.</p></div>
-    <div class="card v"><span class="accent"></span><span class="tag">SCRIPTING</span><h3>Blueprint</h3><p>Tutta la logica dell'applicazione è scritta in Blueprint, senza una riga di C++: dalla UI alla sincronizzazione con il cloud.</p></div>
-  </div>
-</section>
-
-<section class="slide">
-  <div class="head"><span class="bar"></span><h2>5. Sfide tecniche in Blueprint</h2></div>
-  <div class="row3">
-    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>Allineamento alla Stanza</h3><p>Riconoscimento di muri e superfici irregolari con calcolo geometrico dei perimetri e ancore spaziali, per riposizionare i modelli nel punto esatto.</p></div>
-    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Modelli a Runtime</h3><p>Con glTFRuntime i modelli vengono scaricati e costruiti durante l'esecuzione, poi resi selezionabili e manipolabili come qualsiasi attore della scena.</p></div>
-    <div class="card e"><span class="accent"></span><span class="dot"></span><h3>Sincronizzazione PC e Visore</h3><p>Stanze, progetti e trasformazioni degli oggetti viaggiano in JSON tramite VaRest, per ritrovare sul visore esattamente ciò che è stato configurato su PC.</p></div>
-  </div>
-</section>
-
-<section class="slide">
-  <div class="head"><span class="bar"></span><h2>6. Video Demo &amp; Showcase</h2></div>
+  <div class="head"><span class="bar"></span><h2>4. Video Demo &amp; Showcase</h2></div>
   <div class="video">
     <div class="play"></div>
     <h3>[ ANTEPRIMA VIDEO DEMO ]</h3>
@@ -183,7 +164,34 @@
 </section>
 
 <section class="slide">
-  <div class="head"><span class="bar"></span><h2>7. Sviluppi Futuri &amp; Roadmap</h2></div>
+  <div class="head"><span class="bar"></span><h2>5. Lo stack in Unreal Engine</h2></div>
+  <div class="grid2x2">
+    <div class="card v"><span class="accent"></span><span class="tag">SDK</span><h3>Meta XR SDK</h3><p>Passthrough, scansione della stanza, ancore spaziali e hand tracking: tutta la parte di realtà mista sul Meta Quest 3.</p></div>
+    <div class="card c"><span class="accent"></span><span class="tag">PLUGIN</span><h3>glTFRuntime</h3><p>Importazione dei modelli GLB/glTF a runtime: i modelli non sono inclusi nella build, ma scaricati dal catalogo cloud e costruiti al volo.</p></div>
+    <div class="card e"><span class="accent"></span><span class="tag">PLUGIN</span><h3>VaRest</h3><p>Chiamate REST e gestione JSON verso il database cloud: login degli utenti, stanze, progetti e salvataggio dei modelli 3D.</p></div>
+    <div class="card v"><span class="accent"></span><span class="tag">SCRIPTING</span><h3>Blueprint</h3><p>Tutta la logica dell'applicazione è scritta in Blueprint: dalla UI alla sincronizzazione con il cloud.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>6. Sfide tecniche in Blueprint</h2></div>
+  <div class="row3">
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>Allineamento alla Stanza</h3><p>Una delle sfide più difficili è stata quella di riuscire ad orientare i modelli caricati sulla base della stanza reale tramite il riconoscimento del pavimento e delle pareti per confrontarli con i dati ricevuti dal cloud.</p></div>
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Modelli a Runtime</h3><p>Con glTFRuntime i modelli vengono scaricati e costruiti durante l'esecuzione, poi resi selezionabili e manipolabili come qualsiasi attore della scena.</p></div>
+    <div class="card e"><span class="accent"></span></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>7. Potenzialità della Realtà Mista e di Immersa</h2></div>
+  <div class="row2">
+    <div class="card v"><span class="accent"></span><span class="dot"></span><h3>Realtà Mista</h3><p>I contenuti 3D convivono con lo spazio fisico, in scala reale e senza isolare l'utente: si valuta un oggetto prima che esista, direttamente dove verrà usato.</p></div>
+    <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Immersa</h3><p>Provare disposizioni e allestimenti nella stanza reale, senza prototipi fisici: i progetti restano nel cloud e i modelli ricompaiono nel punto esatto a ogni sessione.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="head"><span class="bar"></span><h2>8. Sviluppi Futuri &amp; Roadmap</h2></div>
   <div class="row2">
     <div class="card c"><span class="accent"></span><span class="dot"></span><h3>Colocation Multi-Utente</h3><p>Condivisione dello stesso spazio fisico tra più visori per permettere a più persone di collaborare allo stesso progetto 3D.</p></div>
     <div class="card e"><span class="accent"></span><span class="dot"></span><h3>Casi d'Uso Professionali</h3><p>Espansione verso studi di architettura, interior design, cantieri e showroom virtuali interattivi.</p></div>
@@ -191,7 +199,7 @@
 </section>
 
 <section class="slide">
-  <div class="head"><span class="bar"></span><h2>8. Domande &amp; Prova Visore</h2></div>
+  <div class="head"><span class="bar"></span><h2></h2></div>
   <div class="center">
     <div class="ring"></div>
     <div class="thanks"><span style="color:#c4b5fd">G</span><span style="color:#b9b6fd">r</span><span style="color:#aeb6fc">a</span><span style="color:#a3b7fc">z</span><span style="color:#98b8fb">i</span><span style="color:#8db8fb">e</span> <span style="color:#77b9fa">p</span><span style="color:#6bbafa">e</span><span style="color:#60bbf9">r</span> <span style="color:#4abcf9">l</span><span style="color:#3fbdf8">'</span><span style="color:#38bef5">a</span><span style="color:#37c0ec">t</span><span style="color:#37c2e2">t</span><span style="color:#37c4d9">e</span><span style="color:#36c6d0">n</span><span style="color:#36c8c7">z</span><span style="color:#36cabe">i</span><span style="color:#35cdb5">o</span><span style="color:#35cfab">n</span><span style="color:#34d1a2">e</span><span style="color:#34d399">!</span></div>
