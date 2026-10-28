@@ -8,7 +8,7 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 ## File
 
 - `immersa-meetup.html` — sorgente delle slide (HTML/CSS, A4 orizzontale, tema dark viola/azzurro/smeraldo)
-- `Immersa-Meetup.pdf` — PDF grafico di stampa (font Inter, sfumature)
+- `Immersa-Meetup.pdf` — PDF grafico (font Inter, sfumature), una immagine per pagina; Chrome stampa le sfumature come vettori e Chromium/Opera lo rendono lento
 - `Immersa-Meetup-modificabile.pdf` — ogni testo è un campo modificabile (Acrobat Reader, Chrome, Edge)
 - `tools/extract.cjs`, `tools/build.py` — generano il PDF modificabile
 - `tools/video/make_demo_video.py`, `logo.png` — montaggio del video demo
@@ -40,11 +40,14 @@ versione di Unreal, tipo di database/cloud.
 Serve `pip install pymupdf`, Node con Playwright (Chromium) e il font Inter.
 
 ```
-# PDF grafico
-node -e "require('playwright').chromium.launch().then(async b=>{const p=await b.newPage();await p.goto('file://'+process.cwd()+'/docs/presentation/immersa-meetup.html');await p.pdf({path:'docs/presentation/Immersa-Meetup.pdf',preferCSSPageSize:true,printBackground:true});await b.close()})"
+# PDF grafico (una immagine per pagina: veloce in Chrome/Opera/Edge, testo non selezionabile)
+node docs/presentation/tools/shots.cjs docs/presentation/immersa-meetup.html build/shots
+python3 docs/presentation/tools/build_graphic.py build/shots docs/presentation/Immersa-Meetup.pdf
 # PDF modificabile
 node docs/presentation/tools/extract.cjs docs/presentation/immersa-meetup.html build/slides
 python3 docs/presentation/tools/build.py build/slides docs/presentation/Immersa-Meetup-modificabile.pdf
+# link del video (slide 4) su entrambi
+python3 docs/presentation/tools/add_video_link.py docs/presentation/Immersa-Meetup.pdf docs/presentation/Immersa-Meetup-modificabile.pdf
 ```
 
 Note sul PDF modificabile: sfondo come immagine + un campo di testo per ogni blocco; font Helvetica
