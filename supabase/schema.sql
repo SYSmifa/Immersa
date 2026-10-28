@@ -9,6 +9,9 @@ create table if not exists public.rooms (
   updated_at timestamptz not null default now()
 );
 
+-- The scan replaced by the last automatic update (one backup).
+alter table public.rooms add column if not exists previous_data jsonb;
+
 alter table public.rooms enable row level security;
 
 drop policy if exists "rooms: owner only" on public.rooms;

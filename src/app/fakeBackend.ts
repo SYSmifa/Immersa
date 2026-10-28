@@ -92,6 +92,10 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
       const r = rooms.find((x) => x.id === id);
       if (r) r.name = name;
     },
+    async updateRoomScan(id, scan) {
+      const r = rooms.find((x) => x.id === id);
+      if (r) r.scan = scan;
+    },
     async deleteRoom(id) {
       rooms.splice(rooms.findIndex((x) => x.id === id), 1);
       // like the database: projects stay, with a stale room id

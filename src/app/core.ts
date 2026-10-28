@@ -28,6 +28,7 @@ interface Options {
 }
 
 const MENU_DISTANCE = 0.85;
+const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than this has a stale saved scan
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
 const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
@@ -118,6 +119,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let lastTry = 0;
   let switching = 0; // consecutive checks that found another saved room under the head
   let lost = 0; // consecutive checks that found none
+  const refreshed = new Set<string>(); // rooms whose saved scan was already renewed in this session
+  let stale = 0; // consecutive checks where the recognised room fits poorly
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
@@ -382,6 +385,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function reconsider(found: Recognised | null) {
     if (found && found.room.id === recognised!.room.id) {
       switching = lost = 0;
+      stale = found.alignment.resid > STALE_RESID ? stale + 1 : 0;
+      if (stale >= 3 && !refreshed.has(found.room.id)) {
+        stale = 0;
+        return void refreshRoomScan(found);
+      }
       if (moved(recognised!.alignment, found.alignment, found.room.id)) {
         // The headset moved the room: follow it.
         recognised!.alignment = found.alignment;
@@ -472,6 +480,42 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     }
   }
 
+  // The saved scan no longer matches what the headset reports (the room was scanned again, or the
+  // headset's copy moved): the live planes are the truth, so store them as the room's scan (same id and
+  // name; the old scan is kept as a backup) and move the models so they stay put relative to the room.
+  async function refreshRoomScan(r: Recognised) {
+    const { room, alignment: a } = r;
+    const planes = live;
+    const boxes = liveBoxes;
+    if (planes.length < MIN_PLANES) return;
+    refreshed.add(room.id);
+    const m = alignMatrix(a);
+    const convert = (x: RoomModel): RoomModel => {
+      if (x.roomId !== room.id) return x;
+      const v = new Vector3(...x.pos).applyMatrix4(m);
+      return { ...x, pos: [v.x, v.y, v.z], yaw: x.yaw - a.yaw };
+    };
+    const scan = { version: 1 as const, savedAt: Date.now(), planes, boxes };
+    const affected = allProjects.filter((p) => p.models.some((x) => x.roomId === room.id));
+    try {
+      await backend.updateRoomScan(room.id, scan, room.scan);
+      for (const p of affected) await backend.saveProject(p.id, { models: p.models.map(convert) });
+    } catch (e) {
+      refreshed.delete(room.id);
+      return say(`Room update failed: ${errText(e)}`);
+    }
+    room.scan = scan;
+    for (const p of affected) p.models = p.models.map(convert);
+    const h = houses.get(room.id); // its invisible walls were built from the old scan
+    if (h) {
+      h.layer.sync([]);
+      scene.remove(h.root);
+      houses.delete(room.id);
+    }
+    setRecognised({ room, alignment: identity(planes.length) });
+    say('Room scan updated');
+  }
+
   async function startScan() {
     if (!capture?.available) return say('Scansione non disponibile in questo browser');
     setPendingName(true); // after the scan (even if the session restarts) ask for a name
@@ -494,7 +538,12 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // After a scan: once the new planes arrive, offer to name and save the room.
   function checkPending() {
     if (!pendingName() || !roomsLoaded || live.length < MIN_PLANES || keyboard.isOpen()) return;
-    if (recognised) return setPendingName(false); // scanned again a room we already know
+    if (recognised) {
+      // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
+      if (performance.now() < readyAt + 1500 || lastTry < readyAt) return;
+      setPendingName(false);
+      return void refreshRoomScan(recognised);
+    }
     if (failedTries < 1) return; // recognition has not had its chance yet
     setPendingName(false);
     view.tab = 'scan';

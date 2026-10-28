@@ -123,6 +123,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, '#cdd6ea', true));
       out.push(button('Rinomina stanza', top + 140, a.renameRoom));
       out.push(button('Non è questa stanza', top + 220, a.notThisRoom));
+      if (v.captureAvailable) out.push(button('Scansiona di nuovo', top + 300, a.scan));
     } else if (v.candidate) {
       out.push(label(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, top, 110, 28, '#cdd6ea', true));
       out.push(button('Sì, sono in questa stanza', top + 130, a.confirmCandidate, { primary: true }));
