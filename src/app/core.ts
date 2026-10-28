@@ -48,6 +48,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   rig.add(menu.mesh);
   host.add(menu);
   const keyboard = createKeyboard(host, rig);
+  // Floating "Loading project…" label (not interactive) shown while a project is reopened after standby.
+  const loading = new Panel(0.5, 0.1, 1200);
+  loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text: 'Loading project…', size: 44, align: 'center' }]);
+  loading.mesh.visible = false;
+  host.root.add(loading.mesh);
 
   // The recognised room's frame (only its outline lives here); the alignment maps it onto the session.
   const roomRoot = new Group();
@@ -334,6 +339,12 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         refreshView();
       }
     }
+  }
+
+  function failResume() {
+    loading.mesh.visible = false;
+    openMenu();
+    say('Project reload failed', 10000);
   }
 
   function loadProjects() {
@@ -654,7 +665,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       closeCurrent();
       setRecognised(null);
       void reloadRooms();
-      openMenu();
+      if (resumePending) loading.mesh.visible = true;
+      else openMenu();
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       rawLive = planes;
@@ -669,10 +681,21 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       tryRecognise(now);
       alignFar(now);
-      if (resumePending && projectsLoaded && (aligns.size > 0 || now - resumePending.since > 12000)) {
-        const p = allProjects.find((x) => x.id === resumePending!.id);
-        resumePending = null;
-        if (p) openProject(p);
+      if (resumePending) {
+        loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
+        loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
+        loading.draw();
+        const since = now - resumePending.since;
+        if (projectsLoaded && (aligns.size > 0 || since > 12000)) {
+          const p = allProjects.find((x) => x.id === resumePending!.id);
+          resumePending = null;
+          loading.mesh.visible = false;
+          if (p) openProject(p);
+          else failResume();
+        } else if (since > 30000) {
+          resumePending = null;
+          failResume(); // the project list never arrived
+        }
       }
       checkPending();
       followHead(head, dt);

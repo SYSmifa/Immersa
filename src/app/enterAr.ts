@@ -28,7 +28,7 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
     } catch (e) {
       const needsTap = e instanceof Error && /user activation/i.test(e.message);
       note.textContent = resuming && needsTap
-        ? 'Sessione chiusa dallo standby: tocca "Entra in AR" per riprendere il progetto.'
+        ? 'Session in standby.'
         : `Impossibile avviare l'AR: ${e instanceof Error ? e.message : e}`;
     }
   }
