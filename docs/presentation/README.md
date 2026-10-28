@@ -12,6 +12,7 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 - `Immersa-Meetup-modificabile.pdf` — ogni testo è un campo modificabile (Acrobat Reader, Chrome, Edge)
 - `tools/extract.cjs`, `tools/build.py` — generano il PDF modificabile
 - `tools/video/make_demo_video.py`, `logo.png` — montaggio del video demo
+- `tools/embed_video.py` — incorpora il video nella slide 4 di un PDF (Acrobat) + link al file accanto al PDF
 
 ## Slide (9)
 
@@ -80,6 +81,16 @@ python3 -I docs/presentation/tools/video/make_demo_video.py <srcdir> <workdir> f
 Se i tempi delle nuove riprese cambiano, rivedere i secondi in `PHASES` guardando i fotogrammi
 (contact sheet con `ffmpeg ... fps=1/3 ... tile`). Il passo `final` è lento (alcuni minuti): lanciarlo
 in background. ffmpeg richiede i filtri drawtext e blend.
+
+## Video nel PDF
+
+```
+ffmpeg -i Immersa-Demo.mp4 -an -c:v libx264 -preset slow -crf 22 -maxrate 4M -bufsize 8M -profile:v high -level 4.1 -pix_fmt yuv420p -movflags +faststart Immersa-Demo-compresso.mp4
+python3 docs/presentation/tools/embed_video.py docs/presentation/Immersa-Meetup-modificabile.pdf Immersa-Demo-compresso.mp4 Immersa-Meetup-modificabile-con-video.pdf
+```
+
+Il PDF con video (~41 MB) non va nel repo. Si riproduce con un clic sul riquadro solo in Adobe Acrobat (non provato
+da qui); negli altri lettori resta il link sotto il riquadro, che apre `Immersa-Demo.mp4` nella stessa cartella.
 
 ## Come lavoriamo (preferenze dell'autore)
 
