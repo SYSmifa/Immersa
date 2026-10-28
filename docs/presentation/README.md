@@ -23,7 +23,7 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 6. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, Undo e Redo
 7. Potenzialità della Realtà Mista e di Immersa (testi rivisti dall'autore)
 8. Sviluppi futuri — Immersa Industry, Immersa Design
-9. Domande & Prova Visore (titolo lasciato vuoto come nel PDF modificato dall'autore)
+9. Domande & Prova Visore (senza titolo né barra, solo "Grazie per l'attenzione!")
 
 Storia: partita come 6 slide generiche con testi forniti dall'autore parola per parola; poi la slide
 "Come funziona" è stata riscritta sui passaggi reali (titoli approvati, testi riscritti due volte) e
