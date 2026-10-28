@@ -21,12 +21,15 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
     session.addEventListener('end', () => offer());
   }
 
-  async function start() {
+  async function start(resuming = false) {
     note.textContent = '';
     try {
       await use(await navigator.xr!.requestSession('immersive-ar', init));
     } catch (e) {
-      note.textContent = `Impossibile avviare l'AR: ${e instanceof Error ? e.message : e}`;
+      const needsTap = e instanceof Error && /user activation/i.test(e.message);
+      note.textContent = resuming && needsTap
+        ? 'Sessione chiusa dallo standby: tocca "Entra in AR" per riprendere il progetto.'
+        : `Impossibile avviare l'AR: ${e instanceof Error ? e.message : e}`;
     }
   }
 
@@ -42,10 +45,10 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
   async function restart() {
     await renderer.xr.getSession()?.end().catch(() => undefined);
     await new Promise((r) => setTimeout(r, 400));
-    await start();
+    await start(true);
   }
 
-  button.onclick = start;
+  button.onclick = () => void start();
   offer();
   return { button, note, start, restart };
 }
