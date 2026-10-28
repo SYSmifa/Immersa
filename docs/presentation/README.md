@@ -12,14 +12,14 @@ repo (`src/`) è una prova di concetto three.js/WebXR, non il progetto Unreal pr
 - `Immersa-Meetup-modificabile.pdf` — ogni testo è un campo modificabile (Acrobat Reader, Chrome, Edge)
 - `tools/extract.cjs`, `tools/build.py` — generano il PDF modificabile
 - `tools/video/make_demo_video.py`, `logo.png` — montaggio del video demo
-- `tools/embed_video.py` — incorpora il video nella slide 4 di un PDF (Acrobat) + link al file accanto al PDF
+- `poster-demo.jpg`, `tools/add_video_link.py` — anteprima della slide 4 e link che apre `Immersa-Demo.mp4` accanto al PDF
 
 ## Slide (9)
 
 1. Titolo — badge, IMMERSA, sottotitolo SHAPE YOUR SPACE, card: Unreal Engine 5 · Meta Quest 3 (MR) · Database Online (Cloud)
 2. Un motore, due app — app desktop Windows e app Quest, collegate dal cloud (API REST · VaRest)
 3. Come funziona Immersa — 4 passaggi: scansione, progettazione su PC, visualizzazione nel visore, hand tracking
-4. Video Demo & Showcase (segnaposto del video)
+4. Video Demo & Showcase (anteprima = ultimo fotogramma col logo; il clic apre Immersa-Demo.mp4)
 5. Lo stack in Unreal Engine — Meta XR SDK, glTFRuntime, VaRest, Blueprint
 6. Sfide tecniche in Blueprint — allineamento alla stanza, modelli a runtime, Undo e Redo
 7. Potenzialità della Realtà Mista e di Immersa (testi rivisti dall'autore)
@@ -82,15 +82,12 @@ Se i tempi delle nuove riprese cambiano, rivedere i secondi in `PHASES` guardand
 (contact sheet con `ffmpeg ... fps=1/3 ... tile`). Il passo `final` è lento (alcuni minuti): lanciarlo
 in background. ffmpeg richiede i filtri drawtext e blend.
 
-## Video nel PDF
+## Video nella slide 4
 
-```
-ffmpeg -i Immersa-Demo.mp4 -an -c:v libx264 -preset slow -crf 22 -maxrate 4M -bufsize 8M -profile:v high -level 4.1 -pix_fmt yuv420p -movflags +faststart Immersa-Demo-compresso.mp4
-python3 docs/presentation/tools/embed_video.py docs/presentation/Immersa-Meetup-modificabile.pdf Immersa-Demo-compresso.mp4 Immersa-Meetup-modificabile-con-video.pdf
-```
-
-Il PDF con video (~41 MB) non va nel repo. Si riproduce con un clic sul riquadro solo in Adobe Acrobat (non provato
-da qui); negli altri lettori resta il link sotto il riquadro, che apre `Immersa-Demo.mp4` nella stessa cartella.
+La slide mostra come anteprima l'ultimo fotogramma del video (`poster-demo.jpg`, logo Immersa) con un pulsante play.
+Dopo aver rigenerato i PDF, `python3 docs/presentation/tools/add_video_link.py <pdf>...` rende cliccabile il riquadro:
+apre `Immersa-Demo.mp4` dalla stessa cartella del PDF (il video non sta nel PDF né nel repo). Funziona nei lettori che
+seguono i link relativi; se non parte, aprire il file a mano.
 
 ## Come lavoriamo (preferenze dell'autore)
 

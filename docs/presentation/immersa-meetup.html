@@ -78,14 +78,15 @@
   /* Slide 4 */
   .video { flex: 1; border-radius: 6mm; border: 1px dashed rgba(56,189,248,.55);
     background: radial-gradient(circle at 50% 40%, rgba(56,189,248,.12), transparent 60%), rgba(20,25,37,.9);
-    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 12mm 30mm; }
-  .play { width: 26mm; height: 26mm; border-radius: 50%; margin-bottom: 9mm;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 6mm 12mm; }
+  .poster { position: relative; }
+  .poster img { display: block; height: 112mm; width: auto; border-radius: 3mm; border: 1px solid var(--line); }
+  .play { width: 17mm; height: 17mm; border-radius: 50%; position: absolute; left: 50%; bottom: 7mm; margin-left: -8.5mm;
     background: linear-gradient(135deg, var(--violet-d), var(--cyan)); display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 18mm rgba(56,189,248,.35); }
-  .play::after { content: ""; margin-left: 2mm; border-style: solid; border-width: 5.5mm 0 5.5mm 9mm;
+  .play::after { content: ""; margin-left: 1.4mm; border-style: solid; border-width: 3.6mm 0 3.6mm 6mm;
     border-color: transparent transparent transparent #fff; }
-  .video h3 { font-size: 20pt; letter-spacing: .14em; font-weight: 700; color: #bfe7fb; margin-bottom: 6mm; }
-  .video p { font-size: 14pt; line-height: 1.6; color: var(--muted); max-width: 175mm; }
+  .video p { font-size: 14pt; line-height: 1.6; color: var(--muted); margin-top: 5mm; }
 
   /* Slide 6 */
   .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
@@ -157,9 +158,8 @@
 <section class="slide">
   <div class="head"><span class="bar"></span><h2>4. Video Demo &amp; Showcase</h2></div>
   <div class="video">
-    <div class="play"></div>
-    <h3>[ ANTEPRIMA VIDEO DEMO ]</h3>
-    <p>Proiezione del video registrato e stabilizzato in post-produzione per mostrare la fluidità della scansione e il posizionamento degli oggetti in tempo reale.</p>
+    <div class="poster"><img src="poster-demo.jpg" alt=""><div class="play"></div></div>
+    <p>Clicca per riprodurre il video demo</p>
   </div>
 </section>
 
