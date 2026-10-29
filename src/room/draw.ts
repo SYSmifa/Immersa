@@ -16,11 +16,23 @@ import {
   Vector2,
   Vector3,
 } from 'three';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import type { RoomBox, RoomPlane } from './types';
 
 const wall = new LineBasicMaterial({ color: 0x00c8ff });
 const floor = new LineBasicMaterial({ color: 0x40ff80 });
 const furniture = new LineBasicMaterial({ color: 0xffa040 });
+
+// Hairlines (1 px) are hard to see in the headset: with a width in metres the outlines are drawn as thin strips.
+const thickMaterials = new Map<string, LineMaterial>();
+function thick(color: number, width: number): LineMaterial {
+  const key = `${color}:${width}`;
+  let m = thickMaterials.get(key);
+  if (!m) thickMaterials.set(key, (m = new LineMaterial({ color, linewidth: width, worldUnits: true })));
+  return m;
+}
 
 const fill = (color: number, opacity: number) =>
   new MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: DoubleSide });
@@ -50,7 +62,7 @@ function coveredByBox(p: RoomPlane, boxes: RoomBox[]): boolean {
 // With `solid`, floor and shell planes also get a faint translucent fill.
 // Shell planes (walls, doors, windows) go into the returned group so they can be hidden.
 // Furniture planes that already have a box in `boxes` are not drawn twice. `withFloor` false leaves the floor out.
-export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = [], withFloor = true): { drawn: number; shell: Group } {
+export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = [], withFloor = true, width = 0): { drawn: number; shell: Group } {
   const shell = new Group();
   into.add(shell);
   let drawn = 0;
@@ -68,7 +80,14 @@ export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxe
       o.matrix.compose(new Vector3(...p.pos), new Quaternion(...p.quat!), new Vector3(1, 1, 1));
       target.add(o);
     };
-    place(new LineLoop(new BufferGeometry().setFromPoints(pts), isFloor ? floor : wall));
+    if (width > 0) {
+      const flat: number[] = [];
+      pts.forEach((a, i) => {
+        const b = pts[(i + 1) % pts.length];
+        flat.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      });
+      place(new LineSegments2(new LineSegmentsGeometry().setPositions(flat), thick(isFloor ? 0x40ff80 : 0x00c8ff, width)));
+    } else place(new LineLoop(new BufferGeometry().setFromPoints(pts), isFloor ? floor : wall));
     if (solid && (isFloor || isShell)) {
       // Triangulated in (x, z) of the plane's own frame.
       const geo = new ShapeGeometry(new Shape(pts.map((v) => new Vector2(v.x, v.z))));
@@ -83,12 +102,13 @@ export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxe
 }
 
 // Furniture volumes as boxes: all 12 edges (orange), optionally with a translucent fill.
-export function drawBoxes(boxes: RoomBox[], into: Group, solid = false): number {
+export function drawBoxes(boxes: RoomBox[], into: Group, solid = false, width = 0): number {
   for (const b of boxes) {
     const size = new Vector3(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
     const centre = new Vector3(b.min[0] + size.x / 2, b.min[1] + size.y / 2, b.min[2] + size.z / 2);
     const box = new BoxGeometry(size.x, size.y, size.z).translate(centre.x, centre.y, centre.z);
-    const parts: Object3D[] = [new LineSegments(new EdgesGeometry(box), furniture)];
+    const edges = new EdgesGeometry(box);
+    const parts: Object3D[] = [width > 0 ? new LineSegments2(new LineSegmentsGeometry().fromEdgesGeometry(edges), thick(0xffa040, width)) : new LineSegments(edges, furniture)];
     if (solid) {
       const mesh = new Mesh(box, boxFill);
       mesh.renderOrder = -1;

@@ -28,6 +28,7 @@ interface Options {
 }
 
 const MENU_DISTANCE = 0.85;
+const OUTLINE_WIDTH = 0.015; // m: thickness of the room outline in the headset
 const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than this has a stale saved scan
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
@@ -372,8 +373,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       aligns.set(r.room.id, a); // stays valid after we walk out of the room
       // three's Y rotation is the opposite sense of our xz yaw.
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
-      drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? [], false); // no floor outline: it only confuses
-      drawBoxes(r.room.scan.boxes ?? [], outline);
+      drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? [], false, OUTLINE_WIDTH); // no floor outline: it only confuses
+      drawBoxes(r.room.scan.boxes ?? [], outline, false, OUTLINE_WIDTH);
       if (autoTab) view.tab = 'load';
     }
     syncHouses();
