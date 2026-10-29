@@ -46,7 +46,16 @@ export async function createLauncher(backend: Backend, enter: { button: HTMLButt
       return;
     }
     const mail = field('email', 'email');
+    mail.autocomplete = 'email';
     const pass = field('password', 'password');
+    pass.autocomplete = 'current-password';
+    pass.spellcheck = false;
+    // The headset keyboard can misbehave in password fields (no digits, no backspace): a plain-text mode helps.
+    const reveal = linkButton('Mostra password', () => {
+      pass.type = pass.type === 'password' ? 'text' : 'password';
+      reveal.textContent = pass.type === 'password' ? 'Mostra password' : 'Nascondi password';
+      pass.focus();
+    });
     const run = async (signUp: boolean) => {
       status.textContent = '...';
       const res = await authenticate(mail.value, pass.value, signUp);
@@ -61,7 +70,7 @@ export async function createLauncher(backend: Backend, enter: { button: HTMLButt
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:12px';
     row.append(linkButton('Accedi', () => void run(false)), linkButton('Registrati', () => void run(true)));
-    box.append(mail, pass, row, status);
+    box.append(mail, pass, reveal, row, status);
   }
 
   await show();
