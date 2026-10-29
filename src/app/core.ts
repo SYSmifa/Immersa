@@ -166,7 +166,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
       : null;
     view.projectName = current?.name ?? null;
-    view.events = events.slice(-2);
+    view.events = events.slice(-3);
     const listed = current ? rooms.filter((r) => current!.roomIds.includes(r.id)) : rooms;
     view.fits = listed
       .filter((r) => fits.has(r.id))
@@ -713,6 +713,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     const t = new Date();
     const hms = [t.getHours(), t.getMinutes(), t.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
     events.push(`${hms} ${text}`);
+    console.log(`[immersa] ${text}`);
     if (events.length > 8) events.shift();
     refreshView();
   }

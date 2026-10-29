@@ -50,6 +50,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     return { pos: cam.getWorldPosition(new Vector3()), fwd: cam.getWorldDirection(new Vector3()) };
   }
 
+  let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
+
   function bind(session: XRSession) {
     bound = session;
     const s = session as any;
@@ -58,6 +60,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         ? { available: true, start: () => s.initiateRoomCapture() }
         : { available: false, start: async () => undefined };
     core.sessionStarted(capture);
+    core.logEvent(`funzioni: ${((s.enabledFeatures ?? []) as string[]).join(' ') || 'n/d'}`);
+    probeAt = performance.now() + 4000;
 
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;
@@ -115,7 +119,16 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
 
-      if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) core.setLivePlanes(readPlanes(frame, ref), readBoxes(frame, ref));
+      if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) {
+        const planes = readPlanes(frame, ref);
+        const boxes = readBoxes(frame, ref);
+        core.setLivePlanes(planes, boxes);
+        if (probeAt && now > probeAt) {
+          probeAt = 0;
+          const f = frame as any;
+          core.logEvent(`piani ${planes.length}, volumi ${boxes.length}, detectedPlanes ${f.detectedPlanes ? f.detectedPlanes.size : 'assente'}, detectedMeshes ${f.detectedMeshes ? f.detectedMeshes.size : 'assente'}`);
+        }
+      }
 
       const seen = new Set<string>();
       let anchor: Vector3 | null = null;
