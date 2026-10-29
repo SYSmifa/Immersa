@@ -33,6 +33,13 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
     }
   }
 
+  // Try to start AR at page load: an installed app's launch counts as the user gesture, in a plain
+  // browser tab the request is refused and the button stays (without an error message).
+  async function autoStart() {
+    await start();
+    if (/user activation/i.test(note.textContent ?? '')) note.textContent = '';
+  }
+
   // Quest Browser can show its own "enter" entry for the page.
   function offer() {
     const xr = navigator.xr as (XRSystem & { offerSession?: (mode: XRSessionMode, init?: XRSessionInit) => Promise<XRSession> }) | undefined;
@@ -50,5 +57,5 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
 
   button.onclick = () => void start();
   offer();
-  return { button, note, start, restart };
+  return { button, note, start, autoStart, restart };
 }
