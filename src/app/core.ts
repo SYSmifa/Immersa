@@ -372,7 +372,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       aligns.set(r.room.id, a); // stays valid after we walk out of the room
       // three's Y rotation is the opposite sense of our xz yaw.
       roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
-      drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? []);
+      drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? [], false); // no floor outline: it only confuses
       drawBoxes(r.room.scan.boxes ?? [], outline);
       if (autoTab) view.tab = 'load';
     }

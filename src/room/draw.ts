@@ -49,14 +49,14 @@ function coveredByBox(p: RoomPlane, boxes: RoomBox[]): boolean {
 // Plane outlines as wireframe (floor green, the rest cyan), in the planes' own frame.
 // With `solid`, floor and shell planes also get a faint translucent fill.
 // Shell planes (walls, doors, windows) go into the returned group so they can be hidden.
-// Furniture planes that already have a box in `boxes` are not drawn twice.
-export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = []): { drawn: number; shell: Group } {
+// Furniture planes that already have a box in `boxes` are not drawn twice. `withFloor` false leaves the floor out.
+export function drawPlanes(planes: RoomPlane[], into: Group, solid = false, boxes: RoomBox[] = [], withFloor = true): { drawn: number; shell: Group } {
   const shell = new Group();
   into.add(shell);
   let drawn = 0;
   for (const p of planes) {
     if (!p.poly || !p.quat || p.poly.length < 6) continue;
-    if (p.label === 'ceiling') continue;
+    if (p.label === 'ceiling' || (p.label === 'floor' && !withFloor)) continue;
     const isShell = SHELL.has(p.label);
     const isFloor = p.label === 'floor';
     if (!isShell && !isFloor && coveredByBox(p, boxes)) continue;
