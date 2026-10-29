@@ -66,7 +66,9 @@ export async function createLauncher(backend: Backend, enter: { button: HTMLButt
       await show();
       enter.start(); // the click on Accedi is still a valid user gesture
     };
-    pass.onkeydown = (e) => e.key === 'Enter' && void run(false);
+    pass.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') void run(false); // never return false from here: it would cancel every other key
+    });
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:12px';
     row.append(linkButton('Accedi', () => void run(false)), linkButton('Registrati', () => void run(true)));
