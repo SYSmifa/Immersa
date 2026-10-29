@@ -23,9 +23,11 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
 
   async function start(resuming = false) {
     note.textContent = '';
+    console.log('[immersa] starting AR session');
     try {
       await use(await navigator.xr!.requestSession('immersive-ar', init));
     } catch (e) {
+      console.log(`[immersa] requestSession failed: ${e instanceof Error ? e.message : String(e)}`);
       const needsTap = e instanceof Error && /user activation/i.test(e.message);
       note.textContent = resuming && needsTap
         ? 'Session in standby.'

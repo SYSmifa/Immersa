@@ -11,11 +11,15 @@ async function main() {
   if (params.has('uitest')) return (await import('./app/uitest')).runUiTest();
   if (params.has('edittest')) return (await import('./app/edittest')).runEditTest();
   if (params.has('edit')) return createEditorPage();
-  const inHeadset = (await navigator.xr?.isSessionSupported('immersive-ar').catch(() => false)) ?? false;
+  const support = (mode: XRSessionMode) => navigator.xr?.isSessionSupported(mode).catch(() => false) ?? Promise.resolve(false);
+  const [inHeadset, vr] = await Promise.all([support('immersive-ar'), support('immersive-vr')]);
+  console.log(`[immersa] xr=${!!navigator.xr} ar=${inHeadset} vr=${vr} display=${['standalone', 'fullscreen', 'browser'].find((m) => matchMedia(`(display-mode: ${m})`).matches)} referrer=${document.referrer} ua=${navigator.userAgent}`);
   return inHeadset ? runHeadsetApp() : createEditorPage();
 }
 
-void main();
+window.addEventListener('error', (e) => console.log(`[immersa] error: ${e.message}`));
+window.addEventListener('unhandledrejection', (e) => console.log(`[immersa] rejection: ${String(e.reason)}`));
+void main().catch((e) => console.log(`[immersa] main failed: ${String(e)}`));
 
 // Installable app: the service worker is only for the production build (in dev it would cache stale code).
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
