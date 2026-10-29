@@ -5,6 +5,7 @@ import type { Project, Room, RoomModel, RoomScan } from '../room/types';
 export interface Backend {
   email(): Promise<string | null>;
   signOut(): Promise<void>;
+  signIn(email: string, password: string, signUp: boolean): Promise<{ ok: true } | { ok: false; message: string }>;
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;
   renameRoom(id: string, name: string): Promise<void>;

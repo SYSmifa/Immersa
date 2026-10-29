@@ -5,6 +5,9 @@ export type Tab = 'load' | 'scan' | 'options' | 'account';
 export interface MenuView {
   tab: Tab;
   email: string | null;
+  authKnown: boolean; // we know whether someone is signed in (else: still checking)
+  loginEmail: string; // typed in the in-AR sign-in
+  loginPassLen: number;
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
@@ -36,6 +39,9 @@ export interface MenuActions {
   toggleOccluders(): void;
   closeProject(): void;
   signOut(): void;
+  askEmail(): void;
+  askPassword(): void;
+  signIn(signUp: boolean): void;
   close(): void;
 }
 
@@ -67,6 +73,23 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     onClick,
     ...o,
   });
+
+  if (!v.authKnown || !v.email) {
+    // Sign in inside AR: the page has no 2D login (a store PWA must be immersive only).
+    out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 400, h: 46 }, text: 'Immersa', size: 38 });
+    if (!v.authKnown) {
+      out.push(label('Loading...', 130));
+    } else {
+      const ready = !!v.loginEmail && v.loginPassLen > 0;
+      out.push(label('Sign in to your account', 80, 36, 26, '#9fb0d0'));
+      out.push(button(v.loginEmail ? `Email: ${v.loginEmail}` : 'Tap to type your email', 140, a.askEmail));
+      out.push(button(v.loginPassLen ? `Password: ${'•'.repeat(Math.min(v.loginPassLen, 16))}` : 'Tap to type your password', 220, a.askPassword));
+      out.push(button('Sign in', 310, () => a.signIn(false), { primary: true, disabled: !ready }));
+      out.push(button('Create account', 390, () => a.signIn(true), { disabled: !ready }));
+    }
+    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
+    return out;
+  }
 
   const project = v.projectName ? ` · Progetto: ${v.projectName}` : '';
   const where = v.roomName

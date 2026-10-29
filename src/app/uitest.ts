@@ -11,6 +11,7 @@ import { asLive, asLiveBoxes, boxRoom, boxRoomBoxes, createFakeBackend } from '.
 const FRESH: Record<string, [number, number, number]> = { Nuova: [4.4, 3.3, 2.5], Nuova2: [6.1, 4.7, 2.7], Nuova3: [3.8, 3, 2.4] };
 
 export function runUiTest() {
+  const params = new URLSearchParams(location.search);
   const { renderer, scene, camera, controls } = createStage({ arButton: false });
   controls.enabled = false;
   camera.position.set(0, 1.6, 1.4);
@@ -18,7 +19,7 @@ export function runUiTest() {
   camera.updateProjectionMatrix();
   camera.lookAt(0, 0.9, -1);
 
-  const backend = createFakeBackend();
+  const backend = createFakeBackend(params.has('loggedout')); // ?loggedout: the in-AR sign-in (password: secret)
   const core = createAppCore({ scene, backend, signOut: () => core.say('Esci premuto') });
   core.sessionStarted({ available: true, start: async () => undefined });
 

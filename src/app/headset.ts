@@ -11,7 +11,15 @@ const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking'];
 // fall back to local-floor (see createEnterAr). ?ref=local-floor forces the old behaviour.
 const UNBOUNDED = new URLSearchParams(location.search).get('ref') !== 'local-floor';
 
-// Headset entry point: sign-in page → AR with the in-AR menu (Load / Scan / Options / Account).
+// Opened from the installed app icon: the tap is the user gesture that lets us start AR at once.
+const params = new URLSearchParams(location.search);
+const INSTALLED =
+  params.has('pwa') ||
+  document.referrer.startsWith('android-app://') ||
+  ['standalone', 'fullscreen'].some((m) => matchMedia(`(display-mode: ${m})`).matches);
+
+// Headset entry point: AR straight away when installed (otherwise one "Entra in AR" button), then
+// the in-AR menu (sign-in, Load / Scan / Options / Account).
 export async function runHeadsetApp() {
   const backend = createSupabaseBackend();
   const features = UNBOUNDED ? [...FEATURES, 'unbounded'] : FEATURES;
@@ -19,8 +27,9 @@ export async function runHeadsetApp() {
   renderer.xr.setReferenceSpaceType(UNBOUNDED ? 'unbounded' : 'local-floor');
   const enter = createEnterAr(renderer, features);
   const app = createXrApp(renderer, scene, camera, backend, () => void enter.restart());
-  const launcher = await createLauncher(backend, enter);
-  renderer.xr.addEventListener('sessionend', () => void launcher.show());
+  const launcher = await createLauncher(enter);
+  renderer.xr.addEventListener('sessionend', () => launcher.show());
+  if (INSTALLED) void enter.start(); // if the browser refuses (no gesture), the button stays
   renderer.setAnimationLoop((_t, frame) => {
     renderer.render(scene, camera);
     app.tick(frame);

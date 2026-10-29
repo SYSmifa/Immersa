@@ -6,6 +6,8 @@ export interface KeyboardRequest {
   title: string;
   initial?: string;
   max?: number;
+  secret?: boolean; // show dots instead of the typed text (passwords)
+  capital?: boolean; // start with a capital letter (names); false for emails and passwords
   onDone(text: string): void;
   onCancel?(): void;
 }
@@ -98,7 +100,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
         break;
       case 'back':
         text = text.slice(0, -1);
-        if (!text) shift = 'once';
+        if (!text && req?.capital !== false) shift = 'once';
         break;
       case 'shift': {
         const t = performance.now();
@@ -122,7 +124,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
   }
 
   function done() {
-    const value = text.trim();
+    const value = req?.secret ? text : text.trim();
     if (!value || !req) return;
     const r = req;
     close();
@@ -138,7 +140,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
   function render() {
     const widgets: Widget[] = [
       { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: '#9fb0d0' },
-      { kind: 'field', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${text}│`, size: 40 },
+      { kind: 'field', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${req?.secret ? '•'.repeat(text.length) : text}│`, size: 40 },
       { rect: { x: W - PAD - 170, y: 48, w: 170, h: 70 }, text: 'Annulla', size: 28, onClick: cancel },
     ];
     const unit = (W - 2 * PAD - 9 * GAP) / 10;
@@ -179,7 +181,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
       req = r;
       text = r.initial ?? '';
       mode = 'letters';
-      shift = text ? 'off' : 'once'; // names start with a capital
+      shift = text || r.capital === false ? 'off' : 'once'; // names start with a capital
       panel.mesh.visible = true;
       render();
     },

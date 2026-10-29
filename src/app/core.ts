@@ -78,6 +78,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const view: MenuView = {
     tab: 'scan',
     email: null,
+    authKnown: false,
+    loginEmail: '',
+    loginPassLen: 0,
     roomName: null,
     candidate: null,
     info: '',
@@ -177,8 +180,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     render();
   }
 
-  const ask = (title: string, initial = '') =>
-    new Promise<string | null>((resolve) => keyboard.open({ title, initial, onDone: resolve, onCancel: () => resolve(null) }));
+  const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
+    new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
+  let loginPassword = '';
 
   // ---- menu placement: in front of you when opened, then eases round when you turn away
   let yaw = 0;
@@ -574,6 +578,30 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   const actions: MenuActions = {
+    async askEmail() {
+      const v = await ask('Email', view.loginEmail, { max: 64, capital: false });
+      if (v !== null) view.loginEmail = v;
+      render();
+    },
+    async askPassword() {
+      const v = await ask('Password', '', { max: 64, secret: true, capital: false });
+      if (v !== null) {
+        loginPassword = v;
+        view.loginPassLen = v.length;
+      }
+      render();
+    },
+    async signIn(signUp: boolean) {
+      say(signUp ? 'Creating account...' : 'Signing in...', 8000);
+      const res = await backend.signIn(view.loginEmail, loginPassword, signUp);
+      if (!res.ok) return say(res.message, 9000);
+      loginPassword = '';
+      view.loginPassLen = 0;
+      await reloadRooms();
+      loadProjects();
+      view.tab = 'scan';
+      say('Signed in');
+    },
     setTab(tab: Tab) {
       view.tab = tab;
       autoTab = false;
@@ -658,9 +686,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   async function reloadRooms() {
     try {
       view.email = await backend.email();
-      rooms = await backend.listRooms();
-      roomsLoaded = true;
+      view.authKnown = true;
+      if (view.email) {
+        rooms = await backend.listRooms();
+        roomsLoaded = true;
+      }
     } catch (e) {
+      view.authKnown = true;
       say(`Errore: ${errText(e)}`);
     }
     refreshView();

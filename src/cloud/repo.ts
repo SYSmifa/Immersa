@@ -1,5 +1,6 @@
 import type { Project, Room, RoomModel, RoomScan } from '../room/types';
 import type { Backend } from './backend';
+import { authenticate } from './auth';
 import { currentUserEmail, supabase } from './supabase';
 
 interface RoomRow {
@@ -45,6 +46,7 @@ const now = () => new Date().toISOString();
 export function createSupabaseBackend(): Backend {
   return {
     email: currentUserEmail,
+    signIn: authenticate,
     async signOut() {
       await supabase?.auth.signOut();
     },

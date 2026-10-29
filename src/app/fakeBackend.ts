@@ -54,7 +54,7 @@ export function asLive(planes: RoomPlane[], yaw: number, tx: number, ty: number,
   }));
 }
 
-export function createFakeBackend(): Backend & { rooms: Room[]; projects: Project[] } {
+export function createFakeBackend(signedOut = false): Backend & { rooms: Room[]; projects: Project[] } {
   const now = () => new Date().toISOString();
   let n = 0;
   const model = (name: string, x: number, z: number, roomId = 'r1'): RoomModel => ({
@@ -80,8 +80,13 @@ export function createFakeBackend(): Backend & { rooms: Room[]; projects: Projec
   return {
     rooms,
     projects,
-    email: async () => 'test@immersa.dev',
+    email: async () => (signedOut ? null : 'test@immersa.dev'),
     signOut: async () => undefined,
+    async signIn(_email: string, password: string) {
+      if (password !== 'secret') return { ok: false as const, message: 'Invalid login credentials' };
+      signedOut = false;
+      return { ok: true as const };
+    },
     listRooms: async () => rooms.map((r) => ({ ...r })),
     async createRoom(name: string, scan: RoomScan) {
       const room = { id: `r${rooms.length + 1}`, name, updatedAt: now(), scan };
