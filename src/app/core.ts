@@ -33,6 +33,33 @@ const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than th
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
 const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
+// The installed app closes when the headset sleeps; opening it again brings back the last open project.
+export const LAST_PROJECT_KEY = 'immersa.lastProject';
+const LAST_PROJECT_MS = 60 * 60 * 1000;
+const lastProject = {
+  save(id: string) {
+    try {
+      localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ id, at: Date.now() }));
+    } catch {
+      /* storage can be unavailable */
+    }
+  },
+  clear() {
+    try {
+      localStorage.removeItem(LAST_PROJECT_KEY);
+    } catch {
+      /* storage can be unavailable */
+    }
+  },
+  recent(): string | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(LAST_PROJECT_KEY) ?? 'null') as { id: string; at: number } | null;
+      return v && Date.now() - v.at < LAST_PROJECT_MS ? v.id : null;
+    } catch {
+      return null;
+    }
+  },
+};
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawOf = (f: Vector3) => Math.atan2(f.x, f.z); // horizontal direction (sin a, cos a)
@@ -571,6 +598,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (fit) aligns.set(id, fit);
     }
     foreignMode = !p.roomIds.some((id) => aligns.has(id));
+    lastProject.save(p.id);
     syncHouses();
     closeMenu();
     refreshView();
@@ -646,6 +674,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       render();
     },
     closeProject() {
+      lastProject.clear();
       closeCurrent();
       refreshView();
     },
@@ -731,7 +760,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     // A new XR session has a new origin: forget the old alignment and start over.
     sessionStarted(cap: Capture | null) {
       capture = cap;
-      const saved = sessionStorage.getItem(RESUME_KEY);
+      const saved = sessionStorage.getItem(RESUME_KEY) ?? lastProject.recent();
       sessionStorage.removeItem(RESUME_KEY);
       scanning = false;
       resumePending = saved ? { id: saved, since: performance.now() } : null;

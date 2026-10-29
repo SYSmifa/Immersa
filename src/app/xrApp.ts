@@ -3,7 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { Panel } from '../ui3d/panel';
 import { handAnchor, pinchPoint } from '../xr/pinch';
-import { createAppCore, type Capture, type Head } from './core';
+import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -16,6 +16,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     scene,
     backend,
     signOut: async () => {
+      try {
+        localStorage.removeItem(LAST_PROJECT_KEY);
+      } catch {
+        /* storage can be unavailable */
+      }
       await backend.signOut();
       renderer.xr.getSession()?.end();
       location.reload();
