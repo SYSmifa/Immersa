@@ -22,7 +22,6 @@ export interface MenuView {
   page: number;
   outline: boolean;
   showOccluders: boolean;
-  restartOnWake: boolean; // restart the AR session after a standby (browser use); off keeps the session
   message: string;
 }
 
@@ -40,7 +39,6 @@ export interface MenuActions {
   toggleOccluders(): void;
   closeProject(): void;
   signOut(): void;
-  toggleRestart(): void;
   askEmail(): void;
   askPassword(): void;
   signIn(signUp: boolean): void;
@@ -180,8 +178,6 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
     out.push(button('Esci', top + 110, a.signOut));
-    out.push(button(`Riavvio dopo standby: ${v.restartOnWake ? 'sì' : 'no'}`, top + 190, a.toggleRestart));
-    out.push(label('Se no, la sessione resta aperta dopo lo standby (prova per l\'app installata).', top + 260, 60, 21, '#8e99b3', true));
   }
 
   if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));

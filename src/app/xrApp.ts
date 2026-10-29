@@ -9,6 +9,7 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
+const WAKE_WAIT_MS = 10000; // after a standby, planes must come back within this time or the session is restarted
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
@@ -55,10 +56,14 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     return { pos: cam.getWorldPosition(new Vector3()), fwd: cam.getWorldDirection(new Vector3()) };
   }
 
+  let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
+  let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
   function bind(session: XRSession) {
     bound = session;
+    wakeAt = 0;
+    seenPlanes = false;
     const s = session as any;
     const capture: Capture =
       typeof s.initiateRoomCapture === 'function'
@@ -80,10 +85,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => core.host.cancel(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('squeezestart', () => core.menu.toggle());
-    // Standby / resume: the system brings the Guardian back, whatever reference space we ask for.
-    // A fresh session does not have it, so restart the session and reopen the project.
-    // Only a real standby needs this (the system menu or a room scan also change the visibility,
-    // and restarting then would throw the user out of AR): hidden for a while, and not scanning.
+    // Standby / resume: only a real standby counts (the system menu or a room scan also change the
+    // visibility): hidden for a while, and not scanning. The session is kept; the old session may no
+    // longer see the planes, in which case tick() restarts it (see WAKE_WAIT_MS).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
@@ -94,14 +98,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const away = now - awaySince;
         awaySince = 0;
         if (away < STANDBY_MS || core.isScanning()) return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
-        if (!core.restartOnWake()) {
-          // Experiment (Account tab): keep the session and see whether it survives the standby and sees the planes again.
-          probeAt = performance.now() + 3000;
-          return core.logEvent(`risveglio dopo ${Math.round(away / 1000)} s: sessione mantenuta (riavvio spento)`);
-        }
-        core.logEvent('risveglio: riavvio la sessione');
-        core.prepareResume();
-        onResume();
+        // Keep the session (ending it closes the installed app) and see whether the planes come back.
+        wakeAt = performance.now();
+        probeAt = wakeAt + 3000;
+        core.logEvent(`risveglio dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
       }
     });
     session.addEventListener('end', () => {
@@ -133,6 +133,17 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const planes = readPlanes(frame, ref);
         const boxes = readBoxes(frame, ref);
         core.setLivePlanes(planes, boxes);
+        if (planes.length) {
+          seenPlanes = true;
+          wakeAt = 0;
+        } else if (wakeAt && seenPlanes && now - wakeAt > WAKE_WAIT_MS) {
+          // The old session no longer sees the room: a new one is needed (the installed app closes and is
+          // opened again from the library; the last project comes back by itself).
+          wakeAt = 0;
+          core.logEvent('nessun piano dopo il risveglio: riavvio la sessione');
+          core.prepareResume();
+          onResume();
+        }
         if (probeAt && now > probeAt) {
           probeAt = 0;
           const f = frame as any;
