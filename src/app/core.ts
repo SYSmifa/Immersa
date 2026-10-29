@@ -121,6 +121,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let lost = 0; // consecutive checks that found none
   const refreshed = new Set<string>(); // rooms whose saved scan was already renewed in this session
   let stale = 0; // consecutive checks where the recognised room fits poorly
+  let scanning = false; // the system room scan is running (the session must not be restarted meanwhile)
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
@@ -521,13 +522,16 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     setPendingName(true); // after the scan (even if the session restarts) ask for a name
     say('Scansione in corso...', 60000);
     closeMenu();
+    scanning = true;
     try {
       await capture.start();
     } catch (e) {
+      scanning = false;
       setPendingName(false);
       openMenu();
       return say(`Scansione non riuscita: ${errText(e)}`);
     }
+    scanning = false;
     lastTry = 0;
     failedTries = 0;
     readyAt = performance.now() + 2500; // let the new planes arrive
@@ -695,6 +699,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       capture = cap;
       const saved = sessionStorage.getItem(RESUME_KEY);
       sessionStorage.removeItem(RESUME_KEY);
+      scanning = false;
       resumePending = saved ? { id: saved, since: performance.now() } : null;
       autoTab = true;
       view.tab = 'scan';
@@ -751,6 +756,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       host.update();
     },
     logEvent,
+    isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume() {
       if (current) sessionStorage.setItem(RESUME_KEY, current.id);

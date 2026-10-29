@@ -9,6 +9,8 @@ import { createAppCore, type Capture, type Head } from './core';
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
+const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
+
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
   const core = createAppCore({
     scene,
@@ -71,13 +73,18 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: the system brings the Guardian back, whatever reference space we ask for.
     // A fresh session does not have it, so restart the session and reopen the project.
-    let wasAway = false;
+    // Only a real standby needs this (the system menu or a room scan also change the visibility,
+    // and restarting then would throw the user out of AR): hidden for a while, and not scanning.
+    let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
-      if (session.visibilityState !== 'visible') {
-        wasAway = true;
-      } else if (wasAway) {
-        wasAway = false;
+      const now = performance.now();
+      if (session.visibilityState === 'hidden') {
+        awaySince ||= now;
+      } else if (session.visibilityState === 'visible' && awaySince) {
+        const away = now - awaySince;
+        awaySince = 0;
+        if (away < STANDBY_MS || core.isScanning()) return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
         core.logEvent('risveglio: riavvio la sessione');
         core.prepareResume();
         onResume();
