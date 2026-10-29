@@ -94,6 +94,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const away = now - awaySince;
         awaySince = 0;
         if (away < STANDBY_MS || core.isScanning()) return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
+        if (!core.restartOnWake()) {
+          // Experiment (Account tab): keep the session and see whether it survives the standby and sees the planes again.
+          probeAt = performance.now() + 3000;
+          return core.logEvent(`risveglio dopo ${Math.round(away / 1000)} s: sessione mantenuta (riavvio spento)`);
+        }
         core.logEvent('risveglio: riavvio la sessione');
         core.prepareResume();
         onResume();

@@ -36,6 +36,23 @@ const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted
 // The installed app closes when the headset sleeps; opening it again brings back the last open project.
 export const LAST_PROJECT_KEY = 'immersa.lastProject';
 const LAST_PROJECT_MS = 60 * 60 * 1000;
+const restartPref = {
+  get(): boolean {
+    try {
+      return localStorage.getItem('immersa.noRestart') !== '1';
+    } catch {
+      return true;
+    }
+  },
+  set(on: boolean) {
+    try {
+      if (on) localStorage.removeItem('immersa.noRestart');
+      else localStorage.setItem('immersa.noRestart', '1');
+    } catch {
+      /* storage can be unavailable */
+    }
+  },
+};
 const lastProject = {
   save(id: string) {
     try {
@@ -122,6 +139,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     page: 0,
     outline: true,
     showOccluders: false,
+    restartOnWake: restartPref.get(),
     message: '',
   };
   let rooms: Room[] = [];
@@ -673,6 +691,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       showOccluders(occluderMaterial, view.showOccluders);
       render();
     },
+    toggleRestart() {
+      view.restartOnWake = !view.restartOnWake;
+      restartPref.set(view.restartOnWake);
+      render();
+    },
     closeProject() {
       lastProject.clear();
       closeCurrent();
@@ -819,6 +842,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       host.update();
     },
     logEvent,
+    restartOnWake: () => view.restartOnWake,
     isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume() {
