@@ -1,24 +1,50 @@
 # Immersa come app sul Quest (PWA → APK)
 
-Stato: non provato sul visore. I comandi di Meta vanno verificati sulla loro documentazione
-(https://developers.meta.com/horizon/documentation/web/pwa-packaging), che può cambiare.
+Stato: non provato sul visore. Comandi ricavati dalla guida di Meta
+(https://developers.meta.com/horizon/documentation/web/pwa-packaging/): verificarli lì se qualcosa non torna.
 
-## 1. Pubblicare il sito
-- `npm run build`; cancella `dist/models` (GLB di test); carica `dist` su un hosting HTTPS con certificato valido
-  (es. Netlify Drop). `.env.local` finisce nel build (la chiave anon è pubblica).
-- Apri l'indirizzo dal browser del Quest: deve comparire "Entra in AR". Con `?pwa` parte da solo (prova).
+Cartelle: progetto `C:\Users\loren\Documents\immersa`; APK in una cartella vuota a parte `C:\Users\loren\Documents\immersa-apk`.
 
-## 2. APK con lo strumento di Meta
-- `npm install --global @meta-quest/bubblewrap-cli`
-- Da cartella vuota: init con l'indirizzo del manifest (`https://<dominio>/manifest.webmanifest`),
-  poi build. Il manifest: Meta usa solo le icone.
-- Verifica del dominio (Digital Asset Links): file `/.well-known/assetlinks.json` sul sito con il
-  pacchetto e l'impronta del certificato di firma; senza, l'app non parte. Passaggi esatti nella guida di Meta.
+## 1. Build e primo deploy
+```
+cd C:\Users\loren\Documents\immersa
+git pull origin ccr-9d20ed4e-a2qxlt
+npm install
+npm run build
+rmdir /s /q dist\models        (cmd)   |   Remove-Item -Recurse -Force dist\models   (PowerShell)
+npx netlify-cli login
+npx netlify-cli deploy --prod --dir=dist     (primo giro: crea un sito nuovo, annota l'indirizzo https://<nome>.netlify.app)
+```
+Controlla dal browser del Quest che l'indirizzo apra la pagina con "Entra in AR".
 
-## 3. Installare sul visore (modalità sviluppatore, USB)
-- `adb install <file>.apk`; l'app compare in Libreria → Origini sconosciute.
-- Aprila dall'icona: deve partire direttamente in AR, poi accedi con la tastiera 3D.
+## 2. Strumento di Meta e APK
+```
+npm install --global @meta-quest/bubblewrap-cli
+mkdir C:\Users\loren\Documents\immersa-apk
+cd C:\Users\loren\Documents\immersa-apk
+bubblewrap init --manifest=https://<nome>.netlify.app/manifest.webmanifest --metaquest
+```
+Risposte: installa JDK e Android SDK se te lo chiede; modalità immersive; package ID `app.immersa.quest`;
+crea la chiave di firma (password da conservare, la cartella con la chiave va salvata: serve per ogni aggiornamento).
+Copia la riga SHA-256 che stampa, poi:
+```
+bubblewrap fingerprint add <SHA256>
+```
+Crea `assetlinks.json` nella cartella dell'APK.
 
-## Cosa osservare
-- Parte in AR al tocco sull'icona? Il login in AR funziona? Il passthrough (AR) è permesso in una PWA?
-- Dopo standby / chiusura sessione: cosa si vede? Serve un tocco?
+## 3. Verifica del dominio
+Copia `assetlinks.json` in `C:\Users\loren\Documents\immersa\public\.well-known\assetlinks.json`, poi
+`npm run build`, cancella `dist\models`, `npx netlify-cli deploy --prod --dir=dist`.
+Apri `https://<nome>.netlify.app/.well-known/assetlinks.json`: deve mostrare il JSON.
+
+## 4. Costruire e installare
+```
+cd C:\Users\loren\Documents\immersa-apk
+bubblewrap build
+adb devices
+adb install app-release-signed.apk
+```
+Nel visore: Libreria → filtro "Origini sconosciute" → Immersa.
+
+## Da osservare
+Parte in AR all'icona? Login in AR? Passthrough permesso? Cosa succede dopo standby / scansione?
