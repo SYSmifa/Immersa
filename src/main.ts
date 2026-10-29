@@ -16,3 +16,8 @@ async function main() {
 }
 
 void main();
+
+// Installable app: the service worker is only for the production build (in dev it would cache stale code).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => void navigator.serviceWorker.register('/sw.js').catch(() => undefined));
+}
