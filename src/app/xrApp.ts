@@ -9,7 +9,7 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the session is restarted
+const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the Refresh button is offered
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
@@ -87,7 +87,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only a real standby counts (the system menu or a room scan also change the
     // visibility): hidden for a while, and not scanning. The session is kept; the old session may no
-    // longer see the planes, in which case tick() restarts it (see WAKE_WAIT_MS).
+    // longer see the planes, in which case tick() offers a Refresh button (see WAKE_WAIT_MS).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
@@ -140,9 +140,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           // The old session no longer sees the room: a new one is needed (the installed app closes and is
           // opened again from the library; the last project comes back by itself).
           wakeAt = 0;
-          core.logEvent('nessun piano dopo il risveglio: riavvio la sessione');
-          core.prepareResume();
-          onResume();
+          core.logEvent('nessun piano dopo il risveglio: offro il pulsante Refresh');
+          core.offerRefresh(() => {
+            core.prepareResume();
+            onResume();
+          });
         }
         if (probeAt && now > probeAt) {
           probeAt = 0;

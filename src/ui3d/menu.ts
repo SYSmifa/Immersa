@@ -5,6 +5,7 @@ export type Tab = 'load' | 'scan' | 'options' | 'account';
 export interface MenuView {
   tab: Tab;
   email: string | null;
+  refreshOffer: boolean; // after a standby the session sees no rooms: offer a button that starts a new one
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
@@ -39,6 +40,7 @@ export interface MenuActions {
   toggleOccluders(): void;
   closeProject(): void;
   signOut(): void;
+  refresh(): void;
   askEmail(): void;
   askPassword(): void;
   signIn(signUp: boolean): void;
@@ -73,6 +75,14 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     onClick,
     ...o,
   });
+
+  if (v.refreshOffer) {
+    out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 400, h: 46 }, text: 'Immersa', size: 38 });
+    out.push(label('The headset lost the room data while it slept.', 100, 80, 28, '#cdd6ea', true));
+    out.push(button('Refresh', 220, a.refresh, { primary: true }));
+    out.push(label('Tap to start a new session and find your rooms again.', 320, 60, 22, '#8e99b3', true));
+    return out;
+  }
 
   if (!v.authKnown || !v.email) {
     // Sign in inside AR: the page has no 2D login (a store PWA must be immersive only).

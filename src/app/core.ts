@@ -105,6 +105,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const view: MenuView = {
     tab: 'scan',
     email: null,
+    refreshOffer: false,
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -210,6 +211,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
   let loginPassword = '';
+  let onRefresh: (() => void) | null = null; // starts a new session (needs the tap on the Refresh button)
 
   // ---- menu placement: in front of you when opened, then eases round when you turn away
   let yaw = 0;
@@ -606,6 +608,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   const actions: MenuActions = {
+    refresh() {
+      const go = onRefresh;
+      onRefresh = null;
+      view.refreshOffer = false;
+      render();
+      go?.();
+    },
     async askEmail() {
       const v = await ask('Email', view.loginEmail, { max: 64, capital: false });
       if (v !== null) view.loginEmail = v;
@@ -785,7 +794,19 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (resumePending) loading.mesh.visible = true;
       else openMenu();
     },
+    // After a standby the old session may see no rooms: show a Refresh button (a tap is the gesture a new session needs).
+    offerRefresh(start: () => void) {
+      onRefresh = start;
+      view.refreshOffer = true;
+      openMenu();
+      render();
+    },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
+      if (view.refreshOffer && planes.length >= MIN_PLANES) {
+        onRefresh = null;
+        view.refreshOffer = false; // the rooms came back by themselves
+        render();
+      }
       rawLive = planes;
       rawBoxes = boxes;
       recompute();
