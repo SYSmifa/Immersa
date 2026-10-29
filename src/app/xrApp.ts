@@ -9,7 +9,7 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-const WAKE_WAIT_MS = 10000; // after a standby, planes must come back within this time or the session is restarted
+const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the session is restarted
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
