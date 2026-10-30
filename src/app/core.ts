@@ -452,6 +452,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function tryRecognise(now: number) {
     if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < 2500) return;
     lastTry = now;
+    // The session reports no planes at all (e.g. after a standby): that is a gap in the data, not you leaving the
+    // room, so the recognised room and its alignment stay as they are until the planes come back.
+    if (recognised && rawLive.length === 0) return;
     const h = lastHead.pos;
     const found =
       live.length >= MIN_PLANES
