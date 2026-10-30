@@ -79,8 +79,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   if (v.refreshOffer) {
     out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 400, h: 46 }, text: 'Immersa', size: 38 });
     out.push(label('The headset lost the room data while it slept.', 100, 80, 28, '#cdd6ea', true));
-    out.push(button('Refresh', 220, a.refresh, { primary: true }));
-    out.push(label('Tap to start a new session and find your rooms again.', 320, 60, 22, '#8e99b3', true));
+    out.push(button('Restart Immersa', 220, a.refresh, { primary: true }));
+    out.push(label('The app closes and opens again to find your rooms. Your project comes back by itself.', 320, 80, 22, '#8e99b3', true));
     return out;
   }
 

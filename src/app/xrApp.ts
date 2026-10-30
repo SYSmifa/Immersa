@@ -70,6 +70,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         ? { available: true, start: () => s.initiateRoomCapture() }
         : { available: false, start: async () => undefined };
     core.sessionStarted(capture);
+    core.logEvent(`app: ${['standalone', 'fullscreen', 'browser'].find((m) => matchMedia(`(display-mode: ${m})`).matches)} ${document.referrer.slice(0, 40)}`);
     core.logEvent(`funzioni: ${((s.enabledFeatures ?? []) as string[]).join(' ') || 'n/d'}`);
     probeAt = performance.now() + 4000;
 
