@@ -193,7 +193,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
       : null;
     view.projectName = current?.name ?? null;
-    view.events = events.slice(-3);
+    view.events = events.slice(-4);
     const listed = current ? rooms.filter((r) => current!.roomIds.includes(r.id)) : rooms;
     view.fits = listed
       .filter((r) => fits.has(r.id))

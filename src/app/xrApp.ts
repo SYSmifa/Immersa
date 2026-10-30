@@ -56,6 +56,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     return { pos: cam.getWorldPosition(new Vector3()), fwd: cam.getWorldDirection(new Vector3()) };
   }
 
+  let wakeStart = 0; // diagnostics: plane count at a few moments after a wake from standby
+  const wakeChecks: number[] = [];
   let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
@@ -63,6 +65,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   function bind(session: XRSession) {
     bound = session;
     wakeAt = 0;
+    wakeStart = 0;
     seenPlanes = false;
     const s = session as any;
     const capture: Capture =
@@ -101,6 +104,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         if (away < STANDBY_MS || core.isScanning()) return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
         // Keep the session (ending it closes the installed app) and see whether the planes come back.
         wakeAt = performance.now();
+        wakeStart = wakeAt;
+        wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
         probeAt = wakeAt + 3000;
         core.logEvent(`risveglio dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
       }
@@ -134,6 +139,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const planes = readPlanes(frame, ref);
         const boxes = readBoxes(frame, ref);
         core.setLivePlanes(planes, boxes);
+        if (wakeStart && wakeChecks.length && now - wakeStart > wakeChecks[0] * 1000) {
+          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, volumi ${boxes.length}`);
+          if (!wakeChecks.length) wakeStart = 0;
+        }
         if (planes.length) {
           seenPlanes = true;
           wakeAt = 0;
