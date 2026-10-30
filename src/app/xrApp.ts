@@ -12,6 +12,15 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the user is told to scan again
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
+// How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
+function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
+  const set = (frame as any).detectedPlanes as Set<any> | undefined;
+  if (!set) return 'detectedPlanes assente';
+  let posed = 0;
+  for (const plane of set) if (frame.getPose(plane.planeSpace, ref)) posed++;
+  return `detectedPlanes ${set.size} (con posa ${posed})`;
+}
+
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend) {
   const core = createAppCore({
     scene,
@@ -101,7 +110,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       } else if (session.visibilityState === 'visible' && awaySince) {
         const away = now - awaySince;
         awaySince = 0;
-        if (away < STANDBY_MS || core.isScanning()) return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
+        if (away < STANDBY_MS || core.isScanning()) {
+          probeAt = performance.now() + 3000; // log the plane feed a few seconds after a short return too
+          return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
+        }
         // Keep the session (ending it closes the installed app) and see whether the planes come back.
         wakeAt = performance.now();
         wakeStart = wakeAt;
@@ -140,7 +152,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const boxes = readBoxes(frame, ref);
         core.setLivePlanes(planes, boxes);
         if (wakeStart && wakeChecks.length && now - wakeStart > wakeChecks[0] * 1000) {
-          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, volumi ${boxes.length}`);
+          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ${planeFeed(frame, ref)}`);
           if (!wakeChecks.length) wakeStart = 0;
         }
         if (planes.length) {
@@ -155,7 +167,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         if (probeAt && now > probeAt) {
           probeAt = 0;
           const f = frame as any;
-          core.logEvent(`piani ${planes.length}, volumi ${boxes.length}, detectedPlanes ${f.detectedPlanes ? f.detectedPlanes.size : 'assente'}, detectedMeshes ${f.detectedMeshes ? f.detectedMeshes.size : 'assente'}`);
+          core.logEvent(`piani ${planes.length}, volumi ${boxes.length}, ${planeFeed(frame, ref)}, detectedMeshes ${f.detectedMeshes ? f.detectedMeshes.size : 'assente'}`);
         }
       }
 

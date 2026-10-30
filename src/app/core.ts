@@ -790,7 +790,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       view.tab = 'scan';
       autoTab = false;
       openMenu();
-      say('Room data lost in standby: tap Scan.', 20000);
+      say('Rooms lost: headset off/on, or tap Scan.', 20000);
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       rawLive = planes;
