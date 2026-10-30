@@ -1,10 +1,9 @@
 import { createSupabaseBackend } from '../cloud/repo';
 import { createStage } from '../scene/stage';
-import { createEnterAr, isInstalledApp } from './enterAr';
+import { createEnterAr } from './enterAr';
 import { createLauncher } from './launcher';
 import { createXrApp } from './xrApp';
 
-const APP_PACKAGE = 'app.immersa.quest'; // the installed app (see docs/pwa-quest.md)
 const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking'];
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
@@ -20,17 +19,7 @@ export async function runHeadsetApp() {
   const { renderer, scene, camera } = createStage({ features, arButton: false });
   renderer.xr.setReferenceSpaceType(UNBOUNDED ? 'unbounded' : 'local-floor');
   const enter = createEnterAr(renderer, features);
-  const app = createXrApp(renderer, scene, camera, backend, () => {
-    // Ending the session closes the installed app: ask Android to open it again (experiment, ignored if refused).
-    if (isInstalledApp()) {
-      try {
-        location.href = `intent://${location.host}/#Intent;scheme=https;package=${APP_PACKAGE};end`;
-      } catch {
-        /* not allowed */
-      }
-    }
-    setTimeout(() => void enter.restart(), 300);
-  });
+  const app = createXrApp(renderer, scene, camera, backend);
   const launcher = await createLauncher(enter);
   renderer.xr.addEventListener('sessionend', () => launcher.show());
   void enter.autoStart(); // the installed app's launch is the gesture; in a plain tab the button stays

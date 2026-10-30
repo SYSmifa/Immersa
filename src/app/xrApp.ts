@@ -9,10 +9,10 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the Refresh button is offered
+const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the user is told to scan again
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend) {
   const core = createAppCore({
     scene,
     backend,
@@ -88,7 +88,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only a real standby counts (the system menu or a room scan also change the
     // visibility): hidden for a while, and not scanning. The session is kept; the old session may no
-    // longer see the planes, in which case tick() offers a Refresh button (see WAKE_WAIT_MS).
+    // longer see the planes, in which case tick() tells the user to scan again (see WAKE_WAIT_MS).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
@@ -138,14 +138,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           seenPlanes = true;
           wakeAt = 0;
         } else if (wakeAt && seenPlanes && now - wakeAt > WAKE_WAIT_MS) {
-          // The old session no longer sees the room: a new one is needed (the installed app closes and is
-          // opened again from the library; the last project comes back by itself).
+          // The session stays open (ending it closes the installed app) but no longer sees the room.
           wakeAt = 0;
-          core.logEvent('nessun piano dopo il risveglio: offro il pulsante Refresh');
-          core.offerRefresh(() => {
-            core.prepareResume();
-            onResume();
-          });
+          core.logEvent('nessun piano dopo il risveglio');
+          core.roomDataLost();
         }
         if (probeAt && now > probeAt) {
           probeAt = 0;
