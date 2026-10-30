@@ -831,8 +831,27 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     prepareResume() {
       if (current) sessionStorage.setItem(RESUME_KEY, current.id);
     },
-    // The headset moved its coordinate frame (new boundary, recentring): every alignment is void.
-    referenceReset() {
+    // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
+    // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
+    // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
+    referenceReset(newOrigin?: ArrayLike<number> | null) {
+      if (newOrigin || rawLive.length < MIN_PLANES) {
+        if (newOrigin) {
+          const inv = new Matrix4().fromArray(Array.from(newOrigin)).invert();
+          const move = (a: Alignment): Alignment => {
+            const e = inv.clone().multiply(alignMatrix(a)).elements;
+            return { ...a, yaw: -Math.atan2(e[8], e[0]), tx: e[12], ty: e[13], tz: e[14] };
+          };
+          for (const [id, a] of [...aligns]) aligns.set(id, move(a));
+          if (recognised) {
+            recognised.alignment = aligns.get(recognised.room.id) ?? move(recognised.alignment);
+            roomRoot.matrix.copy(alignMatrix(recognised.alignment));
+          }
+          if (foreign) foreign.matrix.premultiply(inv);
+          syncHouses();
+        }
+        return logEvent(newOrigin ? 'reset: stanze spostate con l\'origine' : 'reset senza piani: stanze lasciate dove sono');
+      }
       logEvent('reset del riferimento');
       aligns.clear();
       misses.clear();

@@ -129,7 +129,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (ref !== watched) {
         watched = ref;
         // Fires when the headset moves the origin (e.g. after the boundary is set up again).
-        ref.addEventListener('reset', () => core.referenceReset());
+        ref.addEventListener('reset', (ev) => core.referenceReset((ev as XRReferenceSpaceEvent).transform?.matrix));
       }
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
