@@ -104,8 +104,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       }),
     )
       .catch((e: unknown) => {
-        anchorError = e instanceof Error ? e.message.slice(0, 40) : String(e).slice(0, 40);
-        core.logEvent(`ancore: ${anchorError}`);
+        anchorError = (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).replace(/Failed to execute 'createAnchor' on 'XRFrame':\s*/, '').slice(0, 70);
+        core.logEvent(`ancore errore: ${anchorError}`);
       })
       .finally(() => (anchorsBusy = false));
   }
@@ -113,7 +113,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   // One line about the anchors, shown a few seconds after the session starts (the rooms are recognised by then).
   function anchorStatus(frame: XRFrame) {
     const api = typeof (frame as any).createAnchor === 'function';
-    return `ancore: API ${api ? 'si' : 'no'}, stanze ${core.alignmentsSnapshot().length}, tentativi ${anchorTries}, create ${anchorOk}, errore ${anchorError}`;
+    const on = (((frame.session as any).enabledFeatures ?? []) as string[]).includes('anchors');
+    return `ancore: API ${api ? 'si' : 'no'}, attive ${on ? 'si' : 'no'}, stanze ${core.alignmentsSnapshot().length}, tentativi ${anchorTries}, create ${anchorOk}`;
   }
 
   // The rooms' poses from the anchors in the current frame, or null if any anchor is gone or not located.
@@ -225,6 +226,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         if (anchorProbeAt && now > anchorProbeAt) {
           anchorProbeAt = 0;
           core.logEvent(anchorStatus(frame));
+          if (anchorError !== '-') core.logEvent(`ancore errore: ${anchorError}`);
         }
         if (wakeStart && core.isGap() && !planes.length && now - wakeStart > ANCHOR_TRY_MS) {
           const poses = anchorPoses(frame, ref);
