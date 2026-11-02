@@ -115,6 +115,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
         }
         // Keep the session (ending it closes the installed app) and see whether the planes come back.
+        core.planesGap(true);
         wakeAt = performance.now();
         wakeStart = wakeAt;
         wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);

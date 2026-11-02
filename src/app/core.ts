@@ -209,6 +209,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
+  let gap = false; // after a standby the session's frame and planes are not to be trusted: rooms and models are hidden
   let loginPassword = '';
 
   // ---- menu placement: in front of you when opened, then eases round when you turn away
@@ -325,7 +326,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       const a = aligns.get(id);
       if (a) h.root.matrix.copy(alignMatrix(a));
       else if (foreign?.roomId === id) h.root.matrix.copy(foreign.matrix);
-      h.root.visible = !!a || foreign?.roomId === id;
+      h.root.visible = !gap && (!!a || foreign?.roomId === id);
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
       h.layer.sync(modelsOf(id));
     }
@@ -398,6 +399,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function setRecognised(r: Recognised | null) {
     recognised = r;
     outline.clear();
+    if (r) gap = false; // found again: trust the session
     roomRoot.visible = !!r;
     if (r) {
       const a = r.alignment;
@@ -423,7 +425,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         stale = 0;
         return void refreshRoomScan(found);
       }
-      if (moved(recognised!.alignment, found.alignment, found.room.id)) {
+      const wasGap = gap;
+      gap = false;
+      roomRoot.visible = true;
+      if (wasGap || moved(recognised!.alignment, found.alignment, found.room.id)) {
         // The headset moved the room: follow it.
         recognised!.alignment = found.alignment;
         aligns.set(found.room.id, found.alignment);
@@ -788,6 +793,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (resumePending) loading.mesh.visible = true;
       else openMenu();
     },
+    // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
+    // come back and the rooms are found again (a wrong wireframe is worse than none).
+    planesGap(on: boolean) {
+      gap = on;
+      roomRoot.visible = !!recognised && !gap;
+      syncHouses();
+    },
     // After a standby the session stays open but may see no rooms: say so and point to Scan, which reads them again.
     roomDataLost() {
       view.tab = 'scan';
@@ -796,6 +808,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       say('Rooms lost: headset off/on, or tap Scan.', 20000);
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
+      if (gap && planes.length >= MIN_PLANES) lastTry = 0; // the planes are back: find the rooms again at once
       rawLive = planes;
       rawBoxes = boxes;
       recompute();
