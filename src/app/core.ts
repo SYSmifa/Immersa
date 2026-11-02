@@ -105,7 +105,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const view: MenuView = {
     tab: 'scan',
     email: null,
-    roomsLost: false,
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -616,25 +615,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   const actions: MenuActions = {
-    // The system scan window is also what makes the headset hand the planes over again after a standby.
-    async recoverRooms() {
-      if (!capture?.available || scanning) return;
-      scanning = true;
-      closeMenu();
-      try {
-        await capture.start();
-      } catch (e) {
-        scanning = false;
-        openMenu();
-        return say(`Reload failed: ${errText(e)}`, 8000);
-      }
-      scanning = false;
-      lastTry = 0;
-      failedTries = 0;
-      readyAt = performance.now() + 1500;
-      openMenu();
-      say('Reading the rooms...', 4000);
-    },
     async askEmail() {
       const v = await ask('Email', view.loginEmail, { max: 64, capital: false });
       if (v !== null) view.loginEmail = v;
@@ -816,47 +796,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
-    // The aligned rooms as plain numbers (the headset app keeps an anchor at each room's origin), and the way back:
-    // after a standby the anchors tell where the rooms are now, without the planes.
-    alignmentsSnapshot: () => [...aligns].map(([id, a]) => ({ id, yaw: a.yaw, tx: a.tx, ty: a.ty, tz: a.tz })),
-    isGap: () => gap,
-    restoreAlignments(list: { id: string; yaw: number; tx: number; ty: number; tz: number }[]) {
-      for (const r of list) {
-        const old = aligns.get(r.id);
-        if (old) aligns.set(r.id, { ...old, yaw: r.yaw, tx: r.tx, ty: r.ty, tz: r.tz });
-      }
-      if (recognised) {
-        recognised.alignment = aligns.get(recognised.room.id) ?? recognised.alignment;
-        roomRoot.matrix.copy(alignMatrix(recognised.alignment));
-      }
-      gap = false;
-      roomRoot.visible = !!recognised;
-      view.roomsLost = false;
-      lastTry = 0;
-      syncHouses();
-      refreshView();
-      say('Rooms restored', 4000);
-    },
     planesGap(on: boolean) {
       gap = on;
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
     },
-    // After a standby the session stays open but sees no rooms. The system scan window brings the planes back (choose
-    // "Not now" in it) but it must never open by itself: the Scan tab only offers it as a button.
-    roomDataLost() {
-      view.roomsLost = true;
-      view.tab = 'scan';
-      autoTab = false;
-      openMenu();
-    },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       if (planes.length >= MIN_PLANES) {
         if (gap) lastTry = 0; // the planes are back: find the rooms again at once
-        if (view.roomsLost) {
-          view.roomsLost = false;
-          render();
-        }
       }
       rawLive = planes;
       rawBoxes = boxes;

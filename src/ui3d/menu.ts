@@ -5,7 +5,6 @@ export type Tab = 'load' | 'scan' | 'options' | 'account';
 export interface MenuView {
   tab: Tab;
   email: string | null;
-  roomsLost: boolean; // after a standby the session has no planes: offer to reload them through the system scan window
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
@@ -40,7 +39,6 @@ export interface MenuActions {
   toggleOccluders(): void;
   closeProject(): void;
   signOut(): void;
-  recoverRooms(): void;
   askEmail(): void;
   askPassword(): void;
   signIn(signUp: boolean): void;
@@ -143,11 +141,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       }
     }
   } else if (v.tab === 'scan') {
-    if (v.roomsLost) {
-      out.push(label('The headset lost the room data while it slept.', top, 70, 28, '#cdd6ea', true));
-      out.push(button('Reload rooms', top + 90, a.recoverRooms, { primary: true }));
-      out.push(label('In the Meta window choose "Not now".', top + 170, 40, 24, '#8e99b3', true));
-    } else if (v.roomName) {
+    if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
       out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, '#cdd6ea', true));
       out.push(button('Rinomina stanza', top + 140, a.renameRoom));

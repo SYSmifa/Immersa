@@ -1,4 +1,4 @@
-import { Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
+import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
 import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { Panel } from '../ui3d/panel';
@@ -21,9 +21,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-const ANCHOR_TRY_MS = 1000; // after a standby, try to restore the rooms from their anchors this long after waking
-
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
   const core = createAppCore({
     scene,
     backend,
@@ -71,84 +69,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   const wakeChecks: number[] = [];
   let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
   let seenPlanes = false; // the session has reported planes at least once
-  // One world-locked anchor, created where the head is (a pose the system always accepts), with every aligned room's
-  // pose stored relative to it. After a standby, where the anchor is now gives the rooms back without the planes (if
-  // the anchor survives the standby).
-  type RoomPose = { id: string; yaw: number; tx: number; ty: number; tz: number };
-  const roomMatrix = (r: RoomPose) => new Matrix4().makeRotationY(-r.yaw).setPosition(r.tx, r.ty, r.tz);
-  const poseMatrix = (p: XRRigidTransform) => new Matrix4().compose(
-    new Vector3(p.position.x, p.position.y, p.position.z),
-    new Quaternion(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w),
-    new Vector3(1, 1, 1),
-  );
-  let viewerSpace: XRSpace | null = null;
-  let headAnchor: { anchor: XRAnchor; rel: Map<string, Matrix4> } | null = null;
-  let pending: { anchor: XRAnchor; rooms: RoomPose[] } | null = null;
-  let anchorSig = '';
-  let anchorsBusy = false;
-  let anchorTries = 0; // diagnostics
-  let anchorOk = 0;
-  let anchorError = '-';
-  let anchorProbeAt = 0;
-  const anchorErr = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).replace(/Failed to execute 'createAnchor' on 'XRFrame':\s*/, '').slice(0, 60);
-
-  function trackAnchors(frame: XRFrame, ref: XRReferenceSpace, planeCount: number) {
-    const f = frame as any;
-    if (typeof f.createAnchor !== 'function' || core.isGap() || !planeCount || anchorsBusy) return;
-    if (pending) {
-      // The head anchor exists: once it is located, store each room relative to it.
-      const pose = frame.getPose(pending.anchor.anchorSpace, ref);
-      if (pose) {
-        const inv = poseMatrix(pose.transform).invert();
-        headAnchor = { anchor: pending.anchor, rel: new Map(pending.rooms.map((r) => [r.id, inv.clone().multiply(roomMatrix(r))])) };
-        pending = null;
-        anchorOk++;
-      }
-      return;
-    }
-    const rooms = core.alignmentsSnapshot();
-    const sig = rooms.map((r) => `${r.id}:${r.tx.toFixed(2)},${r.ty.toFixed(2)},${r.tz.toFixed(2)},${r.yaw.toFixed(2)}`).join('|');
-    if (sig === anchorSig || !rooms.length) return;
-    if (!viewerSpace) return;
-    anchorSig = sig;
-    anchorsBusy = true;
-    anchorTries++;
-    (headAnchor?.anchor as any)?.delete?.();
-    headAnchor = null;
-    f.createAnchor(new XRRigidTransform(), viewerSpace)
-      .then((anchor: XRAnchor) => {
-        pending = { anchor, rooms };
-      })
-      .catch((e: unknown) => {
-        anchorError = `A ${anchorErr(e)}`;
-        core.logEvent(`ancore errore: ${anchorError}`);
-      })
-      .finally(() => (anchorsBusy = false));
-  }
-
-  // The rooms' poses from the anchor in the current frame, or null if it is gone or not located.
-  function anchorPoses(frame: XRFrame, ref: XRReferenceSpace): RoomPose[] | null {
-    if (!headAnchor) return null;
-    const tracked = (frame as any).trackedAnchors as Set<XRAnchor> | undefined;
-    if (tracked && !tracked.has(headAnchor.anchor)) return null;
-    const pose = frame.getPose(headAnchor.anchor.anchorSpace, ref);
-    if (!pose) return null;
-    const base = poseMatrix(pose.transform);
-    const out: RoomPose[] = [];
-    for (const [id, rel] of headAnchor.rel) {
-      const e = base.clone().multiply(rel).elements;
-      out.push({ id, tx: e[12], ty: e[13], tz: e[14], yaw: -Math.atan2(e[8], e[0]) });
-    }
-    return out;
-  }
-
-  // One line about the anchors, shown a few seconds after the session starts (the rooms are recognised by then).
-  function anchorStatus(frame: XRFrame) {
-    const api = typeof (frame as any).createAnchor === 'function';
-    const on = (((frame.session as any).enabledFeatures ?? []) as string[]).includes('anchors');
-    return `ancore: API ${api ? 'si' : 'no'}, attive ${on ? 'si' : 'no'}, stanze ${core.alignmentsSnapshot().length}, tentativi ${anchorTries}, create ${anchorOk}`;
-  }
-
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
   function bind(session: XRSession) {
@@ -156,15 +76,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     wakeAt = 0;
     wakeStart = 0;
     seenPlanes = false;
-    headAnchor = null;
-    pending = null;
-    viewerSpace = null;
-    anchorSig = '';
-    anchorsBusy = false;
-    anchorTries = anchorOk = 0;
-    anchorError = '-';
-    anchorProbeAt = performance.now() + 12000;
-    void session.requestReferenceSpace('viewer').then((v) => (viewerSpace = v));
     const s = session as any;
     const capture: Capture =
       typeof s.initiateRoomCapture === 'function'
@@ -241,22 +152,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const planes = readPlanes(frame, ref);
         const boxes = readBoxes(frame, ref);
         core.setLivePlanes(planes, boxes);
-        trackAnchors(frame, ref, planes.length);
-        if (anchorProbeAt && now > anchorProbeAt) {
-          anchorProbeAt = 0;
-          core.logEvent(anchorStatus(frame));
-          if (anchorError !== '-') core.logEvent(`ancore errore: ${anchorError}`);
-        }
-        if (wakeStart && core.isGap() && !planes.length && now - wakeStart > ANCHOR_TRY_MS) {
-          const poses = anchorPoses(frame, ref);
-          if (poses) {
-            wakeAt = 0;
-            core.logEvent(`ancore: ${poses.length} stanze ripristinate senza piani`);
-            core.restoreAlignments(poses);
-          }
-        }
         if (wakeStart && wakeChecks.length && now - wakeStart > wakeChecks[0] * 1000) {
-          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ancore ${anchorPoses(frame, ref) ? 'ok' : headAnchor ? 'senza posa' : 'nessuna'}`);
+          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ${planeFeed(frame, ref)}`);
           if (!wakeChecks.length) wakeStart = 0;
         }
         if (planes.length) {
@@ -265,8 +162,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         } else if (wakeAt && seenPlanes && now - wakeAt > WAKE_WAIT_MS) {
           // The session stays open (ending it closes the installed app) but no longer sees the room.
           wakeAt = 0;
-          core.logEvent('nessun piano dopo il risveglio');
-          core.roomDataLost();
+          core.logEvent('nessun piano dopo il risveglio: riapro l\'app');
+          core.prepareResume();
+          onResume();
         }
         if (probeAt && now > probeAt) {
           probeAt = 0;

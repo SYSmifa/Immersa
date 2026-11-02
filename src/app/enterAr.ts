@@ -2,6 +2,10 @@ import type { WebGLRenderer } from 'three';
 
 // Our own "Enter AR" button (ARButton restyles itself). Returns the button and a
 // start() that can also be called right after a click, e.g. after logging in.
+// Running from the installed app (Meta's immersive custom tab) rather than a browser tab: best-effort guess.
+export const isInstalledApp = () =>
+  document.referrer.startsWith('android-app://') || ['standalone', 'fullscreen'].some((m) => matchMedia(`(display-mode: ${m})`).matches);
+
 export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
   const init: XRSessionInit = { optionalFeatures: ['local-floor', ...features] };
   const button = document.createElement('button');
