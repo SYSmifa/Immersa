@@ -106,7 +106,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const m = find(holder?.userData.modelId ?? null);
     if (!holder || !m) return;
     m.pos = [holder.position.x, holder.position.y, holder.position.z];
-    m.yaw = holder.rotation.y;
+    // Beyond +-90 degrees the Euler angles of a turn about Y come out as (180, 90 - a, 180): `rotation.y` alone is then a
+    // different heading. Take the heading from the quaternion and keep the holder a pure yaw, as the headset draws it.
+    const q = holder.quaternion;
+    m.yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+    holder.rotation.set(0, m.yaw, 0);
     markDirty();
   });
 
