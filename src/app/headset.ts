@@ -4,7 +4,7 @@ import { createEnterAr } from './enterAr';
 import { createLauncher } from './launcher';
 import { createXrApp } from './xrApp';
 
-const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking'];
+const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking', 'anchors'];
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
 // recentred when you change room (the Guardian does not come back). If the browser refuses it we

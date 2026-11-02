@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
+import { Euler, PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
 import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { Panel } from '../ui3d/panel';
@@ -20,6 +20,8 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   for (const plane of set) if (frame.getPose(plane.planeSpace, ref)) posed++;
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
+
+const ANCHOR_TRY_MS = 1000; // after a standby, try to restore the rooms from their anchors this long after waking
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend) {
   const core = createAppCore({
@@ -69,6 +71,50 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   const wakeChecks: number[] = [];
   let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
   let seenPlanes = false; // the session has reported planes at least once
+  // An anchor at the origin of each aligned room, kept while the planes are good. After a standby the headset tells
+  // where the anchors are now, which gives the rooms back without the planes (if the anchors survive the standby).
+  const anchors = new Map<string, XRAnchor>();
+  let anchorSig = '';
+  let anchorsBusy = false;
+
+  function trackAnchors(frame: XRFrame, ref: XRReferenceSpace, planeCount: number) {
+    const f = frame as any;
+    if (typeof f.createAnchor !== 'function' || core.isGap() || !planeCount || anchorsBusy) return;
+    const rooms = core.alignmentsSnapshot();
+    const sig = rooms.map((r) => `${r.id}:${r.tx.toFixed(2)},${r.ty.toFixed(2)},${r.tz.toFixed(2)},${r.yaw.toFixed(2)}`).join('|');
+    if (sig === anchorSig) return;
+    anchorSig = sig;
+    anchorsBusy = true;
+    for (const a of anchors.values()) (a as any).delete?.();
+    anchors.clear();
+    Promise.all(
+      rooms.map((r) => {
+        const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -r.yaw);
+        return f
+          .createAnchor(new XRRigidTransform({ x: r.tx, y: r.ty, z: r.tz }, { x: q.x, y: q.y, z: q.z, w: q.w }), ref)
+          .then((anchor: XRAnchor) => anchors.set(r.id, anchor));
+      }),
+    )
+      .catch((e: unknown) => core.logEvent(`ancore: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => (anchorsBusy = false));
+  }
+
+  // The rooms' poses from the anchors in the current frame, or null if any anchor is gone or not located.
+  function anchorPoses(frame: XRFrame, ref: XRReferenceSpace) {
+    if (!anchors.size) return null;
+    const tracked = (frame as any).trackedAnchors as Set<XRAnchor> | undefined;
+    const out: { id: string; yaw: number; tx: number; ty: number; tz: number }[] = [];
+    for (const [id, anchor] of anchors) {
+      if (tracked && !tracked.has(anchor)) return null;
+      const pose = frame.getPose(anchor.anchorSpace, ref);
+      if (!pose) return null;
+      const p = pose.transform.position;
+      const o = pose.transform.orientation;
+      out.push({ id, tx: p.x, ty: p.y, tz: p.z, yaw: -new Euler().setFromQuaternion(new Quaternion(o.x, o.y, o.z, o.w), 'YXZ').y });
+    }
+    return out;
+  }
+
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
   function bind(session: XRSession) {
@@ -76,6 +122,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     wakeAt = 0;
     wakeStart = 0;
     seenPlanes = false;
+    anchors.clear();
+    anchorSig = '';
+    anchorsBusy = false;
     const s = session as any;
     const capture: Capture =
       typeof s.initiateRoomCapture === 'function'
@@ -152,8 +201,17 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         const planes = readPlanes(frame, ref);
         const boxes = readBoxes(frame, ref);
         core.setLivePlanes(planes, boxes);
+        trackAnchors(frame, ref, planes.length);
+        if (wakeStart && core.isGap() && !planes.length && now - wakeStart > ANCHOR_TRY_MS) {
+          const poses = anchorPoses(frame, ref);
+          if (poses) {
+            wakeAt = 0;
+            core.logEvent(`ancore: ${poses.length} stanze ripristinate senza piani`);
+            core.restoreAlignments(poses);
+          }
+        }
         if (wakeStart && wakeChecks.length && now - wakeStart > wakeChecks[0] * 1000) {
-          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ${planeFeed(frame, ref)}`);
+          core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ancore ${anchorPoses(frame, ref) ? 'ok' : `${anchors.size} senza posa`}`);
           if (!wakeChecks.length) wakeStart = 0;
         }
         if (planes.length) {

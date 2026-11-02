@@ -816,6 +816,27 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
+    // The aligned rooms as plain numbers (the headset app keeps an anchor at each room's origin), and the way back:
+    // after a standby the anchors tell where the rooms are now, without the planes.
+    alignmentsSnapshot: () => [...aligns].map(([id, a]) => ({ id, yaw: a.yaw, tx: a.tx, ty: a.ty, tz: a.tz })),
+    isGap: () => gap,
+    restoreAlignments(list: { id: string; yaw: number; tx: number; ty: number; tz: number }[]) {
+      for (const r of list) {
+        const old = aligns.get(r.id);
+        if (old) aligns.set(r.id, { ...old, yaw: r.yaw, tx: r.tx, ty: r.ty, tz: r.tz });
+      }
+      if (recognised) {
+        recognised.alignment = aligns.get(recognised.room.id) ?? recognised.alignment;
+        roomRoot.matrix.copy(alignMatrix(recognised.alignment));
+      }
+      gap = false;
+      roomRoot.visible = !!recognised;
+      view.roomsLost = false;
+      lastTry = 0;
+      syncHouses();
+      refreshView();
+      say('Rooms restored', 4000);
+    },
     planesGap(on: boolean) {
       gap = on;
       roomRoot.visible = !!recognised && !gap;
