@@ -798,7 +798,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         const house = houses.get(m.roomId);
         const holder = house?.layer.holders.get(m.id);
         if (!house?.root.visible || !holder) continue;
-        const d = pickDistance(holder, origin, dir);
+        const d = pickDistance(holder, origin, dir, best ? Math.min(limit, best.d) : limit);
         if (d !== null && d <= limit && (!best || d < best.d)) best = { id: m.id, d };
       }
     }

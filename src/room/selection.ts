@@ -1,4 +1,11 @@
-import { Box3, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Vector3 } from 'three';
+import { Box3, BufferGeometry, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
+import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
+
+// Triangle-accurate picking stays cheap with a bounding volume hierarchy per geometry (built once, shared by clones).
+Mesh.prototype.raycast = acceleratedRaycast;
+(BufferGeometry.prototype as { computeBoundsTree?: typeof computeBoundsTree }).computeBoundsTree = computeBoundsTree;
+const picker = new Raycaster();
+(picker as unknown as { firstHitOnly: boolean }).firstHitOnly = true;
 
 // The selected model is drawn with a semi-transparent light-blue material (no extra geometry, so no extra triangles);
 // the original materials come back when it is deselected.
@@ -29,8 +36,8 @@ export function clearSelectionLook(holder: Object3D) {
   });
 }
 
-// Picking uses the model's bounding box (in its own frame), not its triangles: a laser on a model with hundreds of
-// thousands of triangles would cost the frame rate every frame.
+// Picking: the model's bounding box (in its own frame) rejects most rays at once; only a ray that enters the box is
+// tested against the triangles, through the BVH.
 const BOX = 'localBox';
 const inv = new Matrix4();
 const local = new Ray();
@@ -47,6 +54,8 @@ function localBox(holder: Object3D): Box3 | null {
     const mesh = o as Mesh;
     if (!mesh.isMesh) return;
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const g = mesh.geometry as BufferGeometry & { boundsTree?: unknown; computeBoundsTree?: () => void };
+    if (!g.boundsTree) g.computeBoundsTree?.();
     m.multiplyMatrices(inv, mesh.matrixWorld);
     box!.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m));
   });
@@ -55,14 +64,16 @@ function localBox(holder: Object3D): Box3 | null {
   return box;
 }
 
-// Distance along a world-space ray to the model's box, or null. The ray direction must be normalised.
-export function pickDistance(holder: Object3D, origin: Vector3, dir: Vector3): number | null {
+// Distance along a world-space ray to the model's surface, or null. The ray direction must be normalised.
+export function pickDistance(holder: Object3D, origin: Vector3, dir: Vector3, far: number): number | null {
   const box = localBox(holder);
   if (!box) return null;
   holder.updateWorldMatrix(true, false);
   inv.copy(holder.matrixWorld).invert();
   local.set(origin, dir).applyMatrix4(inv); // scale in the holder matrix changes the length of the direction
-  const p = local.intersectBox(box, hit);
-  if (!p) return null;
-  return p.applyMatrix4(holder.matrixWorld).distanceTo(origin);
+  if (!local.intersectBox(box, hit)) return null;
+  picker.set(origin, dir);
+  picker.far = far;
+  const first = picker.intersectObject(holder, true)[0];
+  return first ? first.distance : null;
 }
