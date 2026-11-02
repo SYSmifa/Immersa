@@ -10,35 +10,45 @@ import type { RoomModel } from './types';
 const assets = new Map<string, Promise<Object3D>>();
 let loader: ReturnType<typeof createGltfLoader> | null = null;
 
+function asset(path: string): Promise<Object3D> {
+  let p = assets.get(path);
+  if (!p) {
+    p = modelUrl(path)
+      .then((url) => (loader ??= createGltfLoader()).loadAsync(url))
+      .then((gltf) => {
+        const box = new Box3().setFromObject(gltf.scene);
+        const c = box.getCenter(new Vector3());
+        const wrapper = new Group();
+        gltf.scene.position.set(-c.x, -box.min.y, -c.z);
+        wrapper.add(gltf.scene);
+        return wrapper;
+      });
+    p.catch(() => assets.delete(path)); // allow a retry on the next sync
+    assets.set(path, p);
+  }
+  return p;
+}
+
+let pending = 0; // models being downloaded/parsed (any layer): the loading label waits for this to reach 0
+export const modelsPending = () => pending;
+
+// Start downloading and parsing models before they are placed (the file is then cached for the layer).
+export function preloadModels(paths: string[]) {
+  for (const path of new Set(paths)) void asset(path).catch(() => undefined);
+}
+
 export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
   const holders = new Map<string, Group>();
 
-  function asset(path: string): Promise<Object3D> {
-    let p = assets.get(path);
-    if (!p) {
-      p = modelUrl(path)
-        .then((url) => (loader ??= createGltfLoader()).loadAsync(url))
-        .then((gltf) => {
-          const box = new Box3().setFromObject(gltf.scene);
-          const c = box.getCenter(new Vector3());
-          const wrapper = new Group();
-          gltf.scene.position.set(-c.x, -box.min.y, -c.z);
-          wrapper.add(gltf.scene);
-          return wrapper;
-        });
-      p.catch(() => assets.delete(path)); // allow a retry on the next sync
-      assets.set(path, p);
-    }
-    return p;
-  }
-
   function attach(holder: Group, m: RoomModel) {
+    pending++;
     asset(m.path)
       .then((obj) => holder.add(obj.clone(true)))
       .catch((e: Error) => {
         onError(`${m.name}: ${e.message}`);
         holder.add(new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0xff3030, wireframe: true })));
-      });
+      })
+      .finally(() => pending--);
   }
 
   return {

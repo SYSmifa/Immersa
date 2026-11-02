@@ -5,6 +5,7 @@ export type Tab = 'load' | 'scan' | 'options' | 'account';
 export interface MenuView {
   tab: Tab;
   email: string | null;
+  startup: string; // seconds since the page loaded for each start-up step
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
@@ -178,6 +179,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
     out.push(button('Esci', top + 110, a.signOut));
+    out.push(label(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', top + 222, 60, 19, '#8e99b3', true));
     out.push(label(`Versione: ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, top + 190, 30, 22, '#8e99b3'));
   }
 

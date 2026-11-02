@@ -4,7 +4,7 @@ import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { floorCentre } from '../room/floor';
-import { createModelLayer, type ModelLayer } from '../room/modelLayer';
+import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -39,27 +39,29 @@ const LAST_PROJECT_MS = 60 * 60 * 1000;
 // Set when we restart the app ourselves (after a standby): the next start shows "Loading…" instead of opening the menu.
 const RESTART_KEY = 'immersa.restartedAt';
 const restartMark = {
-  set() {
+  // `project` = the project that was open when we restarted (null: none, so none must be reopened).
+  set(project: string | null) {
     try {
-      localStorage.setItem(RESTART_KEY, String(Date.now()));
+      localStorage.setItem(RESTART_KEY, JSON.stringify({ at: Date.now(), project }));
     } catch {
       /* storage can be unavailable */
     }
   },
-  consume(): boolean {
+  consume(): { project: string | null } | null {
     try {
-      const at = Number(localStorage.getItem(RESTART_KEY) ?? 0);
+      const v = JSON.parse(localStorage.getItem(RESTART_KEY) ?? 'null') as { at: number; project: string | null } | null;
       localStorage.removeItem(RESTART_KEY);
-      return Date.now() - at < 90000;
+      return v && Date.now() - v.at < 90000 ? { project: v.project } : null;
     } catch {
-      return false;
+      return null;
     }
   },
 };
 const lastProject = {
-  save(id: string) {
+  // The model paths are kept too, so their download can start before the project list is back.
+  save(id: string, paths: string[] = []) {
     try {
-      localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ id, at: Date.now() }));
+      localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ id, at: Date.now(), paths }));
     } catch {
       /* storage can be unavailable */
     }
@@ -71,10 +73,10 @@ const lastProject = {
       /* storage can be unavailable */
     }
   },
-  recent(): string | null {
+  recent(): { id: string; paths: string[] } | null {
     try {
-      const v = JSON.parse(localStorage.getItem(LAST_PROJECT_KEY) ?? 'null') as { id: string; at: number } | null;
-      return v && Date.now() - v.at < LAST_PROJECT_MS ? v.id : null;
+      const v = JSON.parse(localStorage.getItem(LAST_PROJECT_KEY) ?? 'null') as { id: string; at: number; paths?: string[] } | null;
+      return v && Date.now() - v.at < LAST_PROJECT_MS ? { id: v.id, paths: v.paths ?? [] } : null;
     } catch {
       return null;
     }
@@ -125,6 +127,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const view: MenuView = {
     tab: 'scan',
     email: null,
+    startup: '',
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -229,6 +232,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
+  // Start-up timeline (seconds since the page loaded), shown in the Account tab to see where the time goes.
+  const marks = new Map<string, number>();
+  function mark(name: string) {
+    if (marks.has(name)) return;
+    marks.set(name, performance.now());
+    view.startup = [...marks].map(([k, t]) => `${k} ${(t / 1000).toFixed(1)}s`).join(' · ');
+  }
+  let awaitingModels: number | null = null; // the project is open and its models are still loading (label stays)
   let gap = false; // after a standby the session's frame and planes are not to be trusted: rooms and models are hidden
   let loginPassword = '';
 
@@ -411,6 +422,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         allProjects = list;
         projectsLoaded = true;
         if (current) current = list.find((p) => p.id === current!.id) ?? current;
+        const resuming = resumePending && list.find((p) => p.id === resumePending!.id);
+        if (resuming) preloadModels(resuming.models.map((m) => m.path)); // first launch: no cached paths yet
         refreshView();
       })
       .catch((e) => say(`Errore: ${errText(e)}`));
@@ -419,7 +432,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function setRecognised(r: Recognised | null) {
     recognised = r;
     outline.clear();
-    if (r) gap = false; // found again: trust the session
+    if (r) {
+      gap = false; // found again: trust the session
+      mark('stanza');
+    }
     roomRoot.visible = !!r;
     if (r) {
       const a = r.alignment;
@@ -627,7 +643,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       if (fit) aligns.set(id, fit);
     }
     foreignMode = !p.roomIds.some((id) => aligns.has(id));
-    lastProject.save(p.id);
+    lastProject.save(p.id, p.models.map((x) => x.path));
+    mark('progetto');
     syncHouses();
     closeMenu();
     refreshView();
@@ -790,12 +807,21 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     // A new XR session has a new origin: forget the old alignment and start over.
     sessionStarted(cap: Capture | null) {
       capture = cap;
-      const saved = sessionStorage.getItem(RESUME_KEY) ?? lastProject.recent();
-      sessionStorage.removeItem(RESUME_KEY);
       scanning = false;
-      const restarted = restartMark.consume();
-      // After our own restart with no project to reopen the id is empty: just wait for the room, no menu flash.
-      resumePending = saved ? { id: saved, since: performance.now() } : restarted ? { id: '', since: performance.now() } : null;
+      marks.clear();
+      mark('sessione');
+      awaitingModels = null;
+      // After our own restart only the project that was open then comes back (none: just the rooms). A normal launch
+      // reopens the last project of the past hour.
+      const restart = restartMark.consume();
+      const inPage = sessionStorage.getItem(RESUME_KEY);
+      sessionStorage.removeItem(RESUME_KEY);
+      const last = lastProject.recent();
+      const saved = restart ? restart.project : (inPage ?? last?.id ?? null);
+      // Start downloading its models now: the project list and the room come later.
+      if (saved && last?.id === saved) preloadModels(last.paths);
+      // With no project to reopen the id is empty: just wait for the room, no menu flash.
+      resumePending = saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
       autoTab = true;
       view.tab = 'scan';
       rawLive = [];
@@ -827,6 +853,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       // The planes arrive (first time, or back after a standby): look for the room at once, not at the next 2.5 s tick.
       if (planes.length >= MIN_PLANES && (gap || rawLive.length < MIN_PLANES)) lastTry = 0;
+      if (planes.length >= MIN_PLANES) mark('piani');
       rawLive = planes;
       rawBoxes = boxes;
       recompute();
@@ -839,26 +866,38 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       tryRecognise(now);
       alignFar(now);
-      if (resumePending) {
+      if (resumePending || awaitingModels !== null) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
+      }
+      if (resumePending) {
         const since = now - resumePending.since;
         if (projectsLoaded && (aligns.size > 0 || since > 12000)) {
           const id = resumePending.id;
           resumePending = null;
-          loading.mesh.visible = false;
           if (!id) {
+            loading.mesh.visible = false;
             if (!recognised) openMenu(); // restarted without a project: the menu only if no room was found
           } else {
             const p = allProjects.find((x) => x.id === id);
-            if (p) openProject(p);
-            else failResume();
+            if (p) {
+              openProject(p);
+              awaitingModels = now; // the label stays until the models are in
+            } else {
+              loading.mesh.visible = false;
+              failResume();
+            }
           }
         } else if (since > 30000) {
           resumePending = null;
           failResume(); // the project list never arrived
         }
+      }
+      if (awaitingModels !== null && (modelsPending() === 0 || now - awaitingModels > 60000)) {
+        awaitingModels = null;
+        loading.mesh.visible = false;
+        mark('modelli');
       }
       checkPending();
       followHead(head, dt);
@@ -868,8 +907,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume() {
-      restartMark.set();
+      restartMark.set(current?.id ?? null);
       if (current) sessionStorage.setItem(RESUME_KEY, current.id);
+      else lastProject.clear(); // nothing was open: a later launch must not bring back an old project
     },
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
     // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
