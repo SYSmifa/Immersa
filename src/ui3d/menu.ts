@@ -20,6 +20,7 @@ export interface MenuView {
   fits: string[]; // how well each room's saved planes match the live scan (diagnostics)
   projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
+  unsaved: boolean; // models moved in the headset and not saved yet
   page: number;
   outline: boolean;
   showOccluders: boolean;
@@ -39,6 +40,7 @@ export interface MenuActions {
   toggleOutline(): void;
   toggleOccluders(): void;
   closeProject(): void;
+  saveChanges(): void;
   signOut(): void;
   askEmail(): void;
   askPassword(): void;
@@ -140,6 +142,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push({ kind: 'label', rect: { x: PAD + 120, y, w: MENU_W - 2 * PAD - 240, h: 52 }, text: `${page + 1} / ${pages}`, size: 26, align: 'center' });
         out.push({ rect: { x: MENU_W - PAD - 120, y, w: 120, h: 52 }, text: '›', disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
       }
+    }
+    if (v.currentProjectId) {
+      out.push(button(v.unsaved ? 'Salva le modifiche' : 'Nessuna modifica da salvare', 560, a.saveChanges, { primary: v.unsaved, disabled: !v.unsaved }));
     }
   } else if (v.tab === 'scan') {
     if (v.roomName) {

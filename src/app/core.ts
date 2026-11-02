@@ -145,6 +145,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     events: [],
     projects: null,
     currentProjectId: null,
+    unsaved: false,
     page: 0,
     outline: true,
     showOccluders: false,
@@ -229,6 +230,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         return `${r.name}: ${f.good ? 'ok' : 'NO'} ${(f.resid * 100).toFixed(1)} cm ${f.matched}/${f.total}`;
       });
     view.currentProjectId = current?.id ?? null;
+    view.unsaved = unsaved && !!current;
     outline.visible = view.outline && !current; // with a project open the models are the point
     render();
   }
@@ -417,6 +419,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     openMenu();
     say('Project reload failed', 10000);
   }
+
+  let unsaved = false; // models moved in the headset, not yet saved to the account
 
   function loadProjects() {
     backend
@@ -637,6 +641,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   function openProject(p: Project) {
     closeCurrent();
+    unsaved = false;
     current = p;
     // Align every room of the project now (the headset reports them all), so it opens in the right places.
     for (const id of p.roomIds) {
@@ -684,10 +689,19 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       autoTab = false;
       render();
     },
-    selectProject(id) {
+    // Always reads the project again from the account: edits made on the PC since the list was loaded show up, and
+    // moves that were never saved are dropped.
+    async selectProject(id) {
+      say('Carico il progetto...', 4000);
+      try {
+        allProjects = await backend.listProjects();
+      } catch (e) {
+        say(`Aggiornamento fallito, uso la copia che ho: ${errText(e)}`, 6000);
+      }
       const p = allProjects.find((x) => x.id === id);
       if (p) openProject(p);
     },
+    saveChanges,
     turnPage(delta) {
       view.page = Math.max(0, view.page + delta);
       render();
@@ -723,6 +737,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       render();
     },
     closeProject() {
+      unsaved = false;
       lastProject.clear();
       closeCurrent();
       refreshView();
@@ -755,10 +770,22 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     const local = house.root.worldToLocal(point.clone());
     model.pos = [local.x, local.y, local.z];
     house.layer.sync(modelsOf(model.roomId));
-    backend
-      .saveProject(current.id, { models: current.models })
-      .then(() => say(`Spostato: ${model.name}`, 3000))
-      .catch((e) => say(`Salvataggio fallito: ${errText(e)}`));
+    unsaved = true; // kept in memory only: the menu's "Salva le modifiche" stores it
+    refreshView();
+    say(`Spostato: ${model.name} (non salvato)`, 3000);
+  }
+
+  async function saveChanges() {
+    if (!current || !unsaved) return;
+    const p = current;
+    try {
+      await backend.saveProject(p.id, { models: p.models });
+      if (current === p) unsaved = false;
+      refreshView();
+      say('Modifiche salvate', 3000);
+    } catch (e) {
+      say(`Salvataggio fallito: ${errText(e)}`);
+    }
   }
 
   // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
