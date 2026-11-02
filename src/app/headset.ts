@@ -30,7 +30,7 @@ export async function runHeadsetApp() {
         /* not allowed */
       }
     }
-    setTimeout(() => void enter.restart(), 300);
+    setTimeout(() => void enter.restart(), 100);
   });
   const launcher = await createLauncher(enter);
   renderer.xr.addEventListener('sessionend', () => launcher.show());

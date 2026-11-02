@@ -57,7 +57,7 @@ export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
   // launcher page shows again and one tap on "Entra in AR" does it.
   async function restart() {
     await renderer.xr.getSession()?.end().catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 150));
     await start(true);
   }
 

@@ -9,7 +9,7 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-const WAKE_WAIT_MS = 2000; // after a standby, planes must come back within this time or the user is told to scan again
+const WAKE_WAIT_MS = 1000; // after a standby, planes must come back within this time or the app restarts
 const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
 
 // How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
@@ -100,7 +100,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only a real standby counts (the system menu or a room scan also change the
     // visibility): hidden for a while, and not scanning. The session is kept; the old session may no
-    // longer see the planes, in which case tick() tells the user to scan again (see WAKE_WAIT_MS).
+    // longer see the planes, in which case tick() restarts the app (see WAKE_WAIT_MS).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);

@@ -36,6 +36,26 @@ const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted
 // The installed app closes when the headset sleeps; opening it again brings back the last open project.
 export const LAST_PROJECT_KEY = 'immersa.lastProject';
 const LAST_PROJECT_MS = 60 * 60 * 1000;
+// Set when we restart the app ourselves (after a standby): the next start shows "Loading…" instead of opening the menu.
+const RESTART_KEY = 'immersa.restartedAt';
+const restartMark = {
+  set() {
+    try {
+      localStorage.setItem(RESTART_KEY, String(Date.now()));
+    } catch {
+      /* storage can be unavailable */
+    }
+  },
+  consume(): boolean {
+    try {
+      const at = Number(localStorage.getItem(RESTART_KEY) ?? 0);
+      localStorage.removeItem(RESTART_KEY);
+      return Date.now() - at < 90000;
+    } catch {
+      return false;
+    }
+  },
+};
 const lastProject = {
   save(id: string) {
     try {
@@ -726,6 +746,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       view.email = await backend.email();
       view.authKnown = true;
       if (view.email) {
+        loadProjects(); // in parallel with the rooms
         rooms = await backend.listRooms();
         roomsLoaded = true;
       }
@@ -772,7 +793,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       const saved = sessionStorage.getItem(RESUME_KEY) ?? lastProject.recent();
       sessionStorage.removeItem(RESUME_KEY);
       scanning = false;
-      resumePending = saved ? { id: saved, since: performance.now() } : null;
+      const restarted = restartMark.consume();
+      // After our own restart with no project to reopen the id is empty: just wait for the room, no menu flash.
+      resumePending = saved ? { id: saved, since: performance.now() } : restarted ? { id: '', since: performance.now() } : null;
       autoTab = true;
       view.tab = 'scan';
       rawLive = [];
@@ -802,9 +825,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       syncHouses();
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
-      if (planes.length >= MIN_PLANES) {
-        if (gap) lastTry = 0; // the planes are back: find the rooms again at once
-      }
+      // The planes arrive (first time, or back after a standby): look for the room at once, not at the next 2.5 s tick.
+      if (planes.length >= MIN_PLANES && (gap || rawLive.length < MIN_PLANES)) lastTry = 0;
       rawLive = planes;
       rawBoxes = boxes;
       recompute();
@@ -823,11 +845,16 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         loading.draw();
         const since = now - resumePending.since;
         if (projectsLoaded && (aligns.size > 0 || since > 12000)) {
-          const p = allProjects.find((x) => x.id === resumePending!.id);
+          const id = resumePending.id;
           resumePending = null;
           loading.mesh.visible = false;
-          if (p) openProject(p);
-          else failResume();
+          if (!id) {
+            if (!recognised) openMenu(); // restarted without a project: the menu only if no room was found
+          } else {
+            const p = allProjects.find((x) => x.id === id);
+            if (p) openProject(p);
+            else failResume();
+          }
         } else if (since > 30000) {
           resumePending = null;
           failResume(); // the project list never arrived
@@ -841,6 +868,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume() {
+      restartMark.set();
       if (current) sessionStorage.setItem(RESUME_KEY, current.id);
     },
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
@@ -878,7 +906,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     moveGazedModel,
     say,
     // Test hook.
-    debug: () => ({ rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
+    debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
   };
 }
 
