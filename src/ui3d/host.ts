@@ -46,11 +46,12 @@ export class UiHost {
   }
 
   // Call every frame per pointer; direction must be normalised. null = pointer lost.
-  setRay(id: string, origin: Vector3 | null, direction?: Vector3) {
+  // Returns the distance to the panel under the ray (null: none), so other things can be picked only in front of it.
+  setRay(id: string, origin: Vector3 | null, direction?: Vector3): number | null {
     const p = this.pointer(id);
     p.hover = null;
     p.cursor.visible = false;
-    if (!origin || !direction) return;
+    if (!origin || !direction) return null;
     const meshes: Mesh[] = [];
     for (const panel of this.panels) {
       if (!visible(panel.mesh)) continue;
@@ -60,13 +61,14 @@ export class UiHost {
     this.raycaster.set(origin, direction);
     this.raycaster.far = 3;
     const hit = this.raycaster.intersectObjects(meshes, false)[0];
-    if (!hit || !hit.uv) return;
+    if (!hit || !hit.uv) return null;
     const panel = hit.object.userData.panel as Panel;
     const widget = panel.widgetAt(hit.uv.x, hit.uv.y);
     p.hover = { panel, widget };
     p.cursor.position.copy(hit.point);
     p.cursor.visible = true;
     (p.cursor.material as MeshBasicMaterial).color.set(widget ? 0x66ffee : 0xffffff);
+    return hit.distance;
   }
 
   // True when the pointer is over a panel: the press belongs to the UI.

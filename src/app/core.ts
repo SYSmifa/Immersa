@@ -1,10 +1,11 @@
-import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Raycaster, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { floorCentre } from '../room/floor';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
+import { addOutline, removeOutline } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -760,6 +761,68 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       .catch((e) => say(`Salvataggio fallito: ${errText(e)}`));
   }
 
+  // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
+  const modelRay = new Raycaster();
+  const hovered = new Map<string, string>(); // pointer id -> model id
+  let selectedId: string | null = null;
+  let outlined: { id: string; holder: Group } | null = null;
+
+  function selectModel(id: string | null) {
+    if (id === selectedId) return;
+    selectedId = id;
+    const m = id ? current?.models.find((x) => x.id === id) : null;
+    say(m ? `Selezionato: ${m.name}` : 'Selezione annullata', 2500);
+  }
+
+  // Keeps the outline on the selected model's holder (and only there); the model may still be loading.
+  function syncOutline() {
+    if (selectedId && !current?.models.some((m) => m.id === selectedId)) selectedId = null;
+    if (outlined && outlined.id !== selectedId) {
+      removeOutline(outlined.holder);
+      outlined = null;
+    }
+    if (!selectedId || outlined) return;
+    const m = current?.models.find((x) => x.id === selectedId);
+    const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
+    if (holder && addOutline(holder)) outlined = { id: selectedId, holder };
+  }
+
+  // Per frame and per pointer: UI first (the nearest panel wins), else the nearest model in front of it.
+  // Returns where the laser ends and what it points at.
+  function aim(id: string, origin: Vector3, dir: Vector3): { length: number; target: 'panel' | 'model' | 'none' } {
+    const panelDist = host.setRay(id, origin, dir);
+    hovered.delete(id);
+    const roots: Group[] = [];
+    if (current) {
+      for (const m of current.models) {
+        const house = houses.get(m.roomId);
+        const holder = house?.layer.holders.get(m.id);
+        if (house?.root.visible && holder) roots.push(holder);
+      }
+    }
+    let best: { id: string; d: number } | null = null;
+    if (roots.length) {
+      modelRay.set(origin, dir);
+      modelRay.far = panelDist ?? 5;
+      for (const hit of modelRay.intersectObjects(roots, true)) {
+        let o: Group | null = null;
+        for (let n: any = hit.object; n; n = n.parent) if (n.userData.modelId) { o = n; break; }
+        if (o) { best = { id: o.userData.modelId, d: hit.distance }; break; }
+      }
+    }
+    if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
+    if (best) {
+      hovered.set(id, best.id);
+      return { length: best.d, target: 'model' };
+    }
+    return { length: 3, target: 'none' };
+  }
+
+  // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
+  function pressModel(id: string) {
+    selectModel(hovered.get(id) ?? null);
+  }
+
   async function reloadRooms() {
     try {
       view.email = await backend.email();
@@ -911,6 +974,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       checkPending();
       followHead(head, dt);
+      syncOutline();
       host.update();
     },
     logEvent,
@@ -954,6 +1018,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       say('Il visore ha cambiato riferimento: rileggo la stanza...', 5000);
     },
     moveGazedModel,
+    aim,
+    pressModel,
+    selected: () => selectedId,
     say,
     // Test hook.
     debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),

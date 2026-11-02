@@ -1,6 +1,7 @@
 import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
 import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
+import { createLaser } from '../ui3d/laser';
 import { Panel } from '../ui3d/panel';
 import { handAnchor, pinchPoint } from '../xr/pinch';
 import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core';
@@ -46,6 +47,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   wrist.mesh.visible = false;
   core.host.root.add(wrist.mesh);
   core.host.add(wrist);
+
+  // Laser from the right hand (hand tracking or controller).
+  const laser = createLaser();
+  core.host.root.add(laser.mesh);
+  const LASER_COLOR = { panel: 0x66ffee, model: 0x35b8ff, none: 0xffffff };
 
   const ids = new Map<XRInputSource, string>();
   let activeIds = new Set<string>();
@@ -96,6 +102,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;
       const consumed = core.host.press(idOf(e.inputSource));
+      if (!consumed && e.inputSource.handedness === 'right') core.pressModel(idOf(e.inputSource));
       const ref = renderer.xr.getReferenceSpace();
       if (!consumed && e.inputSource.handedness === 'left' && ref) {
         const point = pinchPoint(e.frame, e.inputSource, ref);
@@ -185,6 +192,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       }
 
       const seen = new Set<string>();
+      let laserOn = false;
       let anchor: Vector3 | null = null;
       for (const src of frame.session.inputSources) {
         const id = idOf(src);
@@ -195,7 +203,14 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           const q = pose.transform.orientation;
           quat.set(q.x, q.y, q.z, q.w);
           dir.set(0, 0, -1).applyQuaternion(quat);
-          core.host.setRay(id, new Vector3(p.x, p.y, p.z), dir);
+          const origin = new Vector3(p.x, p.y, p.z);
+          if (src.handedness === 'right') {
+            const hit = core.aim(id, origin, dir);
+            laser.show(origin, dir, hit.length, LASER_COLOR[hit.target]);
+            laserOn = true;
+          } else {
+            core.host.setRay(id, origin, dir);
+          }
         } else {
           core.host.setRay(id, null);
         }
@@ -207,6 +222,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           leftToggleHeld = pressed;
         }
       }
+      if (!laserOn) laser.hide();
       for (const id of activeIds) if (!seen.has(id)) core.host.setRay(id, null);
       activeIds = seen;
 

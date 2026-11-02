@@ -29,13 +29,13 @@ export function runUiTest() {
     const ndc = new Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const origin = camera.getWorldPosition(new Vector3());
     const dir = new Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(origin).normalize();
-    core.host.setRay('mouse', origin, dir);
+    core.aim('mouse', origin, dir);
   };
   const dom = renderer.domElement;
   dom.addEventListener('pointermove', ray);
   dom.addEventListener('pointerdown', (e) => {
     ray(e);
-    core.host.press('mouse');
+    if (!core.host.press('mouse')) core.pressModel('mouse');
   });
   dom.addEventListener('pointerup', () => core.host.release('mouse'));
 
