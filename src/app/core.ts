@@ -842,14 +842,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
     },
-    // After a standby the session stays open but sees no rooms. Opening the system scan window brings the planes back
-    // (choose "Not now" in it), so do it at once; the button in the Scan tab is the fallback.
+    // After a standby the session stays open but sees no rooms. The system scan window brings the planes back (choose
+    // "Not now" in it) but it must never open by itself: the Scan tab only offers it as a button.
     roomDataLost() {
       view.roomsLost = true;
       view.tab = 'scan';
       autoTab = false;
       openMenu();
-      void actions.recoverRooms();
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
       if (planes.length >= MIN_PLANES) {
