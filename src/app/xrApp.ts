@@ -9,8 +9,11 @@ import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
 // scan, pinch events, the wrist menu button, and the system room-scan request.
-const WAKE_WAIT_MS = 1000; // after a standby, planes must come back within this time or the app restarts
-const STANDBY_MS = 20000; // hidden for at least this long = the headset was put down
+// The session had planes and now reports none (the headset lost its scene data, e.g. after a standby, whatever its
+// length): after this long without any the app restarts. The headset reports the planes of every stored room, so
+// "none at all" is never normal.
+const NO_PLANES_MS = 1500;
+const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
 // How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
 function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
@@ -67,13 +70,17 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
 
   let wakeStart = 0; // diagnostics: plane count at a few moments after a wake from standby
   const wakeChecks: number[] = [];
-  let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
+  let zeroSince = 0; // when the planes disappeared (0: they are there)
+  let planesHidden = false; // rooms and models are hidden while the planes are gone
+  let restarting = false;
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
   function bind(session: XRSession) {
     bound = session;
-    wakeAt = 0;
+    zeroSince = 0;
+    planesHidden = false;
+    restarting = false;
     wakeStart = 0;
     seenPlanes = false;
     const s = session as any;
@@ -98,9 +105,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => core.host.cancel(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('squeezestart', () => core.menu.toggle());
-    // Standby / resume: only a real standby counts (the system menu or a room scan also change the
-    // visibility): hidden for a while, and not scanning. The session is kept; the old session may no
-    // longer see the planes, in which case tick() restarts the app (see WAKE_WAIT_MS).
+    // Standby / resume: only logged here (the plane check in tick() decides about the restart).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
@@ -110,17 +115,12 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       } else if (session.visibilityState === 'visible' && awaySince) {
         const away = now - awaySince;
         awaySince = 0;
-        if (away < STANDBY_MS || core.isScanning()) {
-          probeAt = performance.now() + 3000; // log the plane feed a few seconds after a short return too
-          return core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
+        probeAt = now + 3000;
+        if (away >= AWAY_LOG_MS) {
+          wakeStart = now;
+          wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
+          core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s`);
         }
-        // Keep the session (ending it closes the installed app) and see whether the planes come back.
-        core.planesGap(true);
-        wakeAt = performance.now();
-        wakeStart = wakeAt;
-        wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
-        probeAt = wakeAt + 3000;
-        core.logEvent(`risveglio dopo ${Math.round(away / 1000)} s: sessione mantenuta`);
       }
     });
     session.addEventListener('end', () => {
@@ -158,13 +158,23 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         }
         if (planes.length) {
           seenPlanes = true;
-          wakeAt = 0;
-        } else if (wakeAt && seenPlanes && now - wakeAt > WAKE_WAIT_MS) {
-          // The session stays open (ending it closes the installed app) but no longer sees the room.
-          wakeAt = 0;
-          core.logEvent('nessun piano dopo il risveglio: riapro l\'app');
-          core.prepareResume();
-          onResume();
+          zeroSince = 0;
+          planesHidden = false; // the core shows the rooms again once it has found them
+        } else if (seenPlanes && !restarting && frame.session.visibilityState === 'visible' && !core.isScanning()) {
+          zeroSince ||= now;
+          if (!planesHidden && now - zeroSince > 500) {
+            planesHidden = true;
+            core.planesGap(true); // a wireframe in the wrong place is worse than none
+          }
+          if (now - zeroSince > NO_PLANES_MS) {
+            // The session stays open but is blind (ending it closes the installed app): start over.
+            restarting = true;
+            core.logEvent('nessun piano: riapro l\'app');
+            core.prepareResume();
+            onResume();
+          }
+        } else if (!planes.length) {
+          zeroSince = 0; // hidden or scanning: do not count this time
         }
         if (probeAt && now > probeAt) {
           probeAt = 0;
