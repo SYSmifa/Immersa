@@ -766,11 +766,12 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let selectedId: string | null = null;
   let looked: { id: string; holder: Group } | null = null;
 
+  const deg = (r: number) => Math.round((r * 180) / Math.PI);
   function selectModel(id: string | null) {
     if (id === selectedId) return;
     selectedId = id;
     const m = id ? current?.models.find((x) => x.id === id) : null;
-    say(m ? `Selezionato: ${m.name}` : 'Selezione annullata', 2500);
+    say(m ? `Selezionato: ${m.name} · yaw ${deg(m.yaw)}° (stanza ${deg(aligns.get(m.roomId)?.yaw ?? 0)}°)` : 'Selezione annullata', 2500);
   }
 
   // Keeps the outline on the selected model's holder (and only there); the model may still be loading.

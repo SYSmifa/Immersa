@@ -20,6 +20,7 @@ export interface EditorHandlers {
 
 export interface SelectionInfo {
   scale: number;
+  yawDeg: number; // saved heading
   size: [number, number, number] | null; // metres, null while the file is loading
 }
 
@@ -188,7 +189,7 @@ export function createEditorUi(h: EditorHandlers) {
       selection.style.display = info ? 'flex' : 'none';
       if (!info) return;
       scale.value = String(info.scale);
-      size.textContent = info.size ? `${info.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...';
+      size.textContent = `${info.size ? `${info.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...'} · ${info.yawDeg.toFixed(0)}°`;
     },
   };
 }

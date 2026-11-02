@@ -84,7 +84,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     holder.rotation.y = yaw;
     holder.updateWorldMatrix(true, true);
     const dim = box.isEmpty() ? null : box.getSize(new Vector3());
-    ui.setSelection({ scale: m.scale, size: dim ? [dim.x, dim.y, dim.z] : null });
+    ui.setSelection({ scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, size: dim ? [dim.x, dim.y, dim.z] : null });
   }
 
   function select(id: string | null) {
@@ -113,6 +113,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     holder.rotation.set(0, m.yaw, 0);
     markDirty();
   });
+
+  transform.addEventListener('mouseUp', refresh);
 
   const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
 
