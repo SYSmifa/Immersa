@@ -1,11 +1,11 @@
-import { Box3, Group, Matrix4, Raycaster, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { floorCentre } from '../room/floor';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
-import { addOutline, removeOutline } from '../room/selection';
+import { applySelectionLook, clearSelectionLook, pickDistance } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -762,10 +762,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
-  const modelRay = new Raycaster();
   const hovered = new Map<string, string>(); // pointer id -> model id
   let selectedId: string | null = null;
-  let outlined: { id: string; holder: Group } | null = null;
+  let looked: { id: string; holder: Group } | null = null;
 
   function selectModel(id: string | null) {
     if (id === selectedId) return;
@@ -777,14 +776,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // Keeps the outline on the selected model's holder (and only there); the model may still be loading.
   function syncOutline() {
     if (selectedId && !current?.models.some((m) => m.id === selectedId)) selectedId = null;
-    if (outlined && outlined.id !== selectedId) {
-      removeOutline(outlined.holder);
-      outlined = null;
+    if (looked && looked.id !== selectedId) {
+      clearSelectionLook(looked.holder);
+      looked = null;
     }
-    if (!selectedId || outlined) return;
+    if (!selectedId || looked) return;
     const m = current?.models.find((x) => x.id === selectedId);
     const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
-    if (holder && addOutline(holder)) outlined = { id: selectedId, holder };
+    if (holder && applySelectionLook(holder)) looked = { id: selectedId, holder };
   }
 
   // Per frame and per pointer: UI first (the nearest panel wins), else the nearest model in front of it.
@@ -792,22 +791,15 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function aim(id: string, origin: Vector3, dir: Vector3): { length: number; target: 'panel' | 'model' | 'none' } {
     const panelDist = host.setRay(id, origin, dir);
     hovered.delete(id);
-    const roots: Group[] = [];
+    let best: { id: string; d: number } | null = null;
     if (current) {
+      const limit = panelDist ?? 5;
       for (const m of current.models) {
         const house = houses.get(m.roomId);
         const holder = house?.layer.holders.get(m.id);
-        if (house?.root.visible && holder) roots.push(holder);
-      }
-    }
-    let best: { id: string; d: number } | null = null;
-    if (roots.length) {
-      modelRay.set(origin, dir);
-      modelRay.far = panelDist ?? 5;
-      for (const hit of modelRay.intersectObjects(roots, true)) {
-        let o: Group | null = null;
-        for (let n: any = hit.object; n; n = n.parent) if (n.userData.modelId) { o = n; break; }
-        if (o) { best = { id: o.userData.modelId, d: hit.distance }; break; }
+        if (!house?.root.visible || !holder) continue;
+        const d = pickDistance(holder, origin, dir);
+        if (d !== null && d <= limit && (!best || d < best.d)) best = { id: m.id, d };
       }
     }
     if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
