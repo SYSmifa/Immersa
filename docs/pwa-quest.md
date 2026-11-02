@@ -18,6 +18,8 @@ di Meta si chiude dopo ~0,5 s. Il file sta in `public/.well-known/assetlinks.jso
 + SHA-256 della chiave `android.keystore`, ricavato con `keytool -list -v`). Va rifatto solo se cambia la chiave.
 
 ## Ricostruire l'APK (solo se cambiano manifest, icone, dominio o package)
+Un solo comando, dalla cartella dell'APK: `powershell -ExecutionPolicy Bypass -File C:\Users\loren\Documents\immersa\docs\rebuild-apk.ps1` (fa i passi qui sotto).
+
 `bubblewrap build` dà `spawn EINVAL` con Node recente su Windows. Si costruisce con Gradle (PowerShell):
 ```
 cd C:\Users\loren\Documents\immersa-apk
