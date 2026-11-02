@@ -105,6 +105,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const view: MenuView = {
     tab: 'scan',
     email: null,
+    roomsLost: false,
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -615,6 +616,25 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   }
 
   const actions: MenuActions = {
+    // The system scan window is also what makes the headset hand the planes over again after a standby.
+    async recoverRooms() {
+      if (!capture?.available || scanning) return;
+      scanning = true;
+      closeMenu();
+      try {
+        await capture.start();
+      } catch (e) {
+        scanning = false;
+        openMenu();
+        return say(`Reload failed: ${errText(e)}`, 8000);
+      }
+      scanning = false;
+      lastTry = 0;
+      failedTries = 0;
+      readyAt = performance.now() + 1500;
+      openMenu();
+      say('Reading the rooms...', 4000);
+    },
     async askEmail() {
       const v = await ask('Email', view.loginEmail, { max: 64, capital: false });
       if (v !== null) view.loginEmail = v;
@@ -801,15 +821,23 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
     },
-    // After a standby the session stays open but may see no rooms: say so and point to Scan, which reads them again.
+    // After a standby the session stays open but sees no rooms. Opening the system scan window brings the planes back
+    // (choose "Not now" in it), so do it at once; the button in the Scan tab is the fallback.
     roomDataLost() {
+      view.roomsLost = true;
       view.tab = 'scan';
       autoTab = false;
       openMenu();
-      say('Rooms lost: headset off/on, or tap Scan.', 20000);
+      void actions.recoverRooms();
     },
     setLivePlanes(planes: RoomPlane[], boxes: RoomBox[] = []) {
-      if (gap && planes.length >= MIN_PLANES) lastTry = 0; // the planes are back: find the rooms again at once
+      if (planes.length >= MIN_PLANES) {
+        if (gap) lastTry = 0; // the planes are back: find the rooms again at once
+        if (view.roomsLost) {
+          view.roomsLost = false;
+          render();
+        }
+      }
       rawLive = planes;
       rawBoxes = boxes;
       recompute();
