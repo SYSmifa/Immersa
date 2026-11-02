@@ -33,7 +33,7 @@ const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than th
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
 const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
-// The installed app closes when the headset sleeps; opening it again brings back the last open project.
+// The model paths of the project open now: after a standby restart their download starts at once (see sessionStarted).
 export const LAST_PROJECT_KEY = 'immersa.lastProject';
 const LAST_PROJECT_MS = 60 * 60 * 1000;
 // Set when we restart the app ourselves (after a standby): the next start shows "Loading…" instead of opening the menu.
@@ -51,7 +51,7 @@ const restartMark = {
     try {
       const v = JSON.parse(localStorage.getItem(RESTART_KEY) ?? 'null') as { at: number; project: string | null } | null;
       localStorage.removeItem(RESTART_KEY);
-      return v && Date.now() - v.at < 90000 ? { project: v.project } : null;
+      return v && Date.now() - v.at < 180000 ? { project: v.project } : null;
     } catch {
       return null;
     }
@@ -811,13 +811,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       marks.clear();
       mark('sessione');
       awaitingModels = null;
-      // After our own restart only the project that was open then comes back (none: just the rooms). A normal launch
-      // reopens the last project of the past hour.
+      // Only after our own restart (standby) the project that was open then comes back (none: just the rooms). A normal
+      // launch of the app opens nothing by itself.
       const restart = restartMark.consume();
       const inPage = sessionStorage.getItem(RESUME_KEY);
       sessionStorage.removeItem(RESUME_KEY);
       const last = lastProject.recent();
-      const saved = restart ? restart.project : (inPage ?? last?.id ?? null);
+      const saved = restart ? restart.project : inPage;
       // Start downloading its models now: the project list and the room come later.
       if (saved && last?.id === saved) preloadModels(last.paths);
       // With no project to reopen the id is empty: just wait for the room, no menu flash.
