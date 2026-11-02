@@ -178,6 +178,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
     out.push(button('Esci', top + 110, a.signOut));
+    out.push(label(`Versione: ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, top + 190, 30, 22, '#8e99b3'));
   }
 
   if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
