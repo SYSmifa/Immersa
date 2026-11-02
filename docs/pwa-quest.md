@@ -1,19 +1,19 @@
 # Immersa come app sul Quest (PWA → APK) — procedura che ha funzionato
 
-Cartelle: progetto `C:\Users\loren\Documents\immersa`; APK in `C:\Users\loren\Documents\immersa-apk`.
-Sito: https://immersa-lorenzo.netlify.app (Netlify, deve essere PUBBLICO: se risponde 401 è attiva la protezione di accesso).
+Cartelle: progetto `C:\Users\loren\Documents\immersa`; APK in `C:\Users\loren\Documents\immersa-apk2` (progetto per `app.immersavr.com`; la chiave di firma resta in `immersa-apk\android.keystore` e lo script la trova da solo).
+Sito: https://app.immersavr.com (dominio `immersavr.com` comprato su Cloudflare; hosting Cloudflare Pages, progetto `immersa-dsr`, alias https://immersa-dsr.pages.dev). L'APK punta al dominio, quindi cambiare hosting non richiede un nuovo APK. Netlify abbandonato (crediti finiti). Il sito deve essere PUBBLICO.
 
 ## Aggiornare il sito (basta questo per le modifiche al codice, l'APK non cambia)
 ```
 cd C:\Users\loren\Documents\immersa
 git pull origin ccr-9d20ed4e-a2qxlt
 npm run build
-npx netlify-cli deploy --prod --dir=dist
+npx wrangler pages deploy dist --project-name immersa-dsr
 ```
 (`dist\models` esiste solo se c'è `public\models`: se c'è, cancellarla prima del deploy.)
 
 ## Verifica del dominio (Digital Asset Links) — obbligatoria
-Senza `https://immersa-lorenzo.netlify.app/.well-known/assetlinks.json` (200 + JSON) la schermata immersiva
+Senza `https://app.immersavr.com/.well-known/assetlinks.json` (200 + JSON) la schermata immersiva
 di Meta si chiude dopo ~0,5 s. Il file sta in `public/.well-known/assetlinks.json` (package `app.immersa.quest`
 + SHA-256 della chiave `android.keystore`, ricavato con `keytool -list -v`). Va rifatto solo se cambia la chiave.
 
