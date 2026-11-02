@@ -426,6 +426,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
         return void refreshRoomScan(found);
       }
       const wasGap = gap;
+      if (wasGap) say('Rooms found again', 4000);
       gap = false;
       roomRoot.visible = true;
       if (wasGap || moved(recognised!.alignment, found.alignment, found.room.id)) {

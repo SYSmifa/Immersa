@@ -69,6 +69,19 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   const wakeChecks: number[] = [];
   let wakeAt = 0; // set on wake from standby until the planes are seen again (or the session is restarted)
   let seenPlanes = false; // the session has reported planes at least once
+  // Experiment: after a long standby the planes do not come back until the headset is taken off and put on again.
+  // Asking for a fresh reference space may restart the tracking the same way. The rooms are found again from the
+  // planes in whatever frame the session has, so changing the origin does no harm here.
+  async function renewReferenceSpace(session: XRSession) {
+    try {
+      const space = await session.requestReferenceSpace('unbounded').catch(() => session.requestReferenceSpace('local-floor'));
+      renderer.xr.setReferenceSpace(space);
+      core.logEvent('nuovo spazio di riferimento richiesto');
+    } catch (e) {
+      core.logEvent(`spazio di riferimento: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
   function bind(session: XRSession) {
@@ -164,6 +177,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           wakeAt = 0;
           core.logEvent('nessun piano dopo il risveglio');
           core.roomDataLost();
+          void renewReferenceSpace(frame.session); // try to make the system hand the planes over again
         }
         if (probeAt && now > probeAt) {
           probeAt = 0;
