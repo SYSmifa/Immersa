@@ -171,7 +171,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             restarting = true;
             core.logEvent('nessun piano: riapro l\'app');
             core.prepareResume();
-            onResume();
+            core.showRestarting();
+            setTimeout(onResume, 600); // long enough to read the message
           }
         } else if (!planes.length) {
           zeroSince = 0; // hidden or scanning: do not count this time

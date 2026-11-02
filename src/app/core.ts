@@ -100,8 +100,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   host.add(menu);
   const keyboard = createKeyboard(host, rig);
   // Floating "Loading project…" label (not interactive) shown while a project is reopened after standby.
-  const loading = new Panel(0.5, 0.1, 1200);
-  loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text: 'Loading project…', size: 44, align: 'center' }]);
+  const loading = new Panel(0.6, 0.1, 1200);
+  const setLoadingText = (text: string) =>
+    loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text, size: 44, align: 'center' }]);
+  setLoadingText('Loading project…');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
 
@@ -820,8 +822,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       const saved = restart ? restart.project : inPage;
       // Start downloading its models now: the project list and the room come later.
       if (saved && last?.id === saved) preloadModels(last.paths);
-      // With no project to reopen the id is empty: just wait for the room, no menu flash.
+      // With no project to reopen the id is empty: just wait for the rooms, then the menu opens.
       resumePending = saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
+      if (resumePending) setLoadingText(resumePending.id ? 'Loading project…' : 'Loading rooms…');
       autoTab = true;
       view.tab = 'scan';
       rawLive = [];
@@ -845,7 +848,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
+    // The app is about to restart: say so (menu away, floating label) instead of just going black.
+    showRestarting() {
+      closeMenu();
+      setLoadingText('Restarting Immersa…');
+      loading.mesh.visible = true;
+    },
     planesGap(on: boolean) {
+      if (on) closeMenu(); // no glimpse of the menu while the rooms are gone (the app is about to restart)
       gap = on;
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
@@ -866,7 +876,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       tryRecognise(now);
       alignFar(now);
-      if (resumePending || awaitingModels !== null) {
+      if (loading.mesh.visible) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
@@ -878,7 +888,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
           resumePending = null;
           if (!id) {
             loading.mesh.visible = false;
-            if (!recognised) openMenu(); // restarted without a project: the menu only if no room was found
+            openMenu(); // restarted without a project: the rooms are back, the menu opens as in a normal start
           } else {
             const p = allProjects.find((x) => x.id === id);
             if (p) {
