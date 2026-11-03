@@ -23,6 +23,7 @@ export interface MenuView {
   unsaved: boolean; // models moved in the headset and not saved yet
   page: number;
   outline: boolean;
+  snap: boolean; // magnetic snap of rotation and scale (two-hand gesture)
   showOccluders: boolean;
   message: string;
 }
@@ -38,6 +39,7 @@ export interface MenuActions {
   scan(): void;
   reread(): void;
   toggleOutline(): void;
+  toggleSnap(): void;
   toggleOccluders(): void;
   closeProject(): void;
   saveChanges(): void;
@@ -174,12 +176,15 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(button('Rileggi', top + 170, a.reread, { primary: true }));
     }
   } else if (v.tab === 'options') {
-    out.push(button(`Contorno (senza progetto aperto): ${v.outline ? 'sì' : 'no'}`, top, a.toggleOutline));
-    out.push(button('Chiudi il progetto aperto', top + 72, a.closeProject, { disabled: !v.currentProjectId }));
-    out.push(button(`Pareti invisibili in vista: ${v.showOccluders ? 'sì' : 'no'}`, top + 144, a.toggleOccluders));
-    out.push(label('Allineamento delle stanze (diagnostica)', top + 214, 28, 20, '#8e99b3'));
-    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 242 + i * 24, 24, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
-    v.events.forEach((line, i) => out.push(label(line, top + 318 + i * 24, 24, 19, '#8e99b3')));
+    const half = (text: string, i: number, y: number, onClick: () => void, o: Partial<Widget> = {}): Widget =>
+      button(text, y, onClick, { ...o, rect: { x: PAD + i * ((MENU_W - 2 * PAD) / 2 + 6), y, w: (MENU_W - 2 * PAD) / 2 - 6, h: 64 } });
+    out.push(half(`Contorno stanza: ${v.outline ? 'sì' : 'no'}`, 0, top, a.toggleOutline));
+    out.push(half(`Pareti invisibili: ${v.showOccluders ? 'sì' : 'no'}`, 1, top, a.toggleOccluders));
+    out.push(half(`Snap rotazione/scala: ${v.snap ? 'sì' : 'no'}`, 0, top + 72, a.toggleSnap));
+    out.push(half('Chiudi il progetto', 1, top + 72, a.closeProject, { disabled: !v.currentProjectId }));
+    out.push(label('Allineamento delle stanze (diagnostica)', top + 146, 28, 20, '#8e99b3'));
+    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 174 + i * 24, 24, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
+    v.events.forEach((line, i) => out.push(label(line, top + 252 + i * 24, 24, 19, '#8e99b3')));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
     out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));

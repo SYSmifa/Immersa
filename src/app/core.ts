@@ -1,6 +1,6 @@
 import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
-import { alignPlanes, type Alignment } from '../room/align';
+import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
@@ -57,6 +57,14 @@ const restartMark = {
       return null;
     }
   },
+};
+const SNAP_KEY = 'immersa.snap';
+const readSnap = () => {
+  try {
+    return localStorage.getItem(SNAP_KEY) !== '0';
+  } catch {
+    return true;
+  }
 };
 const lastProject = {
   // The model paths are kept too, so their download can start before the project list is back.
@@ -148,6 +156,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     unsaved: false,
     page: 0,
     outline: true,
+    snap: readSnap(),
     showOccluders: false,
     message: '',
   };
@@ -315,6 +324,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function closeCurrent() {
     current = null;
     grab = null;
+    wallAngles.clear();
     foreign = null;
     foreignMode = false;
     for (const h of houses.values()) {
@@ -728,6 +738,15 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       failedTries = 0;
       say('Rileggo la stanza...', 3000);
     },
+    toggleSnap() {
+      view.snap = !view.snap;
+      try {
+        localStorage.setItem(SNAP_KEY, view.snap ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      refreshView();
+    },
     toggleOutline() {
       view.outline = !view.outline;
       refreshView();
@@ -850,12 +869,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   let hudText = '';
+  let snapNote = '';
   function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number) {
     const deg = (r: number) => ((Math.round((r * 180) / Math.PI) % 360) + 360) % 360;
     const dim = modelSize(holder);
     const size = dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '';
-    const l1 = `Rotazione ${deg(m.yaw)}°   (era ${deg(yaw0)}°)`;
-    const l2 = `Scala ×${m.scale.toFixed(2)}   (era ×${scale0.toFixed(2)})`;
+    const l1 = `Rotazione ${deg(m.yaw)}°   (era ${deg(yaw0)}°)${snapNote.includes('r') ? '  ⟂' : ''}`;
+    const l2 = `Scala ×${m.scale.toFixed(2)}   (era ×${scale0.toFixed(2)})${snapNote.includes('s') ? '  ⟂' : ''}`;
     const text = `${l1}|${l2}|${size}`;
     if (text !== hudText) {
       hudText = text;
@@ -882,6 +902,62 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (hand === 'left') leftHeld = false;
     else if (grab?.pointer === id) endGrab();
   }
+  // Magnetic snaps, only for the gesture that is engaged. Rotation: first the room's walls (the model's sides parallel
+  // to a wall, a wide pull), else steps of 15 degrees from where it started (a relative step: the angles of the headset
+  // session or of the scan frame mean nothing by themselves). Scale: round steps, 1.00 is the real size.
+  const WALL_PULL = 0.087; // rad, about 5 degrees
+  const STEP_PULL = 0.052; // about 3 degrees
+  const STEP = Math.PI / 12;
+  const wallAngles = new Map<string, number[]>(); // per room: wall directions modulo 90 degrees
+  function wallsOf(roomId: string): number[] {
+    let list = wallAngles.get(roomId);
+    if (!list) {
+      list = [];
+      for (const p of rooms.find((r) => r.id === roomId)?.scan.planes ?? []) {
+        if (p.label !== 'wall' || !p.quat) continue;
+        const n = planeNormal(p.quat);
+        if (Math.hypot(n[0], n[2]) < 0.7) continue; // not a vertical plane
+        const a = ((Math.atan2(n[0], n[2]) % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+        if (!list.some((b) => Math.abs(b - a) < 0.03)) list.push(a);
+      }
+      wallAngles.set(roomId, list);
+    }
+    return list;
+  }
+  function snapTwo(m: RoomModel, yaw0: number, yaw: number, scale: number, turning: boolean, scaling: boolean) {
+    let note = '';
+    if (turning) {
+      let best: number | null = null;
+      let bestD = WALL_PULL;
+      for (const w of wallsOf(m.roomId)) {
+        const q = Math.PI / 2;
+        const c = w + Math.round((yaw - w) / q) * q;
+        if (Math.abs(c - yaw) < bestD) {
+          bestD = Math.abs(c - yaw);
+          best = c;
+        }
+      }
+      if (best !== null) note += 'r';
+      else {
+        const c = yaw0 + Math.round((yaw - yaw0) / STEP) * STEP;
+        if (Math.abs(c - yaw) < STEP_PULL) {
+          best = c;
+          note += 'r';
+        }
+      }
+      if (best !== null) yaw = best;
+    }
+    if (scaling) {
+      const step = scale < 0.5 ? 0.01 : scale < 2 ? 0.05 : 0.25;
+      const c = Math.round(scale / step) * step;
+      if (c > 0 && Math.abs(c - scale) / c < 0.012) {
+        scale = c;
+        note += 's';
+      }
+    }
+    return { yaw, scale, note };
+  }
+
   function endGrab() {
     hud.mesh.visible = false;
     hudText = '';
@@ -960,8 +1036,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
       const wantScale = t.scaleFrom ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.scale0 * Math.exp(past(ratio, t.scaleFrom)))) : t.scale0;
       const wantYaw = t.turnFrom ? t.yaw0 + past(t.acc, t.turnFrom) : t.yaw0;
-      t.yaw += (wantYaw - t.yaw) * k;
-      t.scale += (wantScale - t.scale) * k;
+      const snapped = view.snap ? snapTwo(m, t.yaw0, wantYaw, wantScale, t.turnFrom > 0, t.scaleFrom > 0) : { yaw: wantYaw, scale: wantScale, note: '' };
+      t.yaw += (snapped.yaw - t.yaw) * k;
+      t.scale += (snapped.scale - t.scale) * k;
+      snapNote = snapped.note;
       m.yaw = t.yaw;
       m.scale = t.scale;
       house.layer.sync(modelsOf(m.roomId)); // position untouched: the model turns and grows on the spot
