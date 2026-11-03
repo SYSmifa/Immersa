@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'room' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right';
+  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -79,14 +79,43 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
     c.fill();
     c.beginPath();
   },
-  // a wireframe cube: all twelve edges, the back square drawn a little lighter by its position
+  // The inside corner of a room: floor and two walls, as a wireframe.
   room: (c) => {
-    c.rect(-0.9, -0.2, 1.1, 1.1);
-    c.rect(-0.2, -0.9, 1.1, 1.1);
-    poly(c, [-0.9, -0.2, -0.2, -0.9]);
-    poly(c, [0.2, -0.2, 0.9, -0.9]);
-    poly(c, [-0.9, 0.9, -0.2, 0.2]);
-    poly(c, [0.2, 0.9, 0.9, 0.2]);
+    poly(c, [-0.9, 0.35, 0, 0.85, 0.9, 0.35, 0, -0.15]);
+    c.closePath();
+    poly(c, [0, -0.15, 0, -0.95]);
+    poly(c, [-0.9, 0.35, -0.9, -0.45, 0, -0.95, 0.9, -0.45, 0.9, 0.35]);
+  },
+  // A cube seen from a corner, see-through: the hexagon with the three front edges solid, the back ones lighter.
+  room_iso: (c) => {
+    poly(c, [0, -1, 0.87, -0.5, 0.87, 0.5, 0, 1, -0.87, 0.5, -0.87, -0.5]);
+    c.closePath();
+    poly(c, [-0.87, -0.5, 0, 0, 0.87, -0.5]);
+    poly(c, [0, 0, 0, 1]);
+    c.stroke();
+    c.globalAlpha = 0.4;
+    c.beginPath();
+    poly(c, [0, -1, 0, 0]);
+    poly(c, [-0.87, 0.5, 0, 0, 0.87, 0.5]);
+  },
+  // A floor plan seen from above: walls with a door opening and a partition.
+  room_plan: (c) => {
+    poly(c, [-0.25, 0.85, -0.85, 0.85, -0.85, -0.85, 0.85, -0.85, 0.85, 0.85, 0.35, 0.85]);
+    poly(c, [0, -0.85, 0, -0.1]);
+    poly(c, [-0.85, -0.1, -0.35, -0.1]);
+  },
+  // Scan corners around a small cube.
+  room_scan: (c) => {
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) poly(c, [sx * 0.95, sy * 0.45, sx * 0.95, sy * 0.95, sx * 0.45, sy * 0.95]);
+    poly(c, [0, -0.5, 0.43, -0.25, 0.43, 0.25, 0, 0.5, -0.43, 0.25, -0.43, -0.25]);
+    c.closePath();
+    poly(c, [-0.43, -0.25, 0, 0, 0.43, -0.25]);
+    poly(c, [0, 0, 0, 0.5]);
+  },
+  room_house: (c) => {
+    poly(c, [-0.85, 0.85, -0.85, -0.1, 0, -0.9, 0.85, -0.1, 0.85, 0.85]);
+    c.closePath();
+    poly(c, [-0.2, 0.85, -0.2, 0.25, 0.2, 0.25, 0.2, 0.85]);
   },
   trash: (c) => {
     poly(c, [-0.85, -0.5, 0.85, -0.5]);

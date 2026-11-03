@@ -34,6 +34,7 @@ export interface Widget {
   fill?: string; // chip / iconbtn fill
   wrap?: boolean; // labels only
   icon?: IconName;
+  logo?: boolean; // loader: the Immersa mark inside the cube
   badge?: string; // card: a pill at the right end
   badgeOn?: boolean; // card: the badge is highlighted
   tone?: number; // card without an icon: which gradient the tile takes
@@ -356,7 +357,7 @@ export class Panel {
     if (kind === 'loader') {
       const t = performance.now() / 1000;
       const logo = Math.min(ww, h * 0.62);
-      drawLoader(c, x + ww / 2, y + logo * 0.5, logo, t, PANEL_DENSITY);
+      drawLoader(c, x + ww / 2, y + logo * 0.5, logo, t, PANEL_DENSITY, w.logo);
       c.textAlign = 'center';
       c.fillStyle = '#ffffff';
       c.font = font(size + 4, true);

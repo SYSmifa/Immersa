@@ -18,7 +18,24 @@ const ease = (x: number) => x * x * (3 - 2 * x);
 
 export const LOADER_COLORS = { a: '#14b8a6', b: '#5eead4' };
 
-export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, size: number, seconds: number, density: number) {
+// The Immersa "I" (as in the app icon: two slabs and a stem), white with a soft glow.
+function drawMark(c: CanvasRenderingContext2D, cx: number, cy: number, h: number, density: number) {
+  const slab = h * 0.29;
+  const stem = h * 0.28;
+  const w = h * 0.71;
+  c.shadowColor = 'rgba(45,212,191,0.9)';
+  c.shadowBlur = 14 * density;
+  c.fillStyle = '#ffffff';
+  c.beginPath();
+  c.rect(cx - w / 2, cy - h / 2, w, slab);
+  c.rect(cx - stem / 2, cy - h / 2 + slab, stem, h - 2 * slab);
+  c.rect(cx - w / 2, cy + h / 2 - slab, w, slab);
+  c.fill();
+  c.shadowColor = 'transparent';
+  c.shadowBlur = 0;
+}
+
+export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, size: number, seconds: number, density: number, mark = false) {
   const u = (seconds % CYCLE) / CYCLE;
   const turn = seconds * 0.85;
   const tilt = 0.5;
@@ -86,4 +103,5 @@ export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, 
     }
   }
   c.globalAlpha = 1;
+  if (mark) drawMark(c, cx, cy, size * 0.34, density);
 }

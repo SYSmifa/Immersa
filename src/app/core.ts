@@ -32,6 +32,7 @@ interface Options {
   signOut(): void;
 }
 
+const SPLASH_MS = 2400; // at least this long on screen, to be seen
 const MENU_DISTANCE = 0.85;
 const OUTLINE_WIDTH = 0.015; // m: thickness of the room outline in the headset
 const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than this has a stale saved scan
@@ -117,11 +118,11 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   const loading = new Panel(0.56, 0.34, 1200, 'ink');
   loading.animated = true;
   let loadingKey = '';
-  const setLoadingText = (text: string, sub?: string, value?: number) => {
-    const key = `${text}|${sub ?? ''}|${value ?? ''}`;
+  const setLoadingText = (text: string, sub?: string, value?: number, logo?: boolean) => {
+    const key = `${text}|${sub ?? ''}|${value ?? ''}|${logo ?? ''}`;
     if (key === loadingKey) return;
     loadingKey = key;
-    loading.set([{ kind: 'loader', rect: { x: 20, y: 14, w: loading.pxW - 40, h: loading.pxH - 28 }, text, sub, value, size: 30 }]);
+    loading.set([{ kind: 'loader', rect: { x: 20, y: 14, w: loading.pxW - 40, h: loading.pxH - 28 }, text, sub, value, size: logo ? 38 : 30, logo }]);
   };
   setLoadingText('Carico il progetto');
   loading.mesh.visible = false;
@@ -212,6 +213,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
+  let splash: { since: number } | null = null; // the start-up screen with the logo
   let lastHead: Head | null = null;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -337,6 +339,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
+    if (splash) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
       yaw = yawOf(lastHead.fwd);
@@ -1401,7 +1404,12 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       setRecognised(null);
       void reloadRooms();
       if (resumePending) loading.mesh.visible = true;
-      else openMenu();
+      else {
+        // The logo in front of you for a moment while the app gets its data, then the menu.
+        splash = { since: performance.now() };
+        setLoadingText('Immersa', 'Avvio in corso…', undefined, true);
+        loading.mesh.visible = true;
+      }
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
@@ -1447,6 +1455,11 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
+      }
+      if (splash && now - splash.since > SPLASH_MS && view.authKnown) {
+        splash = null;
+        loading.mesh.visible = false;
+        openMenu();
       }
       if (resumePending) {
         const since = now - resumePending.since;

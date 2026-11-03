@@ -94,7 +94,7 @@ const M = 28; // outer margin
 const W = MENU_W - 2 * M;
 const TABS: [Tab, string, IconName][] = [
   ['load', 'Progetti', 'folder'],
-  ['scan', 'Stanza', 'room'],
+  ['scan', 'Stanza', 'room_iso'],
   ['options', 'Opzioni', 'sliders'],
   ['account', 'Account', 'user'],
 ];
@@ -301,7 +301,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       kind: 'card', icon, rect: { x: M + (i % 2) * (half + 14), y: top + Math.floor(i / 2) * 82, w: half, h: 72 }, text: name, size: 22, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
     });
     out.push(toggle(0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'room'));
-    out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'cube'));
+    out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'room_plan'));
     out.push(toggle(2, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
     out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
     out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 164, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
