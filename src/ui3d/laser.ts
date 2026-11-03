@@ -3,7 +3,7 @@ import { CircleGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, Quate
 // The hand's laser, in the style of Meta's: a soft white beam that fades in at the hand and out at the tip, and a grey
 // circle where it lands that shrinks while the pinch is held.
 const LASER_OPACITY = 0.85; // the beam is never more opaque than this
-const FADE = 0.3; // m of fade at each end
+const FADE = 0.45; // m of fade at each end
 const RADIUS = 0.003; // m (beam is 6 mm thick)
 const RETICLE = 0.0094; // m, radius of the circle
 const RETICLE_PINCH = 0.6; // its size while pinching, as a fraction
@@ -20,7 +20,7 @@ export function createLaser() {
     fragmentShader:
       'uniform float beamLength; uniform float fade; uniform float opacity; varying float vY;' +
       'void main() { float d = vY * beamLength; float a = smoothstep(0.0, fade, d) * smoothstep(0.0, fade, beamLength - d);' +
-      'gl_FragColor = vec4(1.0, 1.0, 1.0, a * opacity); }',
+      'a *= a; gl_FragColor = vec4(1.0, 1.0, 1.0, a * opacity); }',
   });
   const mesh = new Mesh(geo, beam);
   mesh.renderOrder = 1000;
