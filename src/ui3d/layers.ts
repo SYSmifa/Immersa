@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3, type WebGLRenderer } from 'three';
+import { Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3, type WebGLRenderer } from 'three';
+import { FADE, LASER_OPACITY, RADIUS } from './laser';
 import type { Panel } from './panel';
 
 // Panels as WebXR quad layers (the equivalent of Unreal's stereo layers). The headset's compositor samples the panel's
@@ -17,6 +18,8 @@ export const layersPreferred = () => {
   }
 };
 const FLIP_Y = new URLSearchParams(location.search).get('flipy') !== '0'; // ?flipy=0 if a headset shows panels upside down
+// The headset's quad layers come out about twice the size asked for here (measured on a Quest 3): sizes are given halved.
+const QUAD_SIZE = 0.5;
 const REFRESH_FRAMES = 3; // a layer's image is a swapchain: after a change write it a few frames in a row
 
 interface Item {
@@ -63,6 +66,43 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     c.arc(64, 64, 58, 0, 2 * Math.PI);
     c.stroke();
   }
+  // The laser beam: a flat ribbon turned towards the eye, its image redrawn every frame (the fades are in metres).
+  const ribbon = document.createElement('canvas');
+  ribbon.width = 256;
+  ribbon.height = 16;
+  const ribbonCtx = ribbon.getContext('2d')!;
+  function drawRibbon(length: number) {
+    const c = ribbonCtx;
+    const { width: w, height: h } = ribbon;
+    c.globalCompositeOperation = 'source-over';
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = '#ffffff';
+    c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'destination-in';
+    const along = c.createLinearGradient(0, 0, w, 0);
+    for (let i = 0; i <= 32; i++) {
+      const x = i / 32;
+      const a = Math.min(1, (x * length) / FADE, ((1 - x) * length) / FADE);
+      along.addColorStop(x, `rgba(255,255,255,${a * a * LASER_OPACITY})`);
+    }
+    c.fillStyle = along;
+    c.fillRect(0, 0, w, h);
+    const across = c.createLinearGradient(0, 0, 0, h);
+    across.addColorStop(0, 'rgba(255,255,255,0)');
+    across.addColorStop(0.3, 'rgba(255,255,255,1)');
+    across.addColorStop(0.7, 'rgba(255,255,255,1)');
+    across.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = across;
+    c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'source-over';
+  }
+  const beam = item(ribbon);
+  let beamAsk: { origin: Vector3; dir: Vector3; length: number; toward: Vector3 } | null = null;
+  let beamFrame = 0;
+  const basis = new Matrix4();
+  const bx = new Vector3();
+  const by = new Vector3();
+  const bz = new Vector3();
   const reticle = item(dot);
   let reticleAsk: { pos: Vector3; toward: Vector3; radius: number } | null = null;
   const facing = new Object3D();
@@ -79,8 +119,8 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
       isStatic: false,
       transform: transform(pos, quat),
     });
-    it.layer.width = width;
-    it.layer.height = height;
+    it.layer.width = width * QUAD_SIZE;
+    it.layer.height = height * QUAD_SIZE;
   }
 
   function write(binding: any, frame: XRFrame, it: Item) {
@@ -106,8 +146,8 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     if (!it.layer) create(binding, ref, it, width, height);
     else {
       it.layer.transform = transform(pos, quat);
-      if (it.layer.width !== width) it.layer.width = width;
-      if (it.layer.height !== height) it.layer.height = height;
+      if (it.layer.width !== width * QUAD_SIZE) it.layer.width = width * QUAD_SIZE;
+      if (it.layer.height !== height * QUAD_SIZE) it.layer.height = height * QUAD_SIZE;
     }
     if (!it.shown || it.stamp !== stamp) it.frames = REFRESH_FRAMES;
     if (it.layer.needsRedraw) it.frames = Math.max(it.frames, 1);
@@ -145,6 +185,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         /* storage can be unavailable */
       }
     },
+    // The laser beam from the hand; call every frame it should show.
+    showBeam(origin: Vector3, dir: Vector3, length: number, toward: Vector3) {
+      beamAsk = { origin: origin.clone(), dir: dir.clone(), length, toward: toward.clone() };
+    },
     // Where the laser lands; call every frame it should show (the circle is hidden otherwise).
     showReticle(at: Vector3, toward: Vector3, radius: number) {
       reticleAsk = { pos: at.clone(), toward: toward.clone(), radius };
@@ -155,7 +199,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         session = frame.session;
         applied = [];
         announced = false;
-        for (const it of [...panels.values(), reticle]) {
+        for (const it of [...panels.values(), reticle, beam]) {
           it.layer = null;
           it.shown = false;
         }
@@ -179,6 +223,21 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
           }
           mat.visible = !(can && !it.failed); // drawn in the scene only when the layer is not doing it
         }
+        if (can && beamAsk) {
+          // x along the beam, z towards the eye: the ribbon always shows its flat side
+          bx.copy(beamAsk.dir);
+          pos.copy(beamAsk.origin).addScaledVector(bx, beamAsk.length / 2);
+          bz.copy(beamAsk.toward).sub(pos);
+          bz.addScaledVector(bx, -bz.dot(bx));
+          if (bz.lengthSq() < 1e-6) bz.set(0, 1, 0);
+          bz.normalize();
+          by.crossVectors(bz, bx);
+          quat.setFromRotationMatrix(basis.makeBasis(bx, by, bz));
+          drawRibbon(beamAsk.length);
+          const layer = sync(binding, frame, ref, beam, true, ++beamFrame, beamAsk.length, RADIUS * 2.4, 'raggio');
+          if (layer) list.push(layer);
+        } else beam.shown = false;
+        beamAsk = null;
         if (can && reticleAsk) {
           facing.position.copy(reticleAsk.pos);
           facing.lookAt(reticleAsk.toward);
@@ -207,6 +266,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         for (const [panel] of panels) (panel.mesh.material as MeshBasicMaterial).visible = true;
         for (const it of panels.values()) it.failed = true;
         reticle.failed = true;
+        beam.failed = true;
         active = false;
         try {
           frame.session.updateRenderState({ layers: [proj] } as any);

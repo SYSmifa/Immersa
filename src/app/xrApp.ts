@@ -222,6 +222,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.host.noCursor.add(id);
             const hit = core.aim(id, origin, dir);
             laser.meshReticle = !layers.active;
+            laser.meshBeam = !layers.active;
+            layers.showBeam(origin, dir, hit.length, head().pos);
             const end = laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos);
             if (end) layers.showReticle(end.pos, head().pos, end.radius);
             laserOn = true;

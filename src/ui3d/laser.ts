@@ -2,9 +2,9 @@ import { CircleGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, Quate
 
 // The hand's laser, in the style of Meta's: a soft white beam that fades in at the hand and out at the tip, and a grey
 // circle where it lands that shrinks while the pinch is held.
-const LASER_OPACITY = 1; // the middle of the beam is fully opaque
-const FADE = 0.45; // m of fade at each end
-const RADIUS = 0.0022; // m (beam is 4.4 mm thick)
+export const LASER_OPACITY = 1; // the middle of the beam is fully opaque
+export const FADE = 0.45; // m of fade at each end
+export const RADIUS = 0.0022; // m (beam is 4.4 mm thick)
 const RETICLE = 0.0094; // m, radius of the circle
 const RETICLE_PINCH = 0.6; // its size while pinching, as a fraction
 
@@ -41,11 +41,12 @@ export function createLaser() {
   const q = new Quaternion();
   return {
     mesh: root,
+    meshBeam: true, // false: the beam is drawn as a layer by the caller (see layers.ts)
     meshReticle: true, // false: the circle is drawn as a layer by the caller (see layers.ts)
     // `hit`: the beam ends on something (a panel, a model) and the circle is shown there; `toward` is the head, which the
     // circle faces. `pinching` shrinks the circle.
     show(origin: Vector3, dir: Vector3, length: number, hit: boolean, pinching: boolean, toward: Vector3): { pos: Vector3; radius: number } | null {
-      mesh.visible = true;
+      mesh.visible = this.meshBeam;
       mesh.position.copy(origin);
       mesh.quaternion.copy(q.setFromUnitVectors(UP, dir));
       mesh.scale.set(1, length, 1);
