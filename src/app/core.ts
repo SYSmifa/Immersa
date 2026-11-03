@@ -11,6 +11,7 @@ import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/rec
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
+import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
 import { Panel } from '../ui3d/panel';
@@ -24,6 +25,7 @@ export interface Head {
   fwd: Vector3;
 }
 interface Options {
+  onLayers?(on: boolean): void; // the Options switch for panels as WebXR layers
   scene: Scene;
   backend: Backend;
   signOut(): void;
@@ -99,7 +101,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
 // (WebXR in xrApp.ts, a mouse and fake planes in the UI test harness).
-export function createAppCore({ scene, backend, signOut }: Options) {
+export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   const host = new UiHost();
   scene.add(host.root);
   const rig = new Group(); // menu + keyboard, follows the head
@@ -159,6 +161,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     page: 0,
     outline: true,
     snap: readSnap(),
+    layers: layersPreferred(),
     showOccluders: false,
     message: '',
   };
@@ -884,6 +887,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       confirmDelete = false;
       refreshView();
     },
+    toggleLayers() {
+      view.layers = !view.layers;
+      onLayers?.(view.layers);
+      refreshView();
+    },
     toggleSnap() {
       view.snap = !view.snap;
       try {
@@ -1330,6 +1338,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     houses: () => houses, // test hook
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
+    // Every panel that should be shown as a WebXR layer (the wrist button is added by xrApp).
+    layerPanels: () => [menu, keyboard.panel, loading, hud, objButton],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },

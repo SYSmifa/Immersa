@@ -41,21 +41,28 @@ export function createLaser() {
   const q = new Quaternion();
   return {
     mesh: root,
+    meshReticle: true, // false: the circle is drawn as a layer by the caller (see layers.ts)
     // `hit`: the beam ends on something (a panel, a model) and the circle is shown there; `toward` is the head, which the
     // circle faces. `pinching` shrinks the circle.
-    show(origin: Vector3, dir: Vector3, length: number, hit: boolean, pinching: boolean, toward: Vector3) {
+    show(origin: Vector3, dir: Vector3, length: number, hit: boolean, pinching: boolean, toward: Vector3): { pos: Vector3; radius: number } | null {
       mesh.visible = true;
       mesh.position.copy(origin);
       mesh.quaternion.copy(q.setFromUnitVectors(UP, dir));
       mesh.scale.set(1, length, 1);
       beam.uniforms.beamLength.value = length;
-      reticle.visible = hit;
-      if (!hit) return;
+      reticle.visible = false;
+      if (!hit) return null;
       size += ((pinching ? RETICLE_PINCH : 1) - size) * 0.35;
-      reticle.position.copy(origin).addScaledVector(dir, length);
-      reticle.lookAt(toward);
-      // A little further in size with distance, so the circle stays readable.
-      reticle.scale.setScalar(RETICLE * size * Math.max(1, Math.min(2.5, length * 0.7)));
+      const at = origin.clone().addScaledVector(dir, length);
+      // A little bigger with distance, so the circle stays readable.
+      const radius = RETICLE * size * Math.max(1, Math.min(2.5, length * 0.7));
+      if (this.meshReticle) {
+        reticle.visible = true;
+        reticle.position.copy(at);
+        reticle.lookAt(toward);
+        reticle.scale.setScalar(radius);
+      }
+      return { pos: at, radius };
     },
     hide() {
       mesh.visible = false;

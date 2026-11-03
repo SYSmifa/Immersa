@@ -2,6 +2,7 @@ import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'th
 import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { createLaser } from '../ui3d/laser';
+import { createPanelLayers } from '../ui3d/layers';
 import { Panel } from '../ui3d/panel';
 import { handAnchor, pinchPoint } from '../xr/pinch';
 import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core';
@@ -26,7 +27,9 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
 }
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
+  const layers: ReturnType<typeof createPanelLayers> = createPanelLayers(renderer, (text) => core.logEvent(text));
   const core = createAppCore({
+    onLayers: (on) => layers.setEnabled(on),
     scene,
     backend,
     signOut: async () => {
@@ -47,6 +50,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   wrist.mesh.visible = false;
   core.host.root.add(wrist.mesh);
   core.host.add(wrist);
+  for (const p of [...core.layerPanels(), wrist]) layers.register(p);
 
   // Laser from the right hand (hand tracking or controller).
   const laser = createLaser();
@@ -217,7 +221,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           if (src.handedness === 'right') {
             core.host.noCursor.add(id);
             const hit = core.aim(id, origin, dir);
-            laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos);
+            laser.meshReticle = !layers.active;
+            const end = laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos);
+            if (end) layers.showReticle(end.pos, head().pos, end.radius);
             laserOn = true;
           } else {
             core.host.setRay(id, origin, dir);
@@ -247,6 +253,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         wrist.mesh.lookAt(h.pos);
       }
       core.tick(now, h, dt);
+      layers.update(frame, ref); // after the panels were placed for this frame
     },
   };
 }

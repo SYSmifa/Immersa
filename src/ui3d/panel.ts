@@ -30,6 +30,10 @@ export interface Widget {
   onPoint?(fx: number, fy: number): void;
 }
 
+// Canvas pixels per logical pixel: the panels are drawn denser than their layout so the text stays sharp when the
+// compositor shows them as layers (and is smoother in the scene too). Layout and pointing keep using logical pixels.
+export const PANEL_DENSITY = 1.5;
+
 const FONT = 'system-ui, "Segoe UI", Roboto, sans-serif';
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -69,7 +73,8 @@ function wrapLines(c: CanvasRenderingContext2D, text: string, maxW: number): str
 
 // Hue / saturation disc, drawn once per size and brightness step and then reused.
 const discs = new Map<string, HTMLCanvasElement>();
-function disc(size: number, v: number): HTMLCanvasElement {
+function disc(logical: number, v: number): HTMLCanvasElement {
+  const size = Math.round(logical * PANEL_DENSITY);
   const key = `${size}:${Math.round(v * 20)}`;
   let cv = discs.get(key);
   if (!cv) {
@@ -102,7 +107,7 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
     const size = Math.round(Math.min(ww, h));
     const cx = x + ww / 2;
     const cy = y + h / 2;
-    c.drawImage(disc(size, val), cx - size / 2, cy - size / 2);
+    c.drawImage(disc(size, val), cx - size / 2, cy - size / 2, size, size);
     const a = hue * 2 * Math.PI;
     const mx = cx + Math.cos(a) * sat * (size / 2);
     const my = cy + Math.sin(a) * sat * (size / 2);
@@ -136,6 +141,8 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
 // A flat panel in 3D showing widgets drawn on a canvas. Pointing is handled by UiHost.
 export class Panel {
   readonly mesh: Mesh;
+  readonly canvas: HTMLCanvasElement;
+  stamp = 0; // counts redraws: the layer path uploads the canvas when it changes
   readonly pxW: number;
   readonly pxH: number;
   widgets: Widget[] = [];
@@ -154,9 +161,11 @@ export class Panel {
     this.pxW = Math.round(width * pxPerMetre);
     this.pxH = Math.round(height * pxPerMetre);
     const canvas = document.createElement('canvas');
-    canvas.width = this.pxW;
-    canvas.height = this.pxH;
+    canvas.width = Math.round(this.pxW * PANEL_DENSITY);
+    canvas.height = Math.round(this.pxH * PANEL_DENSITY);
+    this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
+    this.ctx.setTransform(PANEL_DENSITY, 0, 0, PANEL_DENSITY, 0, 0);
     this.texture = new CanvasTexture(canvas);
     this.texture.colorSpace = SRGBColorSpace;
     this.mesh = new Mesh(
@@ -210,6 +219,7 @@ export class Panel {
     c.fill();
     for (const w of this.widgets) this.drawWidget(c, w);
     this.texture.needsUpdate = true;
+    this.stamp++;
   }
 
   private drawWidget(c: CanvasRenderingContext2D, w: Widget) {
