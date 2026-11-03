@@ -39,7 +39,7 @@ export function preloadModels(paths: string[]) {
 }
 
 // What colouring a model asks for, as a comparable string ('' = the file's own colours).
-const lookKey = (m: RoomModel) => (m.color ?? '') + (m.materialColors && Object.keys(m.materialColors).length ? JSON.stringify(m.materialColors) : '');
+const lookKey = (m: RoomModel) => [m.color, m.materialColors, m.finish, m.materialFinish].map((x) => (x && Object.keys(x).length ? JSON.stringify(x) : '')).join('|').replace(/^\|+$/, '');
 
 export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
   const holders = new Map<string, Group>();
@@ -51,7 +51,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
         holder.add(obj.clone(true));
         const look = holder.userData.look as RoomModel | undefined;
         if (look && lookKey(look)) {
-          paintModel(holder, look.color, look.materialColors);
+          paintModel(holder, look);
           holder.userData.painted = lookKey(look);
         }
       })
@@ -84,7 +84,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
         }
         h.userData.look = m;
         if ((h.userData.painted ?? '') !== lookKey(m) && h.children.length) {
-          paintModel(h, m.color, m.materialColors);
+          paintModel(h, m);
           h.userData.painted = lookKey(m);
         }
         h.position.set(...m.pos);

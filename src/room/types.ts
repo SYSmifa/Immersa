@@ -27,6 +27,8 @@ export interface RoomModel {
   scale: number;
   color?: string; // '#rrggbb' tint replacing the colour of every material (textures stay); absent: the file's own colours
   materialColors?: Record<string, string>; // per material (index in the model's material list): overrides `color`
+  finish?: { roughness?: number; metalness?: number }; // 0..1, every material
+  materialFinish?: Record<string, { roughness?: number; metalness?: number }>; // per material: overrides `finish`
 }
 
 // Our own room format; the Meta scan is only one possible source of `planes`.

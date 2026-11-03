@@ -13,7 +13,7 @@ export interface Widget {
   rect: Rect;
   text: string;
   sub?: string; // smaller second line
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'wheel' | 'slider';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'wheel' | 'slider' | 'bar';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean;
@@ -23,6 +23,7 @@ export interface Widget {
   color?: string;
   wrap?: boolean; // labels only
   swatch?: string; // a small colour square at the right end of a button / row
+  value?: number; // bar: 0..1
   hsv?: Hsv; // wheel / slider: the colour shown (wheel: hue and saturation, slider: brightness)
   // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
   // held and the ray stays over the widget.
@@ -118,12 +119,12 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
     return;
   }
   const g = c.createLinearGradient(x, 0, x + ww, 0);
-  g.addColorStop(0, '#000000');
-  g.addColorStop(1, hsvToHex(hue, sat, 1));
+  g.addColorStop(0, w.kind === 'bar' ? '#2f3648' : '#000000');
+  g.addColorStop(1, w.kind === 'bar' ? '#8fa6d8' : hsvToHex(hue, sat, 1));
   c.fillStyle = g;
   roundRect(c, x, y, ww, h, 12);
   c.fill();
-  const mx = x + val * ww;
+  const mx = x + (w.kind === 'bar' ? (w.value ?? 0) : val) * ww;
   c.fillStyle = '#ffffff';
   roundRect(c, mx - 6, y - 4, 12, h + 8, 6);
   c.fill();
@@ -214,7 +215,7 @@ export class Panel {
   private drawWidget(c: CanvasRenderingContext2D, w: Widget) {
     const { x, y, w: ww, h } = w.rect;
     const kind = w.kind ?? 'button';
-    if (kind === 'wheel' || kind === 'slider') return drawColorPicker(c, w);
+    if (kind === 'wheel' || kind === 'slider' || kind === 'bar') return drawColorPicker(c, w);
     const size = w.size ?? 30;
     const hover = w === this.hover && !w.disabled;
     const down = w === this.pressed && !w.disabled;

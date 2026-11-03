@@ -262,6 +262,14 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (t === 'all') return m.color ?? mats[0]?.color ?? '#ffffff';
     return m.materialColors?.[String(t)] ?? m.color ?? mats[t]?.color ?? '#ffffff';
   }
+  function shownFinish(m: RoomModel, t: 'all' | number, mats: { roughness: number; metalness: number }[]) {
+    const own = t === 'all' ? undefined : m.materialFinish?.[String(t)];
+    const base = t === 'all' ? mats[0] : mats[t];
+    return {
+      roughness: own?.roughness ?? m.finish?.roughness ?? base?.roughness ?? 0.5,
+      metalness: own?.metalness ?? m.finish?.metalness ?? base?.metalness ?? 0,
+    };
+  }
   function objectView() {
     const m = objectOpen ? selectedModel() : null;
     if (!m) {
@@ -286,6 +294,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       target: colorTarget,
       matPage,
       hsv: pick,
+      finish: shownFinish(m, colorTarget, mats),
     };
   }
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
@@ -839,6 +848,10 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       matPage = Math.max(0, matPage + delta);
       refreshView();
     },
+    objFinish(key: 'roughness' | 'metalness', value: number) {
+      const m = selectedModel();
+      if (m) setFinish(m, key, value);
+    },
     // Wheel (hue, saturation) and brightness bar: a null part stays as it is.
     objPick(h: number | null, sat: number | null, v: number | null) {
       const m = selectedModel();
@@ -1030,14 +1043,34 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function setColor(m: RoomModel, hex: string | null) {
     if (colorTarget === 'all') {
       if (hex) m.color = hex;
-      else delete m.color;
+      else {
+        delete m.color; // "Orig.": the colour and the finish go back to the file's
+        delete m.finish;
+      }
       delete m.materialColors;
+      if (!hex) delete m.materialFinish;
     } else {
       const key = String(colorTarget);
       m.materialColors = { ...m.materialColors };
       if (hex) m.materialColors[key] = hex;
-      else delete m.materialColors[key];
+      else {
+        delete m.materialColors[key];
+        if (m.materialFinish) delete m.materialFinish[key];
+      }
       if (!Object.keys(m.materialColors).length) delete m.materialColors;
+      if (m.materialFinish && !Object.keys(m.materialFinish).length) delete m.materialFinish;
+    }
+    applyModelChange(m);
+  }
+  // Roughness or metalness of the chosen target. "All" replaces every per-material finish.
+  function setFinish(m: RoomModel, key: 'roughness' | 'metalness', value: number) {
+    const v = Math.min(1, Math.max(0, value));
+    if (colorTarget === 'all') {
+      m.finish = { ...m.finish, [key]: v };
+      delete m.materialFinish;
+    } else {
+      const k = String(colorTarget);
+      m.materialFinish = { ...m.materialFinish, [k]: { ...m.materialFinish?.[k], [key]: v } };
     }
     applyModelChange(m);
   }

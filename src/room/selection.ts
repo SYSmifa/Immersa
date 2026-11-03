@@ -1,4 +1,4 @@
-import { Box3, BufferGeometry, Color, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
+import { Box3, BufferGeometry, Color, Texture, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 
 // Triangle-accurate picking stays cheap with a bounding volume hierarchy per geometry (built once, shared by clones).
@@ -112,21 +112,42 @@ export function worldTop(holder: Object3D): Vector3 | null {
 // a file do not change each other). undefined puts the file's own materials back. Works together with the selection look.
 const BASE = 'baseMaterial'; // the file's own material, captured once
 const tints = new WeakMap<Material, Map<string, Material>>();
-function tinted(src: Material, hex: string): Material {
-  let byColor = tints.get(src);
-  if (!byColor) tints.set(src, (byColor = new Map()));
-  let m = byColor.get(hex);
+// Roughness / metalness: how shiny a material is. Metal only looks like metal when it has something to reflect, so the
+// materials given a finish also get a soft room-like environment (made on first use by the function the stage provides).
+export interface Finish {
+  roughness?: number;
+  metalness?: number;
+}
+let envSource: (() => Texture) | null = null;
+let env: Texture | null = null;
+export const setFinishEnvironment = (make: () => Texture) => (envSource = make);
+
+type Shiny = Material & { color?: Color; roughness?: number; metalness?: number; envMap?: Texture | null };
+function tinted(src: Material, hex: string | undefined, finish: Finish | undefined): Material {
+  let byLook = tints.get(src);
+  if (!byLook) tints.set(src, (byLook = new Map()));
+  const key = `${hex ?? ''}|${finish?.roughness ?? ''}|${finish?.metalness ?? ''}`;
+  let m = byLook.get(key);
   if (!m) {
-    m = src.clone();
-    (m as Material & { color?: Color }).color?.set(hex);
-    byColor.set(hex, m);
+    const t = src.clone() as Shiny;
+    if (hex) t.color?.set(hex);
+    if (finish && 'roughness' in t) {
+      if (finish.roughness !== undefined) t.roughness = finish.roughness;
+      if (finish.metalness !== undefined) t.metalness = finish.metalness;
+      env ??= envSource?.() ?? null;
+      if (env && !t.envMap) t.envMap = env;
+    }
+    byLook.set(key, (m = t));
   }
   return m;
 }
+
 // The distinct materials of a model, in a fixed order (the index is what the project stores): name and original colour.
 export interface MaterialInfo {
   name: string;
   color: string; // '#rrggbb' as in the file
+  roughness: number; // as in the file (0.5 when the material has none)
+  metalness: number;
 }
 const LIST = 'materialList';
 function baseOf(mesh: Mesh): Material | Material[] {
@@ -148,18 +169,28 @@ function materialsOf(holder: Object3D): Material[] {
 }
 export function listMaterials(holder: Object3D): MaterialInfo[] {
   return materialsOf(holder).map((m, i) => ({
-    name: m.name || `Materiale ${i + 1}`,
-    color: `#${(m as Material & { color?: Color }).color?.getHexString() ?? 'ffffff'}`,
+    name: m.name ? `${i + 1} · ${m.name}` : `Materiale ${i + 1}`, // the number keeps duplicated or generic names apart
+    color: `#${(m as Shiny).color?.getHexString() ?? 'ffffff'}`,
+    roughness: (m as Shiny).roughness ?? 0.5,
+    metalness: (m as Shiny).metalness ?? 0,
   }));
 }
 
-// `all` tints every material, `each[i]` overrides material i. Both undefined: the file's own colours.
-export function paintModel(holder: Object3D, all: string | undefined, each?: Record<string, string>) {
+// What a model asks for: `color` / `finish` for every material, `materialColors[i]` / `materialFinish[i]` override
+// them for material i. Nothing set: the file's own look.
+export interface Look {
+  color?: string;
+  materialColors?: Record<string, string>;
+  finish?: Finish;
+  materialFinish?: Record<string, Finish>;
+}
+export function paintModel(holder: Object3D, look: Look) {
   const list = materialsOf(holder);
-  const pick = (m: Material) => each?.[String(list.indexOf(m))] ?? all;
   const paint = (m: Material) => {
-    const hex = pick(m);
-    return hex ? tinted(m, hex) : m;
+    const i = String(list.indexOf(m));
+    const hex = look.materialColors?.[i] ?? look.color;
+    const fin = { ...look.finish, ...look.materialFinish?.[i] };
+    return hex || fin.roughness !== undefined || fin.metalness !== undefined ? tinted(m, hex, fin) : m;
   };
   holder.traverse((o) => {
     const mesh = o as Mesh;

@@ -2,10 +2,13 @@ import {
   AmbientLight,
   DirectionalLight,
   PerspectiveCamera,
+  PMREMGenerator,
   Scene,
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { setFinishEnvironment } from '../room/selection';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
 
 const DESKTOP_BG = 0x15171c;
@@ -19,6 +22,9 @@ export function createStage({ features = [], arButton = true }: { features?: str
   renderer.setClearColor(DESKTOP_BG, 1);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
+
+  // Soft reflections, made only when a material is given a roughness / metalness (see room/selection.ts).
+  setFinishEnvironment(() => new PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture);
 
   const scene = new Scene();
   const camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 50);

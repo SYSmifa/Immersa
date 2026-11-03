@@ -16,6 +16,7 @@ export interface ObjectView {
   target: 'all' | number; // what the colour page changes
   matPage: number;
   hsv: Hsv; // the colour in the picker
+  finish: { roughness: number; metalness: number }; // of the target, as shown now
 }
 
 export const OBJECT_COLORS = ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#eceff1', '#424242'];
@@ -69,6 +70,7 @@ export interface MenuActions {
   objColorTarget(t: 'all' | number): void;
   objMatPage(delta: number): void;
   objPick(h: number | null, s: number | null, v: number | null): void;
+  objFinish(key: 'roughness' | 'metalness', value: number): void;
   objDelete(): void;
   objDeleteYes(): void;
   objDeleteNo(): void;
@@ -94,7 +96,7 @@ const TABS: [Tab, string][] = [
 
 const ROWS = 5;
 // Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or the presets.
-function colorPage(o: ObjectView, out: Widget[], a: MenuActions, message: string): Widget[] {
+function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   const items: { name: string; color: string | null; t: 'all' | number }[] = [
     { name: 'Tutti i materiali', color: o.color, t: 'all' },
     ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
@@ -129,8 +131,13 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions, message: string
   const w = (MENU_W - 2 * PAD - (n - 1) * gap) / n;
   out.push({ rect: { x: PAD, y: 440, w, h: 56 }, text: 'Orig.', size: 22, onClick: () => a.objColor(null) });
   OBJECT_COLORS.forEach((c, i) => out.push({ rect: { x: PAD + (i + 1) * (w + gap), y: 440, w, h: 56 }, text: '●', size: 44, color: c, onClick: () => a.objColor(c) }));
-  out.push({ rect: { x: PAD, y: 508, w: MENU_W - 2 * PAD, h: 56 }, text: 'Indietro', onClick: a.objColorBack });
-  if (message) out.push({ kind: 'label', rect: { x: PAD, y: 568, w: MENU_W - 2 * PAD, h: 40 }, text: message, size: 24, color: '#ffd36b' });
+  out.push({ rect: { x: 330, y: 14, w: 200, h: 46 }, text: '‹ Indietro', size: 26, onClick: a.objColorBack });
+  const bar = (key: 'roughness' | 'metalness', text: string, y: number) => {
+    out.push({ kind: 'label', rect: { x: PAD, y, w: 260, h: 36 }, text: `${text} ${o.finish[key].toFixed(2)}`, size: 24 });
+    out.push({ kind: 'bar', rect: { x: 300, y: y + 2, w: MENU_W - PAD - 300, h: 32 }, text: '', value: o.finish[key], onPoint: (fx) => a.objFinish(key, Math.round(fx * 100) / 100) });
+  };
+  bar('roughness', 'Rugosità', 512);
+  bar('metalness', 'Metallico', 560);
   return out;
 }
 
@@ -174,7 +181,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 500, h: 46 }, text: 'Oggetto', size: 38 });
     out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
     out.push(label(o.name, 58, 36, 26, '#9fb0d0'));
-    if (o.colorPage) return colorPage(o, out, a, v.message);
+    if (o.colorPage) return colorPage(o, out, a);
     out.push(button(`Rotazione: ${o.yawDeg}°`, 108, a.objRotation));
     out.push(button(`Scala: ×${o.scale.toFixed(2)}${o.size ? `   (${o.size})` : ''}`, 180, a.objScale));
     out.push(button('Colore e materiali', 252, a.objOpenColor, { swatch: o.color ?? undefined }));
