@@ -828,6 +828,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const REACH = 8; // m, farthest floor point a ray may drag to
   const GLIDE = 0.25; // s, the model slides from where it was under the laser to the laser tip, so it never jumps
   const SMOOTH = 14; // 1/s, low-pass on scale and turn against hand tracking noise
+  const SCALE_START = 0.08; // change of the hands' distance (log ratio, about 8 %) before scaling starts
+  const TURN_START = 0.15; // rad (about 9 degrees) before turning starts
+  const CROSS = 2.5;
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 10; // relative to the scale when the two-hand gesture starts
   interface Grab {
@@ -839,7 +842,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     last: Vector3 | null; // last landing point (kept while the ray points at nothing)
     offset: Vector3; // base minus landing point, horizontal: fades out so the base ends up at the laser tip
     decay: boolean;
-    two: { dist0: number; prevAng: number; acc: number; yaw0: number; scale0: number; yaw: number; scale: number } | null;
+    two: { dist0: number; prevAng: number; acc: number; yaw0: number; scale0: number; yaw: number; scale: number; scaleFrom: number; turnFrom: number } | null;
   }
   let grab: Grab | null = null;
   let grabLaser = 1;
@@ -905,7 +908,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     const R = pinchR;
     if (g.phase !== 'two' && leftHeld && L && R && L.distanceTo(R) > 0.05) {
       g.phase = 'two';
-      g.two = { dist0: L.distanceTo(R), prevAng: angleOf(L, R), acc: 0, yaw0: m.yaw, scale0: m.scale, yaw: m.yaw, scale: m.scale };
+      g.two = { dist0: L.distanceTo(R), prevAng: angleOf(L, R), acc: 0, yaw0: m.yaw, scale0: m.scale, yaw: m.yaw, scale: m.scale, scaleFrom: 0, turnFrom: 0 };
       markUnsaved();
     } else if (g.phase === 'two' && !(leftHeld && L && R)) {
       g.phase = 'move'; // one hand again: carry on from where the model is, without a jump
@@ -921,8 +924,17 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       t.acc += wrap(ang - t.prevAng);
       t.prevAng = ang;
       const k = 1 - Math.exp(-dt * SMOOTH);
-      const wantScale = Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, (t.scale0 * L.distanceTo(R)) / t.dist0));
-      t.yaw += (t.yaw0 + t.acc - t.yaw) * k;
+      // Turning the hands changes their distance a little and the other way round: one gesture engages first, the other
+      // only if it is clearly intended (CROSS times its threshold). Past its threshold a gesture follows from zero.
+      const ratio = Math.log(L.distanceTo(R) / t.dist0);
+      const sNeed = SCALE_START * (t.turnFrom ? CROSS : 1);
+      const tNeed = TURN_START * (t.scaleFrom ? CROSS : 1);
+      if (!t.scaleFrom && Math.abs(ratio) > sNeed) t.scaleFrom = sNeed;
+      if (!t.turnFrom && Math.abs(t.acc) > tNeed) t.turnFrom = tNeed;
+      const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
+      const wantScale = t.scaleFrom ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.scale0 * Math.exp(past(ratio, t.scaleFrom)))) : t.scale0;
+      const wantYaw = t.turnFrom ? t.yaw0 + past(t.acc, t.turnFrom) : t.yaw0;
+      t.yaw += (wantYaw - t.yaw) * k;
       t.scale += (wantScale - t.scale) * k;
       m.yaw = t.yaw;
       m.scale = t.scale;
