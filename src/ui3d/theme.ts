@@ -22,6 +22,7 @@ export interface Theme {
   shadow: string;
   accent: [string, string]; // gradient, left → right
   accentHover: [string, string];
+  accentGlow: string; // shadow under accent buttons
   accentSoft: string; // pale tint of the accent
   accentText: string;
   glass: string; // translucent white on the gradient
@@ -31,33 +32,34 @@ export interface Theme {
 }
 
 export const AURA: Theme = {
-  bgStops: [[0, '#6c63ee'], [0.55, '#a77af0'], [1, '#ff9ccd']],
-  blobs: [[0.88, 0.04, 230, 'rgba(255,255,255,0.22)'], [0.05, 0.62, 270, 'rgba(255,110,200,0.28)'], [0.62, 1, 260, 'rgba(255,190,130,0.30)']],
-  border: 'rgba(255,255,255,0.45)',
+  bgStops: [[0, '#101a30'], [0.55, '#1b2f52'], [1, '#27466f']],
+  blobs: [[0.9, 0.02, 250, 'rgba(70,130,255,0.30)'], [0.04, 0.7, 280, 'rgba(30,190,200,0.18)'], [0.65, 1.02, 260, 'rgba(90,120,220,0.26)']],
+  border: 'rgba(255,255,255,0.16)',
   panelRadius: 44,
-  text: '#1c1744',
-  sub: '#6b6790',
-  muted: '#6b6790',
-  dim: '#8a86ad',
-  text2: '#2c2656',
-  faint: '#9a96bb',
+  text: '#0f1a33',
+  sub: '#5b6784',
+  muted: '#5b6784',
+  dim: '#8591ab',
+  text2: '#1d2a49',
+  faint: '#97a2ba',
   notice: '#b45309',
-  bad: '#e5365a',
+  bad: '#d6335a',
   good: '#0f9d6e',
   headerText: '#ffffff',
-  headerSub: 'rgba(255,255,255,0.82)',
+  headerSub: 'rgba(255,255,255,0.68)',
   surface: 'rgba(255,255,255,0.97)',
-  surfaceHover: '#f4eeff',
-  surfaceDown: '#e8defc',
-  shadow: 'rgba(52,26,130,0.30)',
-  accent: ['#7c5cff', '#c05cf5'],
-  accentHover: ['#8f75ff', '#d075f7'],
-  accentSoft: '#efe9ff',
-  accentText: '#6a4cf0',
-  glass: 'rgba(255,255,255,0.22)',
-  glassHover: 'rgba(255,255,255,0.36)',
-  textDisabled: '#a9a5c4',
-  tones: [['#7c5cff', '#ff8ad8'], ['#17b8c2', '#7cf0b8'], ['#ff7a59', '#ffcf5c'], ['#4f8cff', '#a78bff']],
+  surfaceHover: '#eef3ff',
+  surfaceDown: '#dde7fb',
+  shadow: 'rgba(3,9,28,0.50)',
+  accent: ['#2f6bff', '#14b8d4'],
+  accentHover: ['#4a80ff', '#34c8e0'],
+  accentGlow: 'rgba(47,107,255,0.45)',
+  accentSoft: '#e6eeff',
+  accentText: '#2457d6',
+  glass: 'rgba(255,255,255,0.13)',
+  glassHover: 'rgba(255,255,255,0.25)',
+  textDisabled: '#a8b1c6',
+  tones: [['#2f6bff', '#14b8d4'], ['#0e9f8e', '#6ee0b8'], ['#5a6bff', '#8f9bff'], ['#d9822b', '#f2c86b']],
 };
 
 export const theme = (): Theme => AURA;

@@ -142,9 +142,9 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
     out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: o.target === it.t, onClick: () => a.objColorTarget(it.t) }),
   );
   if (pages > 1) {
-    out.push({ kind: 'iconbtn', icon: 'left', fill: '#ece6fb', color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
+    out.push({ kind: 'iconbtn', icon: 'left', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
     out.push(text(`${page + 1} / ${pages}`, M + 60, 382, 232, 36, 20, theme().dim, { align: 'center' }));
-    out.push({ kind: 'iconbtn', icon: 'right', fill: '#ece6fb', color: theme().accentText, rect: { x: M + 302, y: 382, w: 36, h: 36 }, text: '', disabled: page >= pages - 1, onClick: () => a.objMatPage(1) });
+    out.push({ kind: 'iconbtn', icon: 'right', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 302, y: 382, w: 36, h: 36 }, text: '', disabled: page >= pages - 1, onClick: () => a.objMatPage(1) });
   }
   // right: the colour
   const [h, s, v] = o.hsv;
@@ -221,7 +221,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
 
   const project = v.projectName ? ` · ${v.projectName}` : '';
   const where = v.roomName
-    ? `${v.roomName}${project}`
+    ? `Stanza aperta${project}`
     : v.candidate
       ? 'Stanza non confermata'
       : v.liveReady

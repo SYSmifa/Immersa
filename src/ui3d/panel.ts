@@ -1,3 +1,5 @@
+import '@fontsource/sen/latin-500.css';
+import '@fontsource/sen/latin-700.css';
 import { hsvToHex, hsvToRgb, type Hsv } from './color';
 import { drawIcon, type IconName } from './icons';
 import { theme } from './theme';
@@ -46,7 +48,8 @@ export interface Widget {
 // compositor shows them as layers (and is smoother in the scene too). Layout and pointing keep using logical pixels.
 export const PANEL_DENSITY = 1.5;
 
-const FONT = 'system-ui, "Segoe UI", Roboto, sans-serif';
+// Sen (bundled with the app, so it also works offline); the system fonts cover the symbols it does not have.
+const FONT = 'Sen, system-ui, "Segoe UI", Roboto, sans-serif';
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   c.beginPath();
@@ -188,6 +191,12 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
   knob(c, mx, cy, h / 2 - 2);
 }
 
+const allPanels = new Set<Panel>();
+// The canvas draws with whatever font it has at that moment: once Sen has loaded, every panel is drawn again.
+if (typeof document !== 'undefined' && document.fonts) {
+  void Promise.all([document.fonts.load('500 24px Sen'), document.fonts.load('700 24px Sen')]).then(() => allPanels.forEach((p) => p.invalidate()));
+}
+
 // A flat panel in 3D showing widgets drawn on a canvas. Pointing is handled by UiHost.
 export class Panel {
   readonly mesh: Mesh;
@@ -226,6 +235,12 @@ export class Panel {
     );
     this.mesh.renderOrder = 1000;
     this.mesh.userData.panel = this;
+    allPanels.add(this);
+  }
+
+  // Draw again at the next frame (a theme or font changed).
+  invalidate() {
+    this.dirty = true;
   }
 
   set(widgets: Widget[]) {
@@ -346,7 +361,7 @@ export class Panel {
         roundRect(c, x + 8, y + 6, ww - 16, h - 12, 26);
         c.fill();
       } else if (hover) {
-        c.fillStyle = 'rgba(124,92,255,0.09)';
+        c.fillStyle = 'rgba(47,107,255,0.09)';
         roundRect(c, x + 8, y + 6, ww - 16, h - 12, 26);
         c.fill();
       }
@@ -389,7 +404,7 @@ export class Panel {
     else if (down) fill = T.surfaceDown;
     else if (hover) fill = T.surfaceHover;
     const lifted = !w.disabled && !w.glass && kind !== 'field';
-    if (lifted) shadow(c, accent ? 16 : 12, accent ? 6 : 4, accent ? 'rgba(124,92,255,0.45)' : 'rgba(52,26,130,0.18)');
+    if (lifted) shadow(c, accent ? 16 : 12, accent ? 6 : 4, accent ? T.accentGlow : 'rgba(10,20,60,0.20)');
     c.fillStyle = fill;
     roundRect(c, x, y, ww, h, r);
     c.fill();
@@ -421,7 +436,7 @@ export class Panel {
       c.beginPath();
       c.arc(x + ww - 34, y + h / 2, 15, 0, Math.PI * 2);
       c.fill();
-      c.strokeStyle = 'rgba(28,23,68,0.25)';
+      c.strokeStyle = 'rgba(15,26,51,0.25)';
       c.lineWidth = 2;
       c.stroke();
       c.fillStyle = textColor;
@@ -474,7 +489,7 @@ export class Panel {
       c.font = font(18, true);
       const bw = c.measureText(w.badge).width + 30;
       right -= bw;
-      c.fillStyle = w.badgeOn ? (on ? 'rgba(255,255,255,0.3)' : gradient(c, right, y, bw, T.accent)) : '#e9e4f7';
+      c.fillStyle = w.badgeOn ? (on ? 'rgba(255,255,255,0.3)' : gradient(c, right, y, bw, T.accent)) : '#e6ebf5';
       roundRect(c, right, cy - 17, bw, 34, 17);
       c.fill();
       c.fillStyle = w.badgeOn ? '#ffffff' : T.dim;
@@ -489,7 +504,7 @@ export class Panel {
         c.beginPath();
         c.arc(right - 12, cy, 15, 0, Math.PI * 2);
         c.fill();
-        c.strokeStyle = 'rgba(28,23,68,0.25)';
+        c.strokeStyle = 'rgba(15,26,51,0.25)';
         c.lineWidth = 2;
         c.stroke();
         right -= 38;
