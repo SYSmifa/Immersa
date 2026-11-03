@@ -35,9 +35,12 @@ export function runUiTest() {
   dom.addEventListener('pointermove', ray);
   dom.addEventListener('pointerdown', (e) => {
     ray(e);
-    if (!core.host.press('mouse')) core.pressModel('mouse');
+    core.pinchDown('right', 'mouse', core.host.press('mouse')); // the mouse acts as the right hand: hold to drag
   });
-  dom.addEventListener('pointerup', () => core.host.release('mouse'));
+  dom.addEventListener('pointerup', () => {
+    core.host.release('mouse');
+    core.pinchUp('right', 'mouse');
+  });
 
   let last = performance.now();
   renderer.setAnimationLoop(() => {

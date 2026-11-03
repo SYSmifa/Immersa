@@ -101,16 +101,17 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
 
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;
-      const consumed = core.host.press(idOf(e.inputSource));
-      if (!consumed && e.inputSource.handedness === 'right') core.pressModel(idOf(e.inputSource));
-      const ref = renderer.xr.getReferenceSpace();
-      if (!consumed && e.inputSource.handedness === 'left' && ref) {
-        const point = pinchPoint(e.frame, e.inputSource, ref);
-        if (point) core.moveGazedModel(point, head());
-      }
+      const id = idOf(e.inputSource);
+      const consumed = core.host.press(id);
+      const hand = e.inputSource.handedness;
+      if (hand === 'left' || hand === 'right') core.pinchDown(hand, id, consumed);
     });
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
-    session.addEventListener('selectend', (ev) => core.host.cancel(idOf((ev as XRInputSourceEvent).inputSource)));
+    session.addEventListener('selectend', (ev) => {
+      const src = (ev as XRInputSourceEvent).inputSource;
+      core.host.cancel(idOf(src));
+      if (src.handedness === 'left' || src.handedness === 'right') core.pinchUp(src.handedness, idOf(src));
+    });
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only logged here (the plane check in tick() decides about the restart).
     let awaySince = 0;
@@ -191,6 +192,13 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         }
       }
 
+      let pl: Vector3 | null = null;
+      let pr: Vector3 | null = null;
+      for (const src of frame.session.inputSources) {
+        if (src.handedness === 'left') pl = pinchPoint(frame, src, ref);
+        else if (src.handedness === 'right') pr = pinchPoint(frame, src, ref);
+      }
+      core.setPinchPoints(pl, pr); // for the two-hand turn / scale
       const seen = new Set<string>();
       let laserOn = false;
       let anchor: Vector3 | null = null;

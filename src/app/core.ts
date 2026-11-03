@@ -1,11 +1,11 @@
-import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
+import { Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
-import { floorCentre } from '../room/floor';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
-import { applySelectionLook, clearSelectionLook, pickDistance } from '../room/selection';
+import { floorCentre } from '../room/floor';
+import { applySelectionLook, clearSelectionLook, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -314,6 +314,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   function closeCurrent() {
     current = null;
+    grab = null;
     foreign = null;
     foreignMode = false;
     for (const h of houses.values()) {
@@ -746,35 +747,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     close: closeMenu,
   };
 
-  // Left pinch: move the model the user is looking at to the pinch point.
-  function moveGazedModel(point: Vector3, head: Head) {
-    if (!current) return say('Apri un progetto dal menu (Load)');
-    let best: { model: RoomModel; house: House } | null = null;
-    let bestDot = -2;
-    for (const m of current.models) {
-      const house = houses.get(m.roomId);
-      const holder = house?.layer.holders.get(m.id);
-      if (!house || !holder || !house.root.visible) continue;
-      holder.updateWorldMatrix(true, true);
-      const box = new Box3().setFromObject(holder);
-      const c = box.isEmpty() ? holder.getWorldPosition(new Vector3()) : box.getCenter(new Vector3());
-      const dot = head.fwd.dot(c.sub(head.pos).normalize());
-      if (dot > bestDot) {
-        bestDot = dot;
-        best = { model: m, house };
-      }
-    }
-    if (!best) return say('Il progetto non ha modelli qui');
-    const { model, house } = best;
-    house.root.updateWorldMatrix(true, false);
-    const local = house.root.worldToLocal(point.clone());
-    model.pos = [local.x, local.y, local.z];
-    house.layer.sync(modelsOf(model.roomId));
-    unsaved = true; // kept in memory only: the menu's "Salva le modifiche" stores it
-    refreshView();
-    say(`Spostato: ${model.name} (non salvato)`, 3000);
-  }
-
   async function saveChanges() {
     if (!current || !unsaved) return;
     const p = current;
@@ -819,6 +791,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function aim(id: string, origin: Vector3, dir: Vector3): { length: number; target: 'panel' | 'model' | 'none' } {
     const panelDist = host.setRay(id, origin, dir);
     hovered.delete(id);
+    rays.set(id, { origin: origin.clone(), dir: dir.clone() });
+    if (grab && grab.pointer === id) {
+      grab.seen = true;
+      if (grab.phase !== 'pending') return { length: grabLaser, target: 'model' }; // the laser ends on the model's base
+    }
     let best: { id: string; d: number } | null = null;
     if (current) {
       const limit = panelDist ?? 5;
@@ -840,8 +817,143 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
   function pressModel(id: string) {
-    selectModel(hovered.get(id) ?? null);
+    const target = hovered.get(id) ?? null;
+    selectModel(target);
+    // Holding the pinch drags the model (see updateGrab); a quick pinch only selects it.
+    if (target) grab = { pointer: id, modelId: target, phase: 'pending', seen: true, t0: null, last: null, offset: new Vector3(), decay: true, two: null };
   }
+
+  // ---- Grab: hold the right pinch on a model to drag it; add the left pinch to turn and scale it ----
+  const DEADZONE = 0.03; // m the laser tip must travel before a pinch becomes a drag
+  const REACH = 8; // m, farthest floor point a ray may drag to
+  const GLIDE = 0.25; // s, the model slides from where it was under the laser to the laser tip, so it never jumps
+  const SMOOTH = 14; // 1/s, low-pass on scale and turn against hand tracking noise
+  const MIN_SCALE = 0.1;
+  const MAX_SCALE = 10; // relative to the scale when the two-hand gesture starts
+  interface Grab {
+    pointer: string;
+    modelId: string;
+    phase: 'pending' | 'move' | 'two';
+    seen: boolean; // the pointer was reported this frame (else the hand is lost)
+    t0: Vector3 | null; // where the ray lands when the pinch starts
+    last: Vector3 | null; // last landing point (kept while the ray points at nothing)
+    offset: Vector3; // base minus landing point, horizontal: fades out so the base ends up at the laser tip
+    decay: boolean;
+    two: { dist0: number; prevAng: number; acc: number; yaw0: number; scale0: number; yaw: number; scale: number } | null;
+  }
+  let grab: Grab | null = null;
+  let grabLaser = 1;
+  let leftHeld = false;
+  let pinchL: Vector3 | null = null;
+  let pinchR: Vector3 | null = null;
+  const rays = new Map<string, { origin: Vector3; dir: Vector3 }>();
+
+  function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
+    if (hand === 'left') leftHeld = !consumedByUi;
+    else if (!consumedByUi) pressModel(id);
+  }
+  function pinchUp(hand: 'left' | 'right', id: string) {
+    if (hand === 'left') leftHeld = false;
+    else if (grab?.pointer === id) endGrab();
+  }
+  function endGrab() {
+    if (grab && grab.phase !== 'pending') say('Modello modificato (non salvato)', 2500);
+    grab = null;
+  }
+  const angleOf = (a: Vector3, b: Vector3) => Math.atan2(b.x - a.x, b.z - a.z); // direction on the floor, as yawOf
+
+  function markUnsaved() {
+    if (unsaved) return;
+    unsaved = true;
+    refreshView();
+  }
+
+  // Where the dragged model's base goes: the top of another model under the ray, else the floor of its room.
+  function dragTarget(m: RoomModel, house: House, origin: Vector3, dir: Vector3): Vector3 | null {
+    const room = rooms.find((r) => r.id === m.roomId);
+    house.root.updateWorldMatrix(true, false);
+    const floorY = new Vector3(0, room ? floorCentre(room.scan.planes)[1] : 0, 0).applyMatrix4(house.root.matrixWorld).y;
+    let far = REACH;
+    let floor: Vector3 | null = null;
+    if (dir.y < -0.02) {
+      const t = (floorY - origin.y) / dir.y;
+      if (t > 0 && t <= REACH) {
+        far = t;
+        floor = origin.clone().addScaledVector(dir, t);
+      }
+    }
+    const others: Group[] = [];
+    for (const o of current?.models ?? []) {
+      const h = houses.get(o.roomId);
+      const holder = o.id !== m.id && h?.root.visible ? h.layer.holders.get(o.id) : null;
+      if (holder) others.push(holder);
+    }
+    return surfaceUnder(others, origin, dir, far) ?? floor;
+  }
+
+  // Once per frame (core.tick): moves / turns / scales the grabbed model.
+  function updateGrab(dt: number) {
+    const g = grab;
+    if (!g) return;
+    const m = current?.models.find((x) => x.id === g.modelId);
+    const house = m && houses.get(m.roomId);
+    const holder = m && house?.layer.holders.get(m.id);
+    const ray = rays.get(g.pointer);
+    if (!m || !house || !holder || !ray || !g.seen || !house.root.visible) return endGrab();
+    g.seen = false;
+    const L = pinchL;
+    const R = pinchR;
+    if (g.phase !== 'two' && leftHeld && L && R && L.distanceTo(R) > 0.05) {
+      g.phase = 'two';
+      g.two = { dist0: L.distanceTo(R), prevAng: angleOf(L, R), acc: 0, yaw0: m.yaw, scale0: m.scale, yaw: m.yaw, scale: m.scale };
+      markUnsaved();
+    } else if (g.phase === 'two' && !(leftHeld && L && R)) {
+      g.phase = 'move'; // one hand again: carry on from where the model is, without a jump
+      g.two = null;
+      g.last = null;
+      g.decay = false;
+      g.offset.set(0, 0, 0);
+      g.t0 = null;
+    }
+    if (g.phase === 'two' && g.two && L && R) {
+      const t = g.two;
+      const ang = angleOf(L, R);
+      t.acc += wrap(ang - t.prevAng);
+      t.prevAng = ang;
+      const k = 1 - Math.exp(-dt * SMOOTH);
+      const wantScale = Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, (t.scale0 * L.distanceTo(R)) / t.dist0));
+      t.yaw += (t.yaw0 + t.acc - t.yaw) * k;
+      t.scale += (wantScale - t.scale) * k;
+      m.yaw = t.yaw;
+      m.scale = t.scale;
+      house.layer.sync(modelsOf(m.roomId)); // position untouched: the model turns and grows on the spot
+      return;
+    }
+    const hit = dragTarget(m, house, ray.origin, ray.dir) ?? g.last;
+    if (!hit) return;
+    g.last = hit;
+    const base = holder.getWorldPosition(new Vector3());
+    if (g.phase === 'pending') {
+      g.t0 ??= hit;
+      if (hit.distanceTo(g.t0) < DEADZONE) return;
+      g.phase = 'move';
+      if (g.decay) g.offset.set(base.x - hit.x, 0, base.z - hit.z); // the drag starts exactly where the model is
+      markUnsaved();
+    } else if (!g.decay && g.offset.lengthSq() === 0 && g.t0 === null) {
+      g.offset.set(base.x - hit.x, 0, base.z - hit.z); // back from two hands: keep the model where it is
+      g.t0 = hit;
+    }
+    if (g.decay) g.offset.multiplyScalar(Math.exp(-dt / GLIDE));
+    const world = new Vector3(hit.x + g.offset.x, hit.y, hit.z + g.offset.z);
+    house.root.updateWorldMatrix(true, false);
+    const local = house.root.worldToLocal(world.clone());
+    m.pos = [local.x, local.y, local.z];
+    house.layer.sync(modelsOf(m.roomId));
+    const toBase = world.sub(ray.origin);
+    grabLaser = Math.max(0.1, toBase.dot(ray.dir));
+  }
+
+
 
   async function reloadRooms() {
     try {
@@ -994,6 +1106,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       }
       checkPending();
       followHead(head, dt);
+      updateGrab(dt);
       syncOutline();
       host.update();
     },
@@ -1037,9 +1150,13 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       setRecognised(null);
       say('Il visore ha cambiato riferimento: rileggo la stanza...', 5000);
     },
-    moveGazedModel,
     aim,
-    pressModel,
+    pinchDown,
+    pinchUp,
+    setPinchPoints(left: Vector3 | null, right: Vector3 | null) {
+      pinchL = left;
+      pinchR = right;
+    },
     selected: () => selectedId,
     say,
     // Test hook.

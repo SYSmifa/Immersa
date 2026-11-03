@@ -77,3 +77,20 @@ export function pickDistance(holder: Object3D, origin: Vector3, dir: Vector3, fa
   const first = picker.intersectObject(holder, true)[0];
   return first ? first.distance : null;
 }
+
+// Where does a world-space ray first land on an upward-facing surface of any of `holders` (tops of machines, tables)?
+// Sides are skipped, so a model dragged over another one is placed on its top. Null when there is none within `far`.
+const allHits = new Raycaster(); // all hits, not just the first: a side may be in front of the top
+const up = new Vector3();
+export function surfaceUnder(holders: Object3D[], origin: Vector3, dir: Vector3, far: number): Vector3 | null {
+  if (!holders.length) return null;
+  allHits.set(origin, dir);
+  allHits.far = far;
+  for (const h of holders) h.updateWorldMatrix(true, true);
+  for (const hit of allHits.intersectObjects(holders, true)) {
+    if (!hit.face) continue;
+    up.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+    if (up.y > 0.5) return hit.point.clone();
+  }
+  return null;
+}
