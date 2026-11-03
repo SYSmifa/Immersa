@@ -866,6 +866,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function selectModel(id: string | null) {
     if (id === selectedId) return;
     selectedId = id;
+    if (!id && objectOpen) closeMenu(); // nothing selected any more: the object's menu goes away
     const m = id ? current?.models.find((x) => x.id === id) : null;
     say(m ? `Selezionato: ${m.name} · yaw ${deg(m.yaw)}° (stanza ${deg(aligns.get(m.roomId)?.yaw ?? 0)}°)` : 'Selezione annullata', 2500);
   }
@@ -873,14 +874,16 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   // Keeps the outline on the selected model's holder (and only there); the model may still be loading.
   function syncOutline() {
     if (selectedId && !current?.models.some((m) => m.id === selectedId)) selectedId = null;
-    if (looked && looked.id !== selectedId) {
+    // While the object menu is open the model shows its real colours (the azure look would hide a colour change).
+    const lookId = objectOpen ? null : selectedId;
+    if (looked && looked.id !== lookId) {
       clearSelectionLook(looked.holder);
       looked = null;
     }
-    if (!selectedId || looked) return;
-    const m = current?.models.find((x) => x.id === selectedId);
+    if (!lookId || looked) return;
+    const m = current?.models.find((x) => x.id === lookId);
     const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
-    if (holder && applySelectionLook(holder)) looked = { id: selectedId, holder };
+    if (holder && applySelectionLook(holder)) looked = { id: lookId, holder };
   }
 
   // Per frame and per pointer: UI first (the nearest panel wins), else the nearest model in front of it.
