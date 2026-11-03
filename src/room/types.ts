@@ -25,6 +25,7 @@ export interface RoomModel {
   pos: Vec3; // base centre of the model, in that room's frame
   yaw: number; // rotation about Y, radians
   scale: number;
+  color?: string; // '#rrggbb' tint replacing the material colour (textures stay); absent: the file's own colours
 }
 
 // Our own room format; the Meta scan is only one possible source of `planes`.

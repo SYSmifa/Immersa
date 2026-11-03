@@ -1,6 +1,7 @@
 import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
 import { modelUrl } from '../cloud/models';
 import { createGltfLoader } from '../scene/gltf';
+import { paintModel } from './selection';
 import type { RoomModel } from './types';
 
 // Keeps scene objects in step with `room.models`: loads each GLB once (cached per
@@ -43,7 +44,13 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
   function attach(holder: Group, m: RoomModel) {
     pending++;
     asset(m.path)
-      .then((obj) => holder.add(obj.clone(true)))
+      .then((obj) => {
+        holder.add(obj.clone(true));
+        if (holder.userData.color) {
+          paintModel(holder, holder.userData.color);
+          holder.userData.painted = holder.userData.color;
+        }
+      })
       .catch((e: Error) => {
         onError(`${m.name}: ${e.message}`);
         holder.add(new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0xff3030, wireframe: true })));
@@ -70,6 +77,11 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
           parent.add(h);
           holders.set(m.id, h);
           attach(h, m);
+        }
+        h.userData.color = m.color;
+        if ((h.userData.painted ?? '') !== (m.color ?? '') && h.children.length) {
+          paintModel(h, m.color);
+          h.userData.painted = m.color;
         }
         h.position.set(...m.pos);
         h.rotation.set(0, m.yaw, 0);

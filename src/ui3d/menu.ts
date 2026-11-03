@@ -2,7 +2,20 @@ import type { Widget } from './panel';
 
 export type Tab = 'load' | 'scan' | 'options' | 'account';
 
+// The selected model's own menu (opened from the floating button above it).
+export interface ObjectView {
+  name: string;
+  yawDeg: number;
+  scale: number;
+  size: string; // real size in metres, '' while the file loads
+  color: string | null;
+  confirmDelete: boolean;
+}
+
+export const OBJECT_COLORS = ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#eceff1', '#424242'];
+
 export interface MenuView {
+  object: ObjectView | null; // set: the menu shows this instead of the tabs
   tab: Tab;
   email: string | null;
   startup: string; // seconds since the page loaded for each start-up step
@@ -42,6 +55,13 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleOccluders(): void;
   closeProject(): void;
+  objRotation(): void;
+  objScale(): void;
+  objColor(hex: string | null): void;
+  objDelete(): void;
+  objDeleteYes(): void;
+  objDeleteNo(): void;
+  objClose(): void;
   saveChanges(): void;
   signOut(): void;
   askEmail(): void;
@@ -91,6 +111,34 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(button(v.loginPassLen ? `Password: ${'•'.repeat(Math.min(v.loginPassLen, 16))}` : 'Tap to type your password', 220, a.askPassword));
       out.push(button('Sign in', 310, () => a.signIn(false), { primary: true, disabled: !ready }));
       out.push(button('Create account', 390, () => a.signIn(true), { disabled: !ready }));
+    }
+    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
+    return out;
+  }
+
+  if (v.object) {
+    const o = v.object;
+    out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 500, h: 46 }, text: 'Oggetto', size: 38 });
+    out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
+    out.push(label(o.name, 58, 36, 26, '#9fb0d0'));
+    out.push(button(`Rotazione: ${o.yawDeg}°`, 108, a.objRotation));
+    out.push(button(`Scala: ×${o.scale.toFixed(2)}${o.size ? `   (${o.size})` : ''}`, 180, a.objScale));
+    out.push(label('Colore', 252, 30, 22, '#8e99b3'));
+    const n = OBJECT_COLORS.length + 1;
+    const gap = 8;
+    const w = (MENU_W - 2 * PAD - (n - 1) * gap) / n;
+    out.push({ rect: { x: PAD, y: 286, w, h: 64 }, text: 'Orig.', size: 22, active: !o.color, onClick: () => a.objColor(null) });
+    OBJECT_COLORS.forEach((c, i) =>
+      out.push({ rect: { x: PAD + (i + 1) * (w + gap), y: 286, w, h: 64 }, text: '●', size: 48, color: c, active: o.color === c, onClick: () => a.objColor(c) }),
+    );
+    if (o.confirmDelete) {
+      out.push(label(`Eliminare "${o.name}"?`, 372, 40, 28, '#ff9c8a'));
+      const half = (MENU_W - 2 * PAD - gap) / 2;
+      out.push({ rect: { x: PAD, y: 420, w: half, h: 64 }, text: 'Sì, elimina', primary: true, onClick: a.objDeleteYes });
+      out.push({ rect: { x: PAD + half + gap, y: 420, w: half, h: 64 }, text: 'Annulla', onClick: a.objDeleteNo });
+    } else {
+      out.push(button('Elimina oggetto', 372, a.objDelete));
+      out.push(button('Indietro', 444, a.objClose));
     }
     if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
     return out;

@@ -1,4 +1,4 @@
-import { Box3, BufferGeometry, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
+import { Box3, BufferGeometry, Color, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 
 // Triangle-accurate picking stays cheap with a bounding volume hierarchy per geometry (built once, shared by clones).
@@ -98,4 +98,38 @@ export function surfaceUnder(holders: Object3D[], origin: Vector3, dir: Vector3,
 // Size in the model's own axes, at scale 1 (null while it is loading).
 export function modelSize(holder: Object3D): Vector3 | null {
   return localBox(holder)?.getSize(new Vector3()) ?? null;
+}
+
+// Top centre of the model in world space (for floating labels and buttons); null while it is loading.
+export function worldTop(holder: Object3D): Vector3 | null {
+  const box = localBox(holder);
+  if (!box) return null;
+  holder.updateWorldMatrix(true, false);
+  return new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2).applyMatrix4(holder.matrixWorld);
+}
+
+// Tint: the materials of the model get this colour (clones, cached per source material and colour, so models that share
+// a file do not change each other). undefined puts the file's own materials back. Works together with the selection look.
+const BASE = 'baseMaterial'; // the file's own material, captured once
+const tints = new WeakMap<Material, Map<string, Material>>();
+function tinted(src: Material, hex: string): Material {
+  let byColor = tints.get(src);
+  if (!byColor) tints.set(src, (byColor = new Map()));
+  let m = byColor.get(hex);
+  if (!m) {
+    m = src.clone();
+    (m as Material & { color?: Color }).color?.set(hex);
+    byColor.set(hex, m);
+  }
+  return m;
+}
+export function paintModel(holder: Object3D, hex: string | undefined) {
+  holder.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const base = (mesh.userData[BASE] ??= mesh.userData[ORIGINAL] ?? mesh.material) as Material | Material[];
+    const next = hex ? (Array.isArray(base) ? base.map((b) => tinted(b, hex)) : tinted(base, hex)) : base;
+    if (mesh.userData[ORIGINAL]) mesh.userData[ORIGINAL] = next; // selected: the azure look stays, this comes back after
+    else mesh.material = next;
+  });
 }

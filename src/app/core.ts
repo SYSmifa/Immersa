@@ -5,7 +5,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { applySelectionLook, clearSelectionLook, modelSize, pickDistance, surfaceUnder } from '../room/selection';
+import { applySelectionLook, clearSelectionLook, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -153,6 +153,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     events: [],
     projects: null,
     currentProjectId: null,
+    object: null,
     unsaved: false,
     page: 0,
     outline: true,
@@ -240,10 +241,33 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       });
     view.currentProjectId = current?.id ?? null;
     view.unsaved = unsaved && !!current;
+    view.object = objectView();
     outline.visible = view.outline && !current; // with a project open the models are the point
     render();
   }
 
+  // ---- the selected model's own menu (floating button above the model) ----
+  let selectedId: string | null = null;
+  let objectOpen = false;
+  let confirmDelete = false;
+  const selectedModel = () => (selectedId ? (current?.models.find((x) => x.id === selectedId) ?? null) : null);
+  function objectView() {
+    const m = objectOpen ? selectedModel() : null;
+    if (!m) {
+      objectOpen = false;
+      confirmDelete = false;
+      return null;
+    }
+    const dim = modelSize(houses.get(m.roomId)?.layer.holders.get(m.id) ?? new Group());
+    return {
+      name: m.name,
+      yawDeg: ((Math.round((m.yaw * 180) / Math.PI) % 360) + 360) % 360,
+      scale: m.scale,
+      size: dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '',
+      color: m.color ?? null,
+      confirmDelete,
+    };
+  }
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
   // Start-up timeline (seconds since the page loaded), shown in the Account tab to see where the time goes.
@@ -276,6 +300,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   function closeMenu() {
     keyboard.close();
     rig.visible = false;
+    objectOpen = false;
+    confirmDelete = false;
+    view.object = null;
   }
   function followHead(head: Head, dt: number) {
     if (!rig.visible) return;
@@ -738,6 +765,58 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       failedTries = 0;
       say('Rileggo la stanza...', 3000);
     },
+    async objRotation() {
+      const m = selectedModel();
+      if (!m) return;
+      const text = await ask('Rotazione (gradi)', String(view.object?.yawDeg ?? 0), { max: 7, capital: false });
+      if (text === null) return;
+      const n = parseNumber(text);
+      if (n === null) return say('Numero non valido', 4000);
+      m.yaw = wrap((n * Math.PI) / 180);
+      applyModelChange(m);
+    },
+    async objScale() {
+      const m = selectedModel();
+      if (!m) return;
+      const text = await ask('Scala (1 = dimensione reale)', String(Number(m.scale.toFixed(3))), { max: 8, capital: false });
+      if (text === null) return;
+      const n = parseNumber(text);
+      if (n === null || n <= 0) return say('Scala non valida (deve essere maggiore di 0)', 4000);
+      m.scale = Math.min(100, Math.max(0.01, n));
+      applyModelChange(m);
+    },
+    objColor(hex: string | null) {
+      const m = selectedModel();
+      if (!m) return;
+      if (hex) m.color = hex;
+      else delete m.color;
+      applyModelChange(m);
+    },
+    objDelete() {
+      confirmDelete = true;
+      refreshView();
+    },
+    objDeleteNo() {
+      confirmDelete = false;
+      refreshView();
+    },
+    objDeleteYes() {
+      const m = selectedModel();
+      if (!m || !current) return;
+      current.models = current.models.filter((x) => x.id !== m.id);
+      selectedId = null;
+      objectOpen = false;
+      confirmDelete = false;
+      houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId)); // removes it from the scene
+      markUnsaved();
+      refreshView();
+      say(`Eliminato: ${m.name} (non salvato)`, 4000);
+    },
+    objClose() {
+      objectOpen = false;
+      confirmDelete = false;
+      refreshView();
+    },
     toggleSnap() {
       view.snap = !view.snap;
       try {
@@ -781,7 +860,6 @@ export function createAppCore({ scene, backend, signOut }: Options) {
 
   // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
   const hovered = new Map<string, string>(); // pointer id -> model id
-  let selectedId: string | null = null;
   let looked: { id: string; holder: Group } | null = null;
 
   const deg = (r: number) => Math.round((r * 180) / Math.PI);
@@ -868,6 +946,37 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const hud = new Panel(0.4, 0.13, 1000, 'rgba(14,16,22,0.88)');
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
+  // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
+  const objButton = new Panel(0.2, 0.07, 1000, 'rgba(14,16,22,0.92)');
+  objButton.set([{ rect: { x: 6, y: 6, w: 188, h: 58 }, text: 'Oggetto', size: 34, onClick: () => openObjectMenu() }]);
+  objButton.mesh.visible = false;
+  host.root.add(objButton.mesh);
+  host.add(objButton);
+  function openObjectMenu() {
+    if (!selectedModel()) return;
+    objectOpen = true;
+    confirmDelete = false;
+    openMenu();
+    refreshView();
+  }
+  function placeObjectButton(head: Head) {
+    const m = selectedModel();
+    const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
+    const top = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
+    objButton.mesh.visible = !!top && !grab && !rig.visible;
+    if (!top) return;
+    objButton.mesh.position.copy(top).y += 0.14;
+    objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
+  }
+  function applyModelChange(m: RoomModel) {
+    houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));
+    markUnsaved();
+    refreshView();
+  }
+  const parseNumber = (text: string | null) => {
+    const n = text === null ? NaN : Number(text.replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
   let hudText = '';
   let snapNote = '';
   function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number) {
@@ -1224,6 +1333,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       checkPending();
       followHead(head, dt);
       updateGrab(dt);
+      placeObjectButton(head);
       syncOutline();
       host.update();
     },
