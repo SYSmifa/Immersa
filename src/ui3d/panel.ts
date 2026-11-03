@@ -1,6 +1,7 @@
 import '@fontsource/sen/latin-500.css';
 import '@fontsource/sen/latin-700.css';
 import { hsvToHex, hsvToRgb, type Hsv } from './color';
+import { drawLoader } from './loader';
 import { drawIcon, type IconName } from './icons';
 import { theme } from './theme';
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
@@ -20,7 +21,7 @@ export interface Widget {
   // button / row / key / field: the basic controls. surface: a white card behind other widgets. card: a tappable card
   // (project, setting). chip: a small pill label. nav: a bottom-bar tab. iconbtn: a round icon button. pill: a
   // call-to-action pill. wheel / slider / bar: pickers.
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'wheel' | 'slider' | 'bar';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'wheel' | 'slider' | 'bar';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean; // gradient fill
@@ -37,7 +38,7 @@ export interface Widget {
   badgeOn?: boolean; // card: the badge is highlighted
   tone?: number; // card without an icon: which gradient the tile takes
   swatch?: string; // a small colour dot at the right end of a button / row / card
-  value?: number; // bar: 0..1
+  value?: number; // bar / loader: 0..1 (a loader without a value shows no progress bar)
   hsv?: Hsv; // wheel / slider: the colour shown (wheel: hue and saturation, slider: brightness)
   // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
   // held and the ray stays over the widget.
@@ -201,6 +202,7 @@ if (typeof document !== 'undefined' && document.fonts) {
 export class Panel {
   readonly mesh: Mesh;
   readonly canvas: HTMLCanvasElement;
+  animated = false; // redrawn every frame (a loader on it)
   stamp = 0; // counts redraws: the layer path uploads the canvas when it changes
   readonly pxW: number;
   readonly pxH: number;
@@ -215,8 +217,9 @@ export class Panel {
     width: number, // metres
     height: number,
     pxPerMetre = 1200,
-    // 'gradient' (default): the theme's gradient with soft light spots; 'surface': a white card, for small panels.
-    private style: 'gradient' | 'surface' = 'gradient',
+    // 'gradient' (default): the theme's gradient with soft light spots; 'surface': a white card, for small panels;
+    // 'ink': a dark card (loading); 'clear': nothing behind the widgets.
+    private style: 'gradient' | 'surface' | 'ink' | 'clear' = 'gradient',
   ) {
     this.pxW = Math.round(width * pxPerMetre);
     this.pxH = Math.round(height * pxPerMetre);
@@ -277,13 +280,26 @@ export class Panel {
   }
 
   draw() {
+    if (this.animated) this.dirty = true;
     if (!this.dirty) return;
     this.dirty = false;
     const c = this.ctx;
     const T = theme();
     c.clearRect(0, 0, this.pxW, this.pxH);
     noShadow(c);
-    if (this.style === 'surface') {
+    if (this.style === 'clear') {
+      /* only the widgets */
+    } else if (this.style === 'ink') {
+      shadow(c, 24, 8, 'rgba(0,0,0,0.5)');
+      c.fillStyle = 'rgba(11,13,18,0.94)';
+      roundRect(c, 8, 6, this.pxW - 16, this.pxH - 20, 40);
+      c.fill();
+      noShadow(c);
+      c.strokeStyle = 'rgba(45,212,191,0.35)';
+      c.lineWidth = 2.5;
+      roundRect(c, 9.25, 7.25, this.pxW - 18.5, this.pxH - 22.5, 39);
+      c.stroke();
+    } else if (this.style === 'surface') {
       shadow(c, 14, 5, T.shadow);
       c.fillStyle = T.surface;
       roundRect(c, 6, 4, this.pxW - 12, this.pxH - 14, Math.min(34, this.pxH / 2));
@@ -335,6 +351,31 @@ export class Panel {
         const lh = size * 1.3;
         wrapLines(c, w.text, ww).forEach((line, i) => c.fillText(line, tx, y + lh / 2 + i * lh));
       } else c.fillText(fit(c, w.text, ww), tx, y + h / 2 + 1);
+      return;
+    }
+    if (kind === 'loader') {
+      const t = performance.now() / 1000;
+      const logo = Math.min(ww, h * 0.62);
+      drawLoader(c, x + ww / 2, y + logo * 0.5, logo, t, PANEL_DENSITY);
+      c.textAlign = 'center';
+      c.fillStyle = '#ffffff';
+      c.font = font(size + 4, true);
+      c.fillText(fit(c, w.text, ww), x + ww / 2, y + logo + 22);
+      if (w.sub) {
+        c.fillStyle = 'rgba(255,255,255,0.66)';
+        c.font = font(Math.round(size * 0.72));
+        c.fillText(fit(c, w.sub, ww), x + ww / 2, y + logo + 22 + size * 1.25);
+      }
+      if (w.value !== undefined) {
+        const bw = Math.min(ww * 0.7, 360);
+        const by = y + h - 18;
+        c.fillStyle = 'rgba(255,255,255,0.16)';
+        roundRect(c, x + (ww - bw) / 2, by - 4, bw, 8, 4);
+        c.fill();
+        c.fillStyle = gradient(c, x + (ww - bw) / 2, 0, bw, ['#14b8a6', '#5eead4']);
+        roundRect(c, x + (ww - bw) / 2, by - 4, Math.max(8, bw * Math.min(1, w.value)), 8, 4);
+        c.fill();
+      }
       return;
     }
     if (kind === 'surface') {

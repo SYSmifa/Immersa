@@ -94,7 +94,7 @@ const M = 28; // outer margin
 const W = MENU_W - 2 * M;
 const TABS: [Tab, string, IconName][] = [
   ['load', 'Progetti', 'folder'],
-  ['scan', 'Stanza', 'scan'],
+  ['scan', 'Stanza', 'room'],
   ['options', 'Opzioni', 'sliders'],
   ['account', 'Account', 'user'],
 ];
@@ -235,7 +235,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   const top = 124;
   if (v.tab === 'load') {
     if (v.projects === null) {
-      out.push(text('Carico i progetti...', M, top + 10, W, 40, 28, T.headerText));
+      // the animated loading logo is a panel of its own (see core.ts)
     } else if (!v.projects.length) {
       out.push(surface(M, top, W, 150));
       out.push(text('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', M + 28, top + 24, W - 56, 110, 26, T.text2, { wrap: true }));
@@ -300,7 +300,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const toggle = (i: number, name: string, sub: string, on: boolean, onClick: () => void, icon: IconName): Widget => ({
       kind: 'card', icon, rect: { x: M + (i % 2) * (half + 14), y: top + Math.floor(i / 2) * 82, w: half, h: 72 }, text: name, size: 22, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
     });
-    out.push(toggle(0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'scan'));
+    out.push(toggle(0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'room'));
     out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'cube'));
     out.push(toggle(2, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
     out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));

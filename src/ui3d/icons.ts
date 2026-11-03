@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right';
+  | 'room' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -47,8 +47,20 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
   left: (c) => poly(c, [0.35, -0.85, -0.5, 0, 0.35, 0.85]),
   right: (c) => poly(c, [-0.35, -0.85, 0.5, 0, -0.35, 0.85]),
   rotate: (c) => {
-    c.arc(0, 0, 0.75, -0.4 * Math.PI, 1.35 * Math.PI);
-    poly(c, [0.62, -0.95, 0.72, -0.5, 0.28, -0.52]);
+    // a circular arrow: three quarters of a circle, the arrow head at its clockwise end
+    const r = 0.72;
+    const e = -0.3 * Math.PI;
+    c.arc(0, 0, r, 0.15 * Math.PI, e + 2 * Math.PI);
+    const px = r * Math.cos(e);
+    const py = r * Math.sin(e);
+    const tx = -Math.sin(e); // clockwise tangent on screen
+    const ty = Math.cos(e);
+    const nx = Math.cos(e);
+    const ny = Math.sin(e);
+    c.moveTo(px + tx * 0.34, py + ty * 0.34);
+    c.lineTo(px + nx * 0.3, py + ny * 0.3);
+    c.moveTo(px + tx * 0.34, py + ty * 0.34);
+    c.lineTo(px - nx * 0.3, py - ny * 0.3);
   },
   scale: (c) => {
     poly(c, [-0.75, 0.75, 0.75, -0.75]);
@@ -57,11 +69,24 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
   },
   palette: (c, color) => {
     c.arc(0, 0, 0.92, 0, Math.PI * 2);
+    c.stroke();
+    c.beginPath();
     for (const [x, y] of [[-0.35, -0.3], [0.3, -0.4], [0.5, 0.15], [-0.4, 0.3]]) {
       c.moveTo(x + 0.12, y);
       c.arc(x, y, 0.12, 0, Math.PI * 2);
     }
     c.fillStyle = color;
+    c.fill();
+    c.beginPath();
+  },
+  // a wireframe cube: all twelve edges, the back square drawn a little lighter by its position
+  room: (c) => {
+    c.rect(-0.9, -0.2, 1.1, 1.1);
+    c.rect(-0.2, -0.9, 1.1, 1.1);
+    poly(c, [-0.9, -0.2, -0.2, -0.9]);
+    poly(c, [0.2, -0.2, 0.9, -0.9]);
+    poly(c, [-0.9, 0.9, -0.2, 0.2]);
+    poly(c, [0.2, 0.9, 0.9, 0.2]);
   },
   trash: (c) => {
     poly(c, [-0.85, -0.5, 0.85, -0.5]);
@@ -96,6 +121,6 @@ export function drawIcon(c: Ctx, name: IconName, cx: number, cy: number, size: n
   c.lineJoin = 'round';
   DRAW[name](c, color);
   c.stroke();
-  if (name === 'sliders' || name === 'palette') c.fill();
+  if (name === 'sliders') c.fill();
   c.restore();
 }

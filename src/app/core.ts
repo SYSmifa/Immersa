@@ -112,13 +112,27 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   rig.add(menu.mesh);
   host.add(menu);
   const keyboard = createKeyboard(host, rig);
-  // Floating "Loading project…" label (not interactive) shown while a project is reopened after standby.
-  const loading = new Panel(0.6, 0.1, 1200);
-  const setLoadingText = (text: string) =>
-    loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text, size: 44, bold: true, align: 'center', color: theme().headerText }]);
-  setLoadingText('Loading project…');
+  // Floating loading card in front of you (not interactive): the animated logo, what is loading and, for a project, how
+  // many of its models are in.
+  const loading = new Panel(0.56, 0.34, 1200, 'ink');
+  loading.animated = true;
+  let loadingKey = '';
+  const setLoadingText = (text: string, sub?: string, value?: number) => {
+    const key = `${text}|${sub ?? ''}|${value ?? ''}`;
+    if (key === loadingKey) return;
+    loadingKey = key;
+    loading.set([{ kind: 'loader', rect: { x: 20, y: 14, w: loading.pxW - 40, h: loading.pxH - 28 }, text, sub, value, size: 30 }]);
+  };
+  setLoadingText('Carico il progetto');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
+  // The same logo over the menu while the list of projects is being fetched.
+  const listLoader = new Panel(0.34, 0.3, 1200, 'clear');
+  listLoader.animated = true;
+  listLoader.set([{ kind: 'loader', rect: { x: 10, y: 4, w: listLoader.pxW - 20, h: listLoader.pxH - 8 }, text: 'Cerco i tuoi progetti', sub: 'Un attimo…', size: 28 }]);
+  listLoader.mesh.position.set(0, 0, 0.004);
+  listLoader.mesh.visible = false;
+  rig.add(listLoader.mesh);
 
   // The recognised room's frame (only its outline lives here); the alignment maps it onto the session.
   const roomRoot = new Group();
@@ -728,6 +742,11 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     syncHouses();
     closeMenu();
     refreshView();
+    if (p.models.length) {
+      awaitingModels = performance.now(); // the card stays until every model is in
+      setLoadingText('Carico il progetto', `Modelli 0 / ${p.models.length}`, 0);
+      loading.mesh.visible = true;
+    }
     say(foreign ? `Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, foreign ? 9000 : 7000);
   }
 
@@ -753,7 +772,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       view.loginPassLen = 0;
       await reloadRooms();
       loadProjects();
-      view.tab = 'scan';
+      view.tab = 'load';
       say('Signed in');
     },
     setTab(tab: Tab) {
@@ -1340,7 +1359,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer (the wrist button is added by xrApp).
-    layerPanels: () => [menu, keyboard.panel, loading, hud, objButton],
+    layerPanels: () => [menu, keyboard.panel, listLoader, loading, hud, objButton],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -1362,9 +1381,9 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       if (saved && last?.id === saved) preloadModels(last.paths);
       // With no project to reopen the id is empty: just wait for the rooms, then the menu opens.
       resumePending = saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
-      if (resumePending) setLoadingText(resumePending.id ? 'Loading project…' : 'Loading rooms…');
+      if (resumePending) setLoadingText(resumePending.id ? 'Carico il progetto' : 'Cerco le stanze');
       autoTab = true;
-      view.tab = 'scan';
+      view.tab = 'load'; // the menu always starts on the projects
       rawLive = [];
       rawBoxes = [];
       live = [];
@@ -1389,7 +1408,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     // The app is about to restart: say so (menu away, floating label) instead of just going black.
     showRestarting() {
       closeMenu();
-      setLoadingText('Restarting Immersa…');
+      setLoadingText('Riavvio di Immersa');
       loading.mesh.visible = true;
     },
     planesGap(on: boolean) {
@@ -1414,6 +1433,16 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       }
       tryRecognise(now);
       alignFar(now);
+      if (awaitingModels !== null && current) {
+        const total = current.models.length;
+        const done = Math.max(0, total - modelsPending());
+        setLoadingText('Carico il progetto', `Modelli ${done} / ${total}`, total ? done / total : 1);
+      } else if (awaitingModels !== null) {
+        awaitingModels = null; // the project was closed meanwhile
+        loading.mesh.visible = false;
+      }
+      listLoader.mesh.visible = rig.visible && view.tab === 'load' && view.projects === null && !view.object && view.authKnown && !!view.email;
+      if (listLoader.mesh.visible) listLoader.draw();
       if (loading.mesh.visible) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
