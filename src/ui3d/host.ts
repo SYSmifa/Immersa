@@ -1,4 +1,4 @@
-import { Group, Mesh, MeshBasicMaterial, Object3D, Raycaster, SphereGeometry, Vector3 } from 'three';
+import { Group, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, Plane, Raycaster, SphereGeometry, Vector3 } from 'three';
 import type { Panel, Widget } from './panel';
 
 interface Hit {
@@ -25,6 +25,7 @@ const visible = (o: Object3D | null) => {
 // started, so a drifting hand ray cannot hit the wrong button.
 export class UiHost {
   readonly root = new Group(); // holds the cursors; add it to the scene
+  readonly noCursor = new Set<string>(); // pointers that draw their own cursor (the hand's laser)
   private panels = new Set<Panel>();
   private pointers = new Map<string, Pointer>();
   private raycaster = new Raycaster();
@@ -56,6 +57,7 @@ export class UiHost {
     p.hover = null;
     p.cursor.visible = false;
     if (!origin || !direction) return null;
+    this.drag(p, origin, direction);
     const meshes: Mesh[] = [];
     for (const panel of this.panels) {
       if (!visible(panel.mesh)) continue;
@@ -72,19 +74,34 @@ export class UiHost {
     const fx = r ? (hit.uv.x * panel.pxW - r.x) / r.w : 0;
     const fy = r ? ((1 - hit.uv.y) * panel.pxH - r.y) / r.h : 0;
     p.hover = { panel, widget, fx, fy };
-    // Colour wheel / slider: dragging with the pinch held keeps picking while the ray stays over it.
-    const held = p.press?.widget;
-    if (held?.onPoint && widget?.onPoint && held.kind === widget.kind && held.rect.x === widget.rect.x && held.rect.y === widget.rect.y) {
-      if (Math.abs(fx - p.lastFx) > 0.002 || Math.abs(fy - p.lastFy) > 0.002) {
-        p.lastFx = fx;
-        p.lastFy = fy;
-        widget.onPoint(Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy)));
-      }
-    }
     p.cursor.position.copy(hit.point);
-    p.cursor.visible = true;
+    p.cursor.visible = !this.noCursor.has(id);
     (p.cursor.material as MeshBasicMaterial).color.set(widget ? 0x66ffee : 0xffffff);
     return hit.distance;
+  }
+
+  // A colour wheel / slider keeps following the pinch while it is held, even when the ray leaves the widget (or the
+  // panel): the ray is cut with the panel's plane and the point is clamped to the widget.
+  private drag(p: Pointer, origin: Vector3, direction: Vector3) {
+    const held = p.press?.widget;
+    if (!p.press || !held?.onPoint) return;
+    const panel = p.press.panel;
+    const mesh = panel.mesh;
+    mesh.updateWorldMatrix(true, false);
+    const normal = new Vector3(0, 0, 1).transformDirection(mesh.matrixWorld);
+    const at = this.raycaster.ray.set(origin, direction).intersectPlane(new Plane().setFromNormalAndCoplanarPoint(normal, mesh.getWorldPosition(new Vector3())), new Vector3());
+    if (!at) return;
+    const local = mesh.worldToLocal(at);
+    const g = (mesh.geometry as PlaneGeometry).parameters;
+    const r = held.rect;
+    const fx = Math.min(1, Math.max(0, ((local.x / g.width + 0.5) * panel.pxW - r.x) / r.w));
+    const fy = Math.min(1, Math.max(0, ((0.5 - local.y / g.height) * panel.pxH - r.y) / r.h));
+    if (Math.abs(fx - p.lastFx) < 0.002 && Math.abs(fy - p.lastFy) < 0.002) return;
+    p.lastFx = fx;
+    p.lastFy = fy;
+    // The widgets are rebuilt after every change: call the current copy of the one that was pressed.
+    const now = panel.widgets.find((w) => w.kind === held.kind && w.rect.x === r.x && w.rect.y === r.y) ?? held;
+    now.onPoint?.(fx, fy);
   }
 
   // True when the pointer is over a panel: the press belongs to the UI.

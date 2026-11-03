@@ -51,7 +51,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   // Laser from the right hand (hand tracking or controller).
   const laser = createLaser();
   core.host.root.add(laser.mesh);
-  const LASER_COLOR = { panel: 0x66ffee, model: 0x35b8ff, none: 0xffffff };
+  let rightPinching = false;
 
   const ids = new Map<XRInputSource, string>();
   let activeIds = new Set<string>();
@@ -104,12 +104,14 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const id = idOf(e.inputSource);
       const consumed = core.host.press(id);
       const hand = e.inputSource.handedness;
+      if (hand === 'right') rightPinching = true;
       if (hand === 'left' || hand === 'right') core.pinchDown(hand, id, consumed);
     });
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => {
       const src = (ev as XRInputSourceEvent).inputSource;
       core.host.cancel(idOf(src));
+      if (src.handedness === 'right') rightPinching = false;
       if (src.handedness === 'left' || src.handedness === 'right') core.pinchUp(src.handedness, idOf(src));
     });
     session.addEventListener('squeezestart', () => core.menu.toggle());
@@ -213,8 +215,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           dir.set(0, 0, -1).applyQuaternion(quat);
           const origin = new Vector3(p.x, p.y, p.z);
           if (src.handedness === 'right') {
+            core.host.noCursor.add(id);
             const hit = core.aim(id, origin, dir);
-            laser.show(origin, dir, hit.length, LASER_COLOR[hit.target]);
+            laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos);
             laserOn = true;
           } else {
             core.host.setRay(id, origin, dir);
@@ -230,7 +233,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           leftToggleHeld = pressed;
         }
       }
-      if (!laserOn) laser.hide();
+      if (!laserOn) {
+        laser.hide();
+        rightPinching = false;
+      }
       for (const id of activeIds) if (!seen.has(id)) core.host.setRay(id, null);
       activeIds = seen;
 
