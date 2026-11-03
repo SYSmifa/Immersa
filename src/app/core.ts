@@ -1,11 +1,11 @@
-import { Group, Matrix4, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { applySelectionLook, clearSelectionLook, pickDistance, surfaceUnder } from '../room/selection';
+import { applySelectionLook, clearSelectionLook, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
@@ -828,9 +828,9 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   const REACH = 8; // m, farthest floor point a ray may drag to
   const GLIDE = 0.25; // s, the model slides from where it was under the laser to the laser tip, so it never jumps
   const SMOOTH = 14; // 1/s, low-pass on scale and turn against hand tracking noise
-  const SCALE_START = 0.08; // change of the hands' distance (log ratio, about 8 %) before scaling starts
-  const TURN_START = 0.15; // rad (about 9 degrees) before turning starts
-  const CROSS = 2.5;
+  const SCALE_START = 0.16; // change of the hands' distance (log ratio, about 17 %) before scaling starts
+  const TURN_START = 0.3; // rad (about 17 degrees) before turning starts
+  const CROSS = 3; // the other gesture needs this many times its threshold
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 10; // relative to the scale when the two-hand gesture starts
   interface Grab {
@@ -845,6 +845,29 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     two: { dist0: number; prevAng: number; acc: number; yaw0: number; scale0: number; yaw: number; scale: number; scaleFrom: number; turnFrom: number } | null;
   }
   let grab: Grab | null = null;
+  // Readout above the model during the two-hand gesture: the angle and size now, and what they were before.
+  const hud = new Panel(0.4, 0.13, 1000, 'rgba(14,16,22,0.88)');
+  hud.mesh.visible = false;
+  host.root.add(hud.mesh);
+  let hudText = '';
+  function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number) {
+    const deg = (r: number) => ((Math.round((r * 180) / Math.PI) % 360) + 360) % 360;
+    const dim = modelSize(holder);
+    const size = dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '';
+    const l1 = `Rotazione ${deg(m.yaw)}°   (era ${deg(yaw0)}°)`;
+    const l2 = `Scala ×${m.scale.toFixed(2)}   (era ×${scale0.toFixed(2)})`;
+    const text = `${l1}|${l2}|${size}`;
+    if (text !== hudText) {
+      hudText = text;
+      const row = (t: string, y: number, h: number, size: number, color?: string) => ({ kind: 'label' as const, rect: { x: 10, y, w: hud.pxW - 20, h }, text: t, size, align: 'center' as const, color });
+      hud.set([row(l1, 8, 40, 32), row(l2, 48, 40, 32), row(size, 88, 36, 26, '#9fb0d0')]);
+    }
+    const top = new Box3().setFromObject(holder);
+    hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.18, (top.min.z + top.max.z) / 2);
+    if (lastHead) hud.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - hud.mesh.position.x, lastHead.pos.z - hud.mesh.position.z), 0);
+    hud.mesh.visible = true;
+    hud.draw();
+  }
   let grabLaser = 1;
   let leftHeld = false;
   let pinchL: Vector3 | null = null;
@@ -860,6 +883,8 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     else if (grab?.pointer === id) endGrab();
   }
   function endGrab() {
+    hud.mesh.visible = false;
+    hudText = '';
     if (grab && grab.phase !== 'pending') say('Modello modificato (non salvato)', 2500);
     grab = null;
   }
@@ -913,6 +938,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     } else if (g.phase === 'two' && !(leftHeld && L && R)) {
       g.phase = 'move'; // one hand again: carry on from where the model is, without a jump
       g.two = null;
+      hud.mesh.visible = false;
       g.last = null;
       g.decay = false;
       g.offset.set(0, 0, 0);
@@ -939,6 +965,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       m.yaw = t.yaw;
       m.scale = t.scale;
       house.layer.sync(modelsOf(m.roomId)); // position untouched: the model turns and grows on the spot
+      showHud(m, holder, t.yaw0, t.scale0);
       return;
     }
     const hit = dragTarget(m, house, ray.origin, ray.dir) ?? g.last;

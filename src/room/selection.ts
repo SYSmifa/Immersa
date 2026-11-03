@@ -94,3 +94,8 @@ export function surfaceUnder(holders: Object3D[], origin: Vector3, dir: Vector3,
   }
   return null;
 }
+
+// Size in the model's own axes, at scale 1 (null while it is loading).
+export function modelSize(holder: Object3D): Vector3 | null {
+  return localBox(holder)?.getSize(new Vector3()) ?? null;
+}
