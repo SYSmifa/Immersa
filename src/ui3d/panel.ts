@@ -361,7 +361,7 @@ export class Panel {
         roundRect(c, x + 8, y + 6, ww - 16, h - 12, 26);
         c.fill();
       } else if (hover) {
-        c.fillStyle = 'rgba(47,107,255,0.09)';
+        c.fillStyle = 'rgba(20,184,166,0.12)';
         roundRect(c, x + 8, y + 6, ww - 16, h - 12, 26);
         c.fill();
       }
