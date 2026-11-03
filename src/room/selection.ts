@@ -123,12 +123,49 @@ function tinted(src: Material, hex: string): Material {
   }
   return m;
 }
-export function paintModel(holder: Object3D, hex: string | undefined) {
+// The distinct materials of a model, in a fixed order (the index is what the project stores): name and original colour.
+export interface MaterialInfo {
+  name: string;
+  color: string; // '#rrggbb' as in the file
+}
+const LIST = 'materialList';
+function baseOf(mesh: Mesh): Material | Material[] {
+  return (mesh.userData[BASE] ??= mesh.userData[ORIGINAL] ?? mesh.material) as Material | Material[];
+}
+function materialsOf(holder: Object3D): Material[] {
+  let list = holder.userData[LIST] as Material[] | undefined;
+  if (!list) {
+    list = [];
+    holder.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      const base = baseOf(mesh);
+      for (const m of Array.isArray(base) ? base : [base]) if (!list!.includes(m)) list!.push(m);
+    });
+    if (list.length) holder.userData[LIST] = list; // not while the file is still loading
+  }
+  return list;
+}
+export function listMaterials(holder: Object3D): MaterialInfo[] {
+  return materialsOf(holder).map((m, i) => ({
+    name: m.name || `Materiale ${i + 1}`,
+    color: `#${(m as Material & { color?: Color }).color?.getHexString() ?? 'ffffff'}`,
+  }));
+}
+
+// `all` tints every material, `each[i]` overrides material i. Both undefined: the file's own colours.
+export function paintModel(holder: Object3D, all: string | undefined, each?: Record<string, string>) {
+  const list = materialsOf(holder);
+  const pick = (m: Material) => each?.[String(list.indexOf(m))] ?? all;
+  const paint = (m: Material) => {
+    const hex = pick(m);
+    return hex ? tinted(m, hex) : m;
+  };
   holder.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh) return;
-    const base = (mesh.userData[BASE] ??= mesh.userData[ORIGINAL] ?? mesh.material) as Material | Material[];
-    const next = hex ? (Array.isArray(base) ? base.map((b) => tinted(b, hex)) : tinted(base, hex)) : base;
+    const base = baseOf(mesh);
+    const next = Array.isArray(base) ? base.map(paint) : paint(base);
     if (mesh.userData[ORIGINAL]) mesh.userData[ORIGINAL] = next; // selected: the azure look stays, this comes back after
     else mesh.material = next;
   });

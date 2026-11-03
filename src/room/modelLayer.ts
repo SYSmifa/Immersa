@@ -38,6 +38,9 @@ export function preloadModels(paths: string[]) {
   for (const path of new Set(paths)) void asset(path).catch(() => undefined);
 }
 
+// What colouring a model asks for, as a comparable string ('' = the file's own colours).
+const lookKey = (m: RoomModel) => (m.color ?? '') + (m.materialColors && Object.keys(m.materialColors).length ? JSON.stringify(m.materialColors) : '');
+
 export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
   const holders = new Map<string, Group>();
 
@@ -46,9 +49,10 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
     asset(m.path)
       .then((obj) => {
         holder.add(obj.clone(true));
-        if (holder.userData.color) {
-          paintModel(holder, holder.userData.color);
-          holder.userData.painted = holder.userData.color;
+        const look = holder.userData.look as RoomModel | undefined;
+        if (look && lookKey(look)) {
+          paintModel(holder, look.color, look.materialColors);
+          holder.userData.painted = lookKey(look);
         }
       })
       .catch((e: Error) => {
@@ -78,10 +82,10 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
           holders.set(m.id, h);
           attach(h, m);
         }
-        h.userData.color = m.color;
-        if ((h.userData.painted ?? '') !== (m.color ?? '') && h.children.length) {
-          paintModel(h, m.color);
-          h.userData.painted = m.color;
+        h.userData.look = m;
+        if ((h.userData.painted ?? '') !== lookKey(m) && h.children.length) {
+          paintModel(h, m.color, m.materialColors);
+          h.userData.painted = lookKey(m);
         }
         h.position.set(...m.pos);
         h.rotation.set(0, m.yaw, 0);

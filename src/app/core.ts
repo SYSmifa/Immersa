@@ -5,12 +5,13 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { applySelectionLook, clearSelectionLook, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
+import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
+import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
 import { Panel } from '../ui3d/panel';
 
@@ -251,14 +252,28 @@ export function createAppCore({ scene, backend, signOut }: Options) {
   let objectOpen = false;
   let confirmDelete = false;
   const selectedModel = () => (selectedId ? (current?.models.find((x) => x.id === selectedId) ?? null) : null);
+  let colorPage = false; // the object menu shows the colour page
+  let colorTarget: 'all' | number = 'all'; // what the colour page changes: every material, or one (index in the list)
+  let matPage = 0;
+  let pick: Hsv = [0, 0, 1]; // the colour in the picker
+  const holderOf = (m: RoomModel) => houses.get(m.roomId)?.layer.holders.get(m.id) ?? null;
+  // The colour a material (or everything) shows now: its own override, else the model's tint, else the file's colour.
+  function shownColor(m: RoomModel, t: 'all' | number, mats: { color: string }[]): string {
+    if (t === 'all') return m.color ?? mats[0]?.color ?? '#ffffff';
+    return m.materialColors?.[String(t)] ?? m.color ?? mats[t]?.color ?? '#ffffff';
+  }
   function objectView() {
     const m = objectOpen ? selectedModel() : null;
     if (!m) {
       objectOpen = false;
       confirmDelete = false;
+      colorPage = false;
       return null;
     }
-    const dim = modelSize(houses.get(m.roomId)?.layer.holders.get(m.id) ?? new Group());
+    const holder = holderOf(m);
+    const dim = holder ? modelSize(holder) : null;
+    const mats = holder ? listMaterials(holder) : [];
+    if (typeof colorTarget === 'number' && colorTarget >= mats.length) colorTarget = 'all';
     return {
       name: m.name,
       yawDeg: ((Math.round((m.yaw * 180) / Math.PI) % 360) + 360) % 360,
@@ -266,6 +281,11 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       size: dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '',
       color: m.color ?? null,
       confirmDelete,
+      colorPage,
+      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats) })),
+      target: colorTarget,
+      matPage,
+      hsv: pick,
     };
   }
   const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
@@ -302,6 +322,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     rig.visible = false;
     objectOpen = false;
     confirmDelete = false;
+    colorPage = false;
     view.object = null;
   }
   function followHead(head: Head, dt: number) {
@@ -785,12 +806,45 @@ export function createAppCore({ scene, backend, signOut }: Options) {
       m.scale = Math.min(100, Math.max(0.01, n));
       applyModelChange(m);
     },
+    // Colour: preset or "Orig." (null) for the chosen target.
     objColor(hex: string | null) {
       const m = selectedModel();
       if (!m) return;
-      if (hex) m.color = hex;
-      else delete m.color;
-      applyModelChange(m);
+      if (hex) pick = hexToHsv(hex);
+      setColor(m, hex);
+    },
+    objOpenColor() {
+      const m = selectedModel();
+      if (!m) return;
+      colorPage = true;
+      colorTarget = 'all';
+      matPage = 0;
+      const h = holderOf(m);
+      pick = hexToHsv(shownColor(m, 'all', h ? listMaterials(h) : []));
+      refreshView();
+    },
+    objColorBack() {
+      colorPage = false;
+      refreshView();
+    },
+    objColorTarget(t: 'all' | number) {
+      const m = selectedModel();
+      if (!m) return;
+      colorTarget = t;
+      const h = holderOf(m);
+      pick = hexToHsv(shownColor(m, t, h ? listMaterials(h) : []));
+      refreshView();
+    },
+    objMatPage(delta: number) {
+      matPage = Math.max(0, matPage + delta);
+      refreshView();
+    },
+    // Wheel (hue, saturation) and brightness bar: a null part stays as it is.
+    objPick(h: number | null, sat: number | null, v: number | null) {
+      const m = selectedModel();
+      if (!m) return;
+      pick = [h ?? pick[0], sat ?? pick[1], v ?? pick[2]];
+      setColor(m, hsvToHex(...pick));
     },
     objDelete() {
       confirmDelete = true;
@@ -959,6 +1013,7 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (!selectedModel()) return;
     objectOpen = true;
     confirmDelete = false;
+    colorPage = false;
     openMenu();
     refreshView();
   }
@@ -970,6 +1025,21 @@ export function createAppCore({ scene, backend, signOut }: Options) {
     if (!top) return;
     objButton.mesh.position.copy(top).y += 0.14;
     objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
+  }
+  // Sets the colour of the chosen target (null: back to the file's own). "All" replaces every per-material colour.
+  function setColor(m: RoomModel, hex: string | null) {
+    if (colorTarget === 'all') {
+      if (hex) m.color = hex;
+      else delete m.color;
+      delete m.materialColors;
+    } else {
+      const key = String(colorTarget);
+      m.materialColors = { ...m.materialColors };
+      if (hex) m.materialColors[key] = hex;
+      else delete m.materialColors[key];
+      if (!Object.keys(m.materialColors).length) delete m.materialColors;
+    }
+    applyModelChange(m);
   }
   function applyModelChange(m: RoomModel) {
     houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));

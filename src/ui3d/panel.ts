@@ -1,3 +1,4 @@
+import { hsvToHex, hsvToRgb, type Hsv } from './color';
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
 
 export interface Rect {
@@ -12,7 +13,7 @@ export interface Widget {
   rect: Rect;
   text: string;
   sub?: string; // smaller second line
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'wheel' | 'slider';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean;
@@ -21,6 +22,11 @@ export interface Widget {
   size?: number; // font px
   color?: string;
   wrap?: boolean; // labels only
+  swatch?: string; // a small colour square at the right end of a button / row
+  hsv?: Hsv; // wheel / slider: the colour shown (wheel: hue and saturation, slider: brightness)
+  // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
+  // held and the ray stays over the widget.
+  onPoint?(fx: number, fy: number): void;
 }
 
 const FONT = 'system-ui, "Segoe UI", Roboto, sans-serif';
@@ -58,6 +64,72 @@ function wrapLines(c: CanvasRenderingContext2D, text: string, maxW: number): str
     out.push(line);
   }
   return out;
+}
+
+// Hue / saturation disc, drawn once per size and brightness step and then reused.
+const discs = new Map<string, HTMLCanvasElement>();
+function disc(size: number, v: number): HTMLCanvasElement {
+  const key = `${size}:${Math.round(v * 20)}`;
+  let cv = discs.get(key);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d')!;
+    const img = ctx.createImageData(size, size);
+    const r0 = size / 2;
+    for (let j = 0; j < size; j++) {
+      for (let i = 0; i < size; i++) {
+        const dx = i + 0.5 - r0;
+        const dy = j + 0.5 - r0;
+        const d = Math.hypot(dx, dy) / r0;
+        if (d > 1) continue;
+        const [r, g, b] = hsvToRgb((Math.atan2(dy, dx) / (2 * Math.PI) + 1) % 1, d, Math.round(v * 20) / 20);
+        const k = (j * size + i) * 4;
+        img.data.set([r * 255, g * 255, b * 255, 255], k);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    discs.set(key, cv);
+  }
+  return cv;
+}
+
+function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
+  const { x, y, w: ww, h } = w.rect;
+  const [hue, sat, val] = w.hsv ?? [0, 0, 1];
+  if (w.kind === 'wheel') {
+    const size = Math.round(Math.min(ww, h));
+    const cx = x + ww / 2;
+    const cy = y + h / 2;
+    c.drawImage(disc(size, val), cx - size / 2, cy - size / 2);
+    const a = hue * 2 * Math.PI;
+    const mx = cx + Math.cos(a) * sat * (size / 2);
+    const my = cy + Math.sin(a) * sat * (size / 2);
+    c.lineWidth = 4;
+    c.strokeStyle = '#ffffff';
+    c.beginPath();
+    c.arc(mx, my, 11, 0, 2 * Math.PI);
+    c.stroke();
+    c.strokeStyle = '#000000aa';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(mx, my, 14, 0, 2 * Math.PI);
+    c.stroke();
+    return;
+  }
+  const g = c.createLinearGradient(x, 0, x + ww, 0);
+  g.addColorStop(0, '#000000');
+  g.addColorStop(1, hsvToHex(hue, sat, 1));
+  c.fillStyle = g;
+  roundRect(c, x, y, ww, h, 12);
+  c.fill();
+  const mx = x + val * ww;
+  c.fillStyle = '#ffffff';
+  roundRect(c, mx - 6, y - 4, 12, h + 8, 6);
+  c.fill();
+  c.strokeStyle = '#000000aa';
+  c.lineWidth = 2;
+  c.stroke();
 }
 
 // A flat panel in 3D showing widgets drawn on a canvas. Pointing is handled by UiHost.
@@ -142,6 +214,7 @@ export class Panel {
   private drawWidget(c: CanvasRenderingContext2D, w: Widget) {
     const { x, y, w: ww, h } = w.rect;
     const kind = w.kind ?? 'button';
+    if (kind === 'wheel' || kind === 'slider') return drawColorPicker(c, w);
     const size = w.size ?? 30;
     const hover = w === this.hover && !w.disabled;
     const down = w === this.pressed && !w.disabled;
@@ -168,8 +241,17 @@ export class Panel {
     const left = (w.align ?? (kind === 'row' || kind === 'label' || kind === 'field' ? 'left' : 'center')) === 'left';
     c.textAlign = left ? 'left' : 'center';
     const tx = left ? x + (kind === 'label' ? 0 : 20) : x + ww / 2;
-    const maxW = ww - (left && kind !== 'label' ? 40 : 8);
+    const maxW = ww - (left && kind !== 'label' ? 40 : 8) - (w.swatch ? 56 : 0);
 
+    if (w.swatch) {
+      c.fillStyle = w.swatch;
+      roundRect(c, x + ww - 56, y + h / 2 - 17, 38, 34, 8);
+      c.fill();
+      c.strokeStyle = '#ffffff55';
+      c.lineWidth = 2;
+      c.stroke();
+      c.fillStyle = w.disabled ? '#667086' : (w.color ?? '#ffffff');
+    }
     c.font = `${size}px ${FONT}`;
     if (kind === 'label' && w.wrap) {
       const lines = wrapLines(c, w.text, maxW);
