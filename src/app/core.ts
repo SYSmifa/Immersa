@@ -118,15 +118,22 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   const loading = new Panel(0.56, 0.34, 1200, 'ink');
   loading.animated = true;
   let loadingKey = '';
-  const setLoadingText = (text: string, sub?: string, value?: number, logo?: boolean) => {
-    const key = `${text}|${sub ?? ''}|${value ?? ''}|${logo ?? ''}`;
+  const setLoadingText = (text: string, sub?: string, value?: number) => {
+    const key = `${text}|${sub ?? ''}|${value ?? ''}`;
     if (key === loadingKey) return;
     loadingKey = key;
-    loading.set([{ kind: 'loader', rect: { x: 20, y: 14, w: loading.pxW - 40, h: loading.pxH - 28 }, text, sub, value, size: logo ? 38 : 30, logo }]);
+    loading.set([{ kind: 'loader', rect: { x: 20, y: 14, w: loading.pxW - 40, h: loading.pxH - 28 }, text, sub, value, size: 30 }]);
   };
   setLoadingText('Carico il progetto');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
+  // Start-up screen: the cube drawing itself with the Immersa logo in front, nothing behind it (the room shows through).
+  const splashPanel = new Panel(0.74, 0.46, 1200, 'clear');
+  splashPanel.animated = true;
+  splashPanel.mesh.visible = false;
+  host.root.add(splashPanel.mesh);
+  const showSplash = (since: number, fade: number) =>
+    splashPanel.set([{ kind: 'splash', rect: { x: 0, y: 0, w: splashPanel.pxW, h: splashPanel.pxH }, text: '', since, value: fade }]);
   // The same logo over the menu while the list of projects is being fetched.
   const listLoader = new Panel(0.34, 0.3, 1200, 'clear');
   listLoader.animated = true;
@@ -213,7 +220,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let autoTab = true;
-  let splash: { since: number } | null = null; // the start-up screen with the logo
+  let splash: { since: number; endAt: number | null; placed: boolean } | null = null; // the start-up screen with the logo
   let lastHead: Head | null = null;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1362,7 +1369,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer (the wrist button is added by xrApp).
-    layerPanels: () => [menu, keyboard.panel, listLoader, loading, hud, objButton],
+    layerPanels: () => [menu, keyboard.panel, listLoader, loading, splashPanel, hud, objButton],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -1406,9 +1413,9 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       if (resumePending) loading.mesh.visible = true;
       else {
         // The logo in front of you for a moment while the app gets its data, then the menu.
-        splash = { since: performance.now() };
-        setLoadingText('Immersa', 'Avvio in corso…', undefined, true);
-        loading.mesh.visible = true;
+        splash = { since: performance.now(), endAt: null, placed: false };
+        showSplash(splash.since, 1);
+        splashPanel.mesh.visible = true;
       }
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
@@ -1456,10 +1463,22 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
       }
-      if (splash && now - splash.since > SPLASH_MS && view.authKnown) {
-        splash = null;
-        loading.mesh.visible = false;
-        openMenu();
+      if (splash) {
+        if (splash.endAt === null && now - splash.since > SPLASH_MS && view.authKnown) splash.endAt = now;
+        const gone = splash.endAt === null ? 0 : (now - splash.endAt) / 500; // half a second of fade-out
+        if (gone >= 1) {
+          splash = null;
+          splashPanel.mesh.visible = false;
+          openMenu();
+        } else {
+          if (splash.endAt !== null) showSplash(splash.since, 1 - gone);
+          if (!splash.placed) {
+            splash.placed = true; // once, where you are looking when it appears
+            splashPanel.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 1.0, head.pos.y - 0.02, head.pos.z + Math.cos(yawOf(head.fwd)) * 1.0);
+            splashPanel.mesh.rotation.set(0, Math.atan2(head.pos.x - splashPanel.mesh.position.x, head.pos.z - splashPanel.mesh.position.z), 0);
+          }
+          splashPanel.draw();
+        }
       }
       if (resumePending) {
         const since = now - resumePending.since;

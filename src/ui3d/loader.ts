@@ -18,24 +18,7 @@ const ease = (x: number) => x * x * (3 - 2 * x);
 
 export const LOADER_COLORS = { a: '#14b8a6', b: '#5eead4' };
 
-// The Immersa "I" (as in the app icon: two slabs and a stem), white with a soft glow.
-function drawMark(c: CanvasRenderingContext2D, cx: number, cy: number, h: number, density: number) {
-  const slab = h * 0.29;
-  const stem = h * 0.28;
-  const w = h * 0.71;
-  c.shadowColor = 'rgba(45,212,191,0.9)';
-  c.shadowBlur = 14 * density;
-  c.fillStyle = '#ffffff';
-  c.beginPath();
-  c.rect(cx - w / 2, cy - h / 2, w, slab);
-  c.rect(cx - stem / 2, cy - h / 2 + slab, stem, h - 2 * slab);
-  c.rect(cx - w / 2, cy + h / 2 - slab, w, slab);
-  c.fill();
-  c.shadowColor = 'transparent';
-  c.shadowBlur = 0;
-}
-
-export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, size: number, seconds: number, density: number, mark = false) {
+export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, size: number, seconds: number, density: number, alpha = 1) {
   const u = (seconds % CYCLE) / CYCLE;
   const turn = seconds * 0.85;
   const tilt = 0.5;
@@ -56,6 +39,7 @@ export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, 
   const glow = c.createRadialGradient(cx, cy, 0, cx, cy, size * 0.62);
   glow.addColorStop(0, 'rgba(45,212,191,0.20)');
   glow.addColorStop(1, 'rgba(45,212,191,0)');
+  c.globalAlpha = alpha;
   c.fillStyle = glow;
   c.fillRect(cx - size, cy - size, 2 * size, 2 * size);
 
@@ -80,7 +64,7 @@ export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, 
     g.addColorStop(0, LOADER_COLORS.a);
     g.addColorStop(1, LOADER_COLORS.b);
     c.strokeStyle = g;
-    c.globalAlpha = fade * pulse * (back ? 0.42 : 1);
+    c.globalAlpha = alpha * fade * pulse * (back ? 0.42 : 1);
     c.lineWidth = (back ? 2.2 : 3.6) + lit * 1.6;
     c.shadowColor = 'rgba(45,212,191,0.9)';
     c.shadowBlur = (back ? 4 : 10 + lit * 10) * density;
@@ -96,12 +80,11 @@ export function drawLoader(c: CanvasRenderingContext2D, cx: number, cy: number, 
   if (drawing > 0.9) {
     c.fillStyle = '#ffffff';
     for (const p of pts) {
-      c.globalAlpha = fade * (p.z < 0 ? 0.35 : 0.95);
+      c.globalAlpha = alpha * fade * (p.z < 0 ? 0.35 : 0.95);
       c.beginPath();
       c.arc(p.x, p.y, p.z < 0 ? 2 : 3.2, 0, Math.PI * 2);
       c.fill();
     }
   }
   c.globalAlpha = 1;
-  if (mark) drawMark(c, cx, cy, size * 0.34, density);
 }

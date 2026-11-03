@@ -1,6 +1,7 @@
 import '@fontsource/sen/latin-500.css';
 import '@fontsource/sen/latin-700.css';
 import { hsvToHex, hsvToRgb, type Hsv } from './color';
+import logoUrl from '../assets/logo-immersa.png';
 import { drawLoader } from './loader';
 import { drawIcon, type IconName } from './icons';
 import { theme } from './theme';
@@ -21,7 +22,7 @@ export interface Widget {
   // button / row / key / field: the basic controls. surface: a white card behind other widgets. card: a tappable card
   // (project, setting). chip: a small pill label. nav: a bottom-bar tab. iconbtn: a round icon button. pill: a
   // call-to-action pill. wheel / slider / bar: pickers.
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'wheel' | 'slider' | 'bar';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean; // gradient fill
@@ -34,7 +35,7 @@ export interface Widget {
   fill?: string; // chip / iconbtn fill
   wrap?: boolean; // labels only
   icon?: IconName;
-  logo?: boolean; // loader: the Immersa mark inside the cube
+  since?: number; // splash: when it appeared (performance.now), for the fade-in
   badge?: string; // card: a pill at the right end
   badgeOn?: boolean; // card: the badge is highlighted
   tone?: number; // card without an icon: which gradient the tile takes
@@ -194,6 +195,8 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
 }
 
 const allPanels = new Set<Panel>();
+const logoImg = new Image();
+if (typeof document !== 'undefined') logoImg.src = logoUrl;
 // The canvas draws with whatever font it has at that moment: once Sen has loaded, every panel is drawn again.
 if (typeof document !== 'undefined' && document.fonts) {
   void Promise.all([document.fonts.load('500 24px Sen'), document.fonts.load('700 24px Sen')]).then(() => allPanels.forEach((p) => p.invalidate()));
@@ -354,10 +357,26 @@ export class Panel {
       } else c.fillText(fit(c, w.text, ww), tx, y + h / 2 + 1);
       return;
     }
+    if (kind === 'splash') {
+      // The start-up screen: the wireframe cube drawing itself with the Immersa logo in front of it, nothing else.
+      const t = (performance.now() - (w.since ?? 0)) / 1000;
+      const fade = (w.value ?? 1) * Math.min(1, t / 0.8);
+      drawLoader(c, x + ww / 2, y + h / 2, Math.min(h * 1.25, ww * 0.8), t, PANEL_DENSITY, fade);
+      if (logoImg.complete && logoImg.naturalWidth) {
+        const lw = ww * 0.86;
+        const lh = (lw * logoImg.naturalHeight) / logoImg.naturalWidth;
+        c.globalAlpha = fade;
+        shadow(c, 16, 3, 'rgba(0,0,0,0.75)'); // keeps the white logo readable over a bright room
+        c.drawImage(logoImg, x + (ww - lw) / 2, y + (h - lh) / 2, lw, lh);
+        noShadow(c);
+        c.globalAlpha = 1;
+      }
+      return;
+    }
     if (kind === 'loader') {
       const t = performance.now() / 1000;
       const logo = Math.min(ww, h * 0.62);
-      drawLoader(c, x + ww / 2, y + logo * 0.5, logo, t, PANEL_DENSITY, w.logo);
+      drawLoader(c, x + ww / 2, y + logo * 0.5, logo, t, PANEL_DENSITY);
       c.textAlign = 'center';
       c.fillStyle = '#ffffff';
       c.font = font(size + 4, true);
