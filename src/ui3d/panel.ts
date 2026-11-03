@@ -438,11 +438,14 @@ export class Panel {
       const d = Math.min(ww, h);
       const cx = x + ww / 2;
       const cy = y + h / 2;
-      if (w.primary) c.fillStyle = gradient(c, x, y, ww, hover ? T.accentHover : T.accent);
-      else c.fillStyle = down ? 'rgba(255,255,255,0.5)' : hover ? T.glassHover : (w.fill ?? T.glass);
+      if (w.primary) {
+        shadow(c, 12, 4, T.accentGlow);
+        c.fillStyle = gradient(c, x, y, ww, hover ? T.accentHover : T.accent);
+      } else c.fillStyle = down ? 'rgba(255,255,255,0.5)' : hover ? T.glassHover : (w.fill ?? T.glass);
       c.beginPath();
       c.arc(cx, cy, d / 2, 0, Math.PI * 2);
       c.fill();
+      noShadow(c);
       if (w.icon) drawIcon(c, w.icon, cx, cy, d * 0.46, w.color ?? '#ffffff');
       else {
         c.fillStyle = w.color ?? '#ffffff';

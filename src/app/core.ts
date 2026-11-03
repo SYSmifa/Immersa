@@ -1055,8 +1055,8 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
-  const objButton = new Panel(0.2, 0.07, 1000, 'surface');
-  objButton.set([{ rect: { x: 6, y: 6, w: 188, h: 58 }, text: 'Oggetto', size: 34, primary: true, onClick: () => openObjectMenu() }]);
+  const objButton = new Panel(0.09, 0.09, 1000, 'clear');
+  objButton.set([{ kind: 'iconbtn', icon: 'menu', primary: true, rect: { x: 12, y: 12, w: objButton.pxW - 24, h: objButton.pxH - 24 }, text: '', onClick: () => openObjectMenu() }]);
   objButton.mesh.visible = false;
   host.root.add(objButton.mesh);
   host.add(objButton);
@@ -1466,9 +1466,14 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       if (splash) {
         if (splash.endAt === null && now - splash.since > SPLASH_MS && view.authKnown) splash.endAt = now;
         const gone = splash.endAt === null ? 0 : (now - splash.endAt) / 500; // half a second of fade-out
+        // Nothing of the room or the models while the logo is up: it is the first thing you see.
+        roomRoot.visible = false;
+        for (const h of houses.values()) h.root.visible = false;
         if (gone >= 1) {
           splash = null;
           splashPanel.mesh.visible = false;
+          roomRoot.visible = !!recognised && !gap;
+          syncHouses();
           openMenu();
         } else {
           if (splash.endAt !== null) showSplash(splash.since, 1 - gone);
