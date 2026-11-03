@@ -122,7 +122,7 @@ let envSource: (() => Texture) | null = null;
 let env: Texture | null = null;
 export const setFinishEnvironment = (make: () => Texture) => (envSource = make);
 
-type Shiny = Material & { color?: Color; roughness?: number; metalness?: number; envMap?: Texture | null };
+type Shiny = Material & { color?: Color; roughness?: number; metalness?: number; envMap?: Texture | null; envMapIntensity?: number };
 function tinted(src: Material, hex: string | undefined, finish: Finish | undefined): Material {
   let byLook = tints.get(src);
   if (!byLook) tints.set(src, (byLook = new Map()));
@@ -135,7 +135,12 @@ function tinted(src: Material, hex: string | undefined, finish: Finish | undefin
       if (finish.roughness !== undefined) t.roughness = finish.roughness;
       if (finish.metalness !== undefined) t.metalness = finish.metalness;
       env ??= envSource?.() ?? null;
-      if (env && !t.envMap) t.envMap = env;
+      if (env && !t.envMap) {
+        t.envMap = env;
+        // The environment also lights the diffuse part, so a plain roughness change on a non-metal must not flood it with
+        // light: reflections fade in with the metalness (a metal has no diffuse colour of its own to brighten).
+        t.envMapIntensity = 0.1 + 0.7 * (t.metalness ?? 0);
+      }
     }
     byLook.set(key, (m = t));
   }
