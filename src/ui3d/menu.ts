@@ -1,5 +1,6 @@
 import { theme } from './theme';
 import { hsvToHex, type Hsv } from './color';
+import type { IconName } from './icons';
 import type { Widget } from './panel';
 
 export type Tab = 'load' | 'scan' | 'options' | 'account';
@@ -89,218 +90,233 @@ export interface MenuActions {
 export const MENU_W = 864;
 export const MENU_H = 624;
 export const PER_PAGE = 4;
-const PAD = 24;
-const TABS: [Tab, string][] = [
-  ['load', 'Load'],
-  ['scan', 'Scan'],
-  ['options', 'Options'],
-  ['account', 'Account'],
+const M = 28; // outer margin
+const W = MENU_W - 2 * M;
+const TABS: [Tab, string, IconName][] = [
+  ['load', 'Progetti', 'folder'],
+  ['scan', 'Stanza', 'scan'],
+  ['options', 'Opzioni', 'sliders'],
+  ['account', 'Account', 'user'],
+];
+const NAV_Y = 520;
+const ROWS = 5;
+
+// Shared pieces ---------------------------------------------------------------------------------------------------
+const title = (text: string, x = M): Widget => ({ kind: 'label', rect: { x, y: 22, w: 520, h: 56 }, text, size: 44, bold: true, color: theme().headerText });
+const subtitle = (text: string, x = M): Widget => ({ kind: 'label', rect: { x, y: 78, w: 560, h: 30 }, text, size: 21, color: theme().headerSub });
+const closeButton = (a: MenuActions): Widget => ({ kind: 'iconbtn', icon: 'close', rect: { x: MENU_W - M - 54, y: 22, w: 54, h: 54 }, text: '', onClick: a.close });
+const backButton = (onClick: () => void): Widget => ({ kind: 'iconbtn', icon: 'back', rect: { x: M, y: 22, w: 54, h: 54 }, text: '', onClick });
+const surface = (x: number, y: number, w: number, h: number): Widget => ({ kind: 'surface', rect: { x, y, w, h }, text: '' });
+const text = (t: string, x: number, y: number, w: number, h: number, size = 24, color?: string, o: Partial<Widget> = {}): Widget => ({ kind: 'label', rect: { x, y, w, h }, text: t, size, color, ...o });
+// A short message floats above the bottom bar like a toast.
+const toast = (msg: string, y = 472): Widget[] => [
+  { kind: 'chip', rect: { x: M + 40, y, w: W - 80, h: 42 }, text: msg, size: 21, fill: theme().surface, color: theme().text2 },
 ];
 
-const ROWS = 5;
-// Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or the presets.
+function navBar(v: MenuView, a: MenuActions, out: Widget[]) {
+  out.push(surface(M - 4, NAV_Y, W + 8, 84));
+  const tw = (W + 8) / TABS.length;
+  TABS.forEach(([tab, name, icon], i) => out.push({ kind: 'nav', icon, rect: { x: M - 4 + i * tw, y: NAV_Y, w: tw, h: 84 }, text: name, active: v.tab === tab, onClick: () => a.setTab(tab) }));
+}
+
+// "Salva" pill in the header while there are unsaved changes.
+function saveButton(v: MenuView, a: MenuActions, out: Widget[]) {
+  if (v.currentProjectId && v.unsaved) out.push({ kind: 'pill', icon: 'check', primary: true, rect: { x: MENU_W - M - 54 - 14 - 176, y: 25, w: 176, h: 48 }, text: 'Salva', size: 24, onClick: a.saveChanges });
+}
+
+const ptTone = (name: string) => name.length;
+
+// Object menu --------------------------------------------------------------------------------------------------
+// Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or presets.
 function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
+  out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.name, M + 70), closeButton(a));
   const items: { name: string; color: string | null; t: 'all' | number }[] = [
     { name: 'Tutti i materiali', color: o.color, t: 'all' },
     ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
   ];
   const pages = Math.max(1, Math.ceil(items.length / ROWS));
   const page = Math.min(o.matPage, pages - 1);
+  // left: what to change
+  out.push(surface(M, 104, 352, 322));
   items.slice(page * ROWS, (page + 1) * ROWS).forEach((it, i) =>
-    out.push({
-      kind: 'row',
-      rect: { x: PAD, y: 104 + i * 60, w: 330, h: 54 },
-      text: it.name,
-      size: 24,
-      swatch: it.color ?? undefined,
-      active: o.target === it.t,
-      onClick: () => a.objColorTarget(it.t),
-    }),
+    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: o.target === it.t, onClick: () => a.objColorTarget(it.t) }),
   );
   if (pages > 1) {
-    out.push({ rect: { x: PAD, y: 408, w: 100, h: 48 }, text: '‹', disabled: page === 0, onClick: () => a.objMatPage(-1) });
-    out.push({ kind: 'label', rect: { x: PAD + 100, y: 408, w: 130, h: 48 }, text: `${page + 1} / ${pages}`, size: 24, align: 'center' });
-    out.push({ rect: { x: PAD + 230, y: 408, w: 100, h: 48 }, text: '›', disabled: page >= pages - 1, onClick: () => a.objMatPage(1) });
+    out.push({ kind: 'iconbtn', icon: 'left', fill: '#ece6fb', color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
+    out.push(text(`${page + 1} / ${pages}`, M + 60, 382, 232, 36, 20, theme().dim, { align: 'center' }));
+    out.push({ kind: 'iconbtn', icon: 'right', fill: '#ece6fb', color: theme().accentText, rect: { x: M + 302, y: 382, w: 36, h: 36 }, text: '', disabled: page >= pages - 1, onClick: () => a.objMatPage(1) });
   }
+  // right: the colour
   const [h, s, v] = o.hsv;
-  out.push({ kind: 'wheel', rect: { x: 410, y: 100, w: 240, h: 240 }, text: '', hsv: o.hsv, onPoint: (fx, fy) => a.objPick(((Math.atan2(fy - 0.5, fx - 0.5) / (2 * Math.PI) + 1) % 1), Math.min(1, Math.hypot(fx - 0.5, fy - 0.5) * 2), null) });
-  out.push({ kind: 'label', rect: { x: 668, y: 104, w: 170, h: 30 }, text: 'Anteprima', size: 20, color: theme().dim });
-  out.push({ rect: { x: 668, y: 140, w: 150, h: 150 }, kind: 'label', text: '', swatch: hsvToHex(h, s, v) });
-  out.push({ kind: 'label', rect: { x: 668, y: 300, w: 170, h: 30 }, text: hsvToHex(h, s, v).toUpperCase(), size: 24, color: theme().text2 });
-  out.push({ kind: 'slider', rect: { x: 410, y: 358, w: 408, h: 36 }, text: '', hsv: o.hsv, onPoint: (fx) => a.objPick(null, null, fx) });
-  out.push({ kind: 'label', rect: { x: 410, y: 398, w: 420, h: 30 }, text: 'Verso il centro: più chiaro · barra: più scuro', size: 19, color: theme().dim });
+  out.push(surface(400, 104, MENU_W - M - 400, 322));
+  out.push({ kind: 'wheel', rect: { x: 420, y: 118, w: 230, h: 230 }, text: '', hsv: o.hsv, onPoint: (fx, fy) => a.objPick((Math.atan2(fy - 0.5, fx - 0.5) / (2 * Math.PI) + 1) % 1, Math.min(1, Math.hypot(fx - 0.5, fy - 0.5) * 2), null) });
+  out.push({ kind: 'chip', rect: { x: 684, y: 132, w: 124, h: 124 }, text: '', fill: hsvToHex(h, s, v) });
+  out.push(text(hsvToHex(h, s, v).toUpperCase(), 684, 268, 124, 34, 22, theme().text2, { align: 'center', bold: true }));
+  out.push({ kind: 'slider', rect: { x: 424, y: 362, w: 384, h: 32 }, text: '', hsv: o.hsv, onPoint: (fx) => a.objPick(null, null, fx) });
+  out.push(text('Verso il centro: più chiaro · barra: più scuro', 424, 396, 390, 24, 17, theme().dim));
+  // presets
   const n = OBJECT_COLORS.length + 1;
   const gap = 8;
-  const w = (MENU_W - 2 * PAD - (n - 1) * gap) / n;
-  out.push({ rect: { x: PAD, y: 440, w, h: 56 }, text: 'Orig.', size: 22, onClick: () => a.objColor(null) });
-  OBJECT_COLORS.forEach((c, i) => out.push({ rect: { x: PAD + (i + 1) * (w + gap), y: 440, w, h: 56 }, text: '●', size: 44, color: c, onClick: () => a.objColor(c) }));
-  out.push({ rect: { x: 330, y: 14, w: 200, h: 46 }, text: '‹ Indietro', size: 26, onClick: a.objColorBack });
-  const bar = (key: 'roughness' | 'metalness', text: string, y: number) => {
-    out.push({ kind: 'label', rect: { x: PAD, y, w: 260, h: 36 }, text: `${text} ${o.finish[key].toFixed(2)}`, size: 24 });
-    out.push({ kind: 'bar', rect: { x: 300, y: y + 2, w: MENU_W - PAD - 300, h: 32 }, text: '', value: o.finish[key], onPoint: (fx) => a.objFinish(key, Math.round(fx * 100) / 100) });
+  const pw = (W - (n - 1) * gap) / n;
+  out.push({ rect: { x: M, y: 438, w: pw, h: 50 }, text: 'Orig.', size: 20, onClick: () => a.objColor(null) });
+  OBJECT_COLORS.forEach((c, i) => out.push({ rect: { x: M + (i + 1) * (pw + gap), y: 438, w: pw, h: 50 }, text: '●', size: 38, color: c, onClick: () => a.objColor(c) }));
+  // finish
+  out.push(surface(M, 500, W, 108));
+  const bar = (key: 'roughness' | 'metalness', name: string, y: number) => {
+    out.push(text(name, M + 24, y, 200, 36, 22, theme().text2, { bold: true }));
+    out.push(text(o.finish[key].toFixed(2), M + 160, y, 60, 36, 21, theme().dim));
+    out.push({ kind: 'bar', rect: { x: M + 230, y, w: W - 230 - 28, h: 36 }, text: '', value: o.finish[key], onPoint: (fx) => a.objFinish(key, Math.round(fx * 100) / 100) });
   };
   bar('roughness', 'Rugosità', 512);
-  bar('metalness', 'Metallico', 560);
+  bar('metalness', 'Metallico', 558);
+  return out;
+}
+
+function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: string): Widget[] {
+  if (o.colorPage) return colorPage(o, out, a);
+  out.push(backButton(a.objClose), title('Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
+  const half = (W - 16) / 2;
+  out.push({ kind: 'card', icon: 'rotate', rect: { x: M, y: 112, w: half, h: 104 }, text: `${o.yawDeg}°`, sub: 'Rotazione', size: 34, onClick: a.objRotation });
+  out.push({ kind: 'card', icon: 'scale', rect: { x: M + half + 16, y: 112, w: half, h: 104 }, text: `×${o.scale.toFixed(2)}`, sub: 'Scala', size: 34, onClick: a.objScale });
+  if (o.size) out.push({ kind: 'chip', rect: { x: M, y: 230, w: 440, h: 40 }, text: `Dimensioni reali  ${o.size}`, size: 19, fill: theme().glass });
+  out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Colore e materiali', sub: o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colori originali del modello', swatch: o.color ?? undefined, onClick: a.objOpenColor });
+  if (o.confirmDelete) {
+    out.push(surface(M, 404, W, 176));
+    out.push(text(`Eliminare "${o.name}"?`, M + 28, 420, W - 56, 44, 30, theme().bad, { bold: true }));
+    out.push(text('Sparisce dal progetto; per tenerla ricordati di non salvare.', M + 28, 464, W - 56, 30, 20, theme().dim));
+    const bw = (W - 28 * 2 - 14) / 2;
+    out.push({ kind: 'pill', rect: { x: M + 28, y: 508, w: bw, h: 56 }, text: 'Annulla', size: 24, onClick: a.objDeleteNo });
+    out.push({ kind: 'pill', icon: 'trash', primary: true, rect: { x: M + 28 + bw + 14, y: 508, w: bw, h: 56 }, text: 'Sì, elimina', size: 24, onClick: a.objDeleteYes });
+  } else {
+    out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 404, w: W, h: 64 }, text: 'Elimina oggetto', size: 26, color: theme().bad, onClick: a.objDelete });
+  }
+  if (message) out.push(...toast(message));
   return out;
 }
 
 // Pure description of the menu for the current state; the panel just draws it.
 export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   const out: Widget[] = [];
-  const label = (text: string, y: number, h = 40, size = 28, color?: string, wrap = false): Widget => ({
-    kind: 'label',
-    rect: { x: PAD, y, w: MENU_W - 2 * PAD, h },
-    text,
-    size,
-    color,
-    wrap,
-  });
-  const button = (text: string, y: number, onClick: () => void, o: Partial<Widget> = {}): Widget => ({
-    rect: { x: PAD, y, w: MENU_W - 2 * PAD, h: 64 },
-    text,
-    onClick,
-    ...o,
-  });
+  const T = theme();
 
   if (!v.authKnown || !v.email) {
     // Sign in inside AR: the page has no 2D login (a store PWA must be immersive only).
-    out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 400, h: 46 }, text: 'Immersa', size: 38 });
+    out.push(title('Immersa'));
     if (!v.authKnown) {
-      out.push(label('Loading...', 130));
+      out.push(subtitle('Carico...'));
     } else {
       const ready = !!v.loginEmail && v.loginPassLen > 0;
-      out.push(label('Sign in to your account', 80, 36, 26, theme().muted));
-      out.push(button(v.loginEmail ? `Email: ${v.loginEmail}` : 'Tap to type your email', 140, a.askEmail));
-      out.push(button(v.loginPassLen ? `Password: ${'•'.repeat(Math.min(v.loginPassLen, 16))}` : 'Tap to type your password', 220, a.askPassword));
-      out.push(button('Sign in', 310, () => a.signIn(false), { primary: true, disabled: !ready }));
-      out.push(button('Create account', 390, () => a.signIn(true), { disabled: !ready }));
+      out.push(subtitle('Accedi al tuo account'));
+      out.push(surface(M, 128, W, 390));
+      out.push({ kind: 'row', rect: { x: M + 24, y: 152, w: W - 48, h: 64 }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 26, align: 'left', onClick: a.askEmail });
+      out.push({ kind: 'row', rect: { x: M + 24, y: 232, w: W - 48, h: 64 }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 26, align: 'left', onClick: a.askPassword });
+      out.push({ kind: 'pill', primary: true, rect: { x: M + 24, y: 326, w: W - 48, h: 64 }, text: 'Accedi', size: 28, disabled: !ready, onClick: () => a.signIn(false) });
+      out.push({ kind: 'pill', rect: { x: M + 24, y: 406, w: W - 48, h: 64 }, text: 'Crea account', size: 26, disabled: !ready, onClick: () => a.signIn(true) });
     }
-    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
+    if (v.message) out.push(...toast(v.message, 540));
     return out;
   }
 
-  if (v.object) {
-    const o = v.object;
-    out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 500, h: 46 }, text: 'Oggetto', size: 38 });
-    out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
-    out.push(label(o.name, 58, 36, 26, theme().muted));
-    if (o.colorPage) return colorPage(o, out, a);
-    out.push(button(`Rotazione: ${o.yawDeg}°`, 108, a.objRotation));
-    out.push(button(`Scala: ×${o.scale.toFixed(2)}${o.size ? `   (${o.size})` : ''}`, 180, a.objScale));
-    out.push(button('Colore e materiali', 252, a.objOpenColor, { swatch: o.color ?? undefined }));
-    const gap = 8;
-    if (o.confirmDelete) {
-      out.push(label(`Eliminare "${o.name}"?`, 336, 40, 28, theme().bad));
-      const half = (MENU_W - 2 * PAD - gap) / 2;
-      out.push({ rect: { x: PAD, y: 384, w: half, h: 64 }, text: 'Sì, elimina', primary: true, onClick: a.objDeleteYes });
-      out.push({ rect: { x: PAD + half + gap, y: 384, w: half, h: 64 }, text: 'Annulla', onClick: a.objDeleteNo });
-    } else {
-      out.push(button('Elimina oggetto', 324, a.objDelete));
-      out.push(button('Indietro', 396, a.objClose));
-    }
-    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
-    return out;
-  }
+  if (v.object) return objectPage(v.object, out, a, v.message);
 
-  const project = v.projectName ? ` · Progetto: ${v.projectName}` : '';
+  const project = v.projectName ? ` · ${v.projectName}` : '';
   const where = v.roomName
-    ? `Stanza: ${v.roomName}${project}`
+    ? `${v.roomName}${project}`
     : v.candidate
       ? 'Stanza non confermata'
       : v.liveReady
         ? `Stanza non salvata${project}`
         : `Nessuna stanza scansionata${project}`;
-  out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 300, h: 46 }, text: 'Immersa', size: 38 });
-  out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
-  out.push(label(where, 58, 36, 24, theme().muted));
+  const heading: Record<Tab, string> = { load: 'Progetti', scan: 'Stanza', options: 'Opzioni', account: 'Account' };
+  out.push(title(heading[v.tab]), subtitle(where), closeButton(a));
+  saveButton(v, a, out);
+  navBar(v, a, out);
 
-  const tabW = (MENU_W - 2 * PAD - 3 * 12) / 4;
-  TABS.forEach(([tab, name], i) => {
-    out.push({
-      rect: { x: PAD + i * (tabW + 12), y: 104, w: tabW, h: 64 },
-      text: name,
-      active: v.tab === tab,
-      onClick: () => a.setTab(tab),
-    });
-  });
-
-  const top = 192;
+  const top = 124;
   if (v.tab === 'load') {
     if (v.projects === null) {
-      out.push(label('Carico i progetti...', top));
+      out.push(text('Carico i progetti...', M, top + 10, W, 40, 28, T.headerText));
     } else if (!v.projects.length) {
-      out.push(label('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', top, 140, 28, theme().text2, true));
+      out.push(surface(M, top, W, 150));
+      out.push(text('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', M + 28, top + 24, W - 56, 110, 26, T.text2, { wrap: true }));
     } else {
       const pages = Math.ceil(v.projects.length / PER_PAGE);
       const page = Math.min(v.page, pages - 1);
       v.projects.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((p, i) => {
-        const count = `${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`;
+        const open = p.id === v.currentProjectId;
         out.push({
-          kind: 'row',
-          rect: { x: PAD, y: top + i * 76, w: MENU_W - 2 * PAD, h: 68 },
+          kind: 'card',
+          rect: { x: M, y: top + i * 94, w: W, h: 84 },
           text: p.name,
-          sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${count}${p.id === v.currentProjectId ? ' · aperto' : ''}`,
-          active: p.id === v.currentProjectId,
+          sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
+          tone: ptTone(p.name),
+          active: open,
+          badge: open ? 'Aperto' : undefined,
+          badgeOn: open,
           onClick: () => a.selectProject(p.id),
         });
       });
       if (pages > 1) {
-        const y = top + PER_PAGE * 76;
-        out.push({ rect: { x: PAD, y, w: 120, h: 52 }, text: '‹', disabled: page === 0, onClick: () => a.turnPage(-1) });
-        out.push({ kind: 'label', rect: { x: PAD + 120, y, w: MENU_W - 2 * PAD - 240, h: 52 }, text: `${page + 1} / ${pages}`, size: 26, align: 'center' });
-        out.push({ rect: { x: MENU_W - PAD - 120, y, w: 120, h: 52 }, text: '›', disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
+        const y = top - 4 - 0;
+        out.push({ kind: 'iconbtn', icon: 'left', rect: { x: MENU_W - M - 54 - 14 - 100, y: 80, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.turnPage(-1) });
+        out.push({ kind: 'chip', rect: { x: MENU_W - M - 54 - 14 - 100 + 42, y: 80, w: 64, h: 36 }, text: `${page + 1}/${pages}`, size: 18 });
+        out.push({ kind: 'iconbtn', icon: 'right', rect: { x: MENU_W - M - 54 - 14 - 100 + 112, y: 80, w: 36, h: 36 }, text: '', disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
+        void y;
       }
     }
-    if (v.currentProjectId) {
-      out.push(button(v.unsaved ? 'Salva le modifiche' : 'Nessuna modifica da salvare', 560, a.saveChanges, { primary: v.unsaved, disabled: !v.unsaved }));
-    }
   } else if (v.tab === 'scan') {
+    out.push(surface(M, top, W, 380));
+    const inner = M + 28;
+    const iw = W - 56;
+    const pill = (label: string, y: number, onClick: () => void, o: Partial<Widget> = {}): Widget => ({ kind: 'pill', rect: { x: inner, y, w: iw, h: 60 }, text: label, size: 25, onClick, ...o });
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
-      out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, theme().text2, true));
-      out.push(button('Rinomina stanza', top + 140, a.renameRoom));
-      out.push(button('Non è questa stanza', top + 220, a.notThisRoom));
-      if (v.captureAvailable) out.push(button('Scansiona di nuovo', top + 300, a.scan));
+      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, inner, top + 22, iw, 90, 26, T.text2, { wrap: true }));
+      out.push(pill('Rinomina stanza', top + 130, a.renameRoom));
+      out.push(pill('Non è questa stanza', top + 204, a.notThisRoom));
+      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 278, a.scan, { primary: true, icon: 'scan' }));
     } else if (v.candidate) {
-      out.push(label(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, top, 110, 28, theme().text2, true));
-      out.push(button('Sì, sono in questa stanza', top + 130, a.confirmCandidate, { primary: true }));
+      out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 22, iw, 100, 26, T.text2, { wrap: true }));
+      out.push(pill('Sì, sono in questa stanza', top + 140, a.confirmCandidate, { primary: true }));
       out.push(
         v.captureAvailable
-          ? button('No, scansiona la stanza in cui sono', top + 210, a.scan)
-          : label('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top + 210, 90, 24, theme().dim, true),
+          ? pill('No, scansiona la stanza in cui sono', top + 214, a.scan)
+          : text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 214, iw, 90, 22, T.dim, { wrap: true }),
       );
     } else if (v.liveReady) {
-      out.push(label('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', top, 100, 28, theme().text2, true));
-      out.push(button('Salva stanza', top + 120, a.saveRoom, { primary: true }));
-      if (v.captureAvailable) out.push(button('Scansiona di nuovo', top + 200, a.scan));
+      out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 22, iw, 100, 26, T.text2, { wrap: true }));
+      out.push(pill('Salva stanza', top + 140, a.saveRoom, { primary: true }));
+      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 214, a.scan, { icon: 'scan' }));
     } else if (v.captureAvailable) {
-      out.push(label('Nessuna scansione trovata in questa stanza.', top, 60, 28, theme().text2, true));
-      out.push(button('Scansiona la stanza', top + 80, a.scan, { primary: true }));
-      out.push(button('Rileggi', top + 160, a.reread));
+      out.push(text('Nessuna scansione trovata in questa stanza.', inner, top + 22, iw, 60, 26, T.text2, { wrap: true }));
+      out.push(pill('Scansiona la stanza', top + 100, a.scan, { primary: true, icon: 'scan' }));
+      out.push(pill('Rileggi', top + 174, a.reread));
     } else {
-      out.push(label('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top, 150, 26, theme().text2, true));
-      out.push(button('Rileggi', top + 170, a.reread, { primary: true }));
+      out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 22, iw, 150, 24, T.text2, { wrap: true }));
+      out.push(pill('Rileggi', top + 190, a.reread, { primary: true }));
     }
   } else if (v.tab === 'options') {
-    const half = (text: string, i: number, y: number, onClick: () => void, o: Partial<Widget> = {}): Widget =>
-      button(text, y, onClick, { ...o, rect: { x: PAD + i * ((MENU_W - 2 * PAD) / 2 + 6), y, w: (MENU_W - 2 * PAD) / 2 - 6, h: 64 } });
-    out.push(half(`Contorno stanza: ${v.outline ? 'sì' : 'no'}`, 0, top, a.toggleOutline));
-    out.push(half(`Pareti invisibili: ${v.showOccluders ? 'sì' : 'no'}`, 1, top, a.toggleOccluders));
-    out.push(half(`Snap rotazione/scala: ${v.snap ? 'sì' : 'no'}`, 0, top + 72, a.toggleSnap));
-    out.push(half('Chiudi il progetto', 1, top + 72, a.closeProject, { disabled: !v.currentProjectId }));
-    out.push(half(`Pannelli nitidi (layer): ${v.layers ? 'sì' : 'no'}`, 0, top + 144, a.toggleLayers));
-    out.push(label('Allineamento delle stanze (diagnostica)', top + 218, 28, 20, theme().dim));
-    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 246 + i * 24, 24, 21, line.includes(': NO') ? theme().bad : theme().good)));
-    v.events.forEach((line, i) => out.push(label(line, top + 324 + i * 24, 24, 19, theme().dim)));
+    const half = (W - 14) / 2;
+    const toggle = (i: number, name: string, sub: string, on: boolean, onClick: () => void, icon: IconName): Widget => ({
+      kind: 'card', icon, rect: { x: M + (i % 2) * (half + 14), y: top + Math.floor(i / 2) * 82, w: half, h: 72 }, text: name, size: 22, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
+    });
+    out.push(toggle(0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'scan'));
+    out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'cube'));
+    out.push(toggle(2, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
+    out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
+    out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 164, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
+    out.push(surface(M, top + 250, W, 134));
+    out.push(text('Diagnostica', M + 24, top + 260, 300, 26, 19, T.dim, { bold: true }));
+    v.fits.slice(0, 2).forEach((line, i) => out.push(text(line, M + 24, top + 286 + i * 22, W - 48, 22, 18, line.includes(': NO') ? T.bad : T.good)));
+    v.events.slice(-3).forEach((line, i) => out.push(text(line, M + 24, top + 332 + i * 16, W - 48, 18, 15, T.dim)));
   } else {
-    out.push(label(v.email ?? 'Non collegato', top, 44, 30));
-    out.push(label('Account Immersa', top + 44, 36, 22, theme().dim));
-    out.push(button('Esci', top + 110, a.signOut));
-    out.push(label(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', top + 222, 60, 19, theme().dim, true));
-    out.push(label(`Versione: ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, top + 190, 30, 22, theme().dim));
+    out.push(surface(M, top, W, 380));
+    out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
+    out.push({ kind: 'pill', rect: { x: M + 28, y: top + 128, w: W - 56, h: 60 }, text: 'Esci', size: 25, color: T.bad, onClick: a.signOut });
+    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, M + 28, top + 214, W - 56, 28, 19, T.dim));
+    out.push(text(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', M + 28, top + 246, W - 56, 60, 17, T.dim, { wrap: true }));
   }
 
-  if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
-  else if (v.info && v.tab !== 'load') out.push(label(v.info, MENU_H - 50, 32, 20, theme().faint));
+  if (v.message) out.push(...toast(v.message));
   return out;
 }

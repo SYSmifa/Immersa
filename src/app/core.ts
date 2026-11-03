@@ -115,7 +115,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   // Floating "Loading project…" label (not interactive) shown while a project is reopened after standby.
   const loading = new Panel(0.6, 0.1, 1200);
   const setLoadingText = (text: string) =>
-    loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text, size: 44, align: 'center' }]);
+    loading.set([{ kind: 'label', rect: { x: 0, y: 0, w: loading.pxW, h: loading.pxH }, text, size: 44, bold: true, align: 'center', color: theme().headerText }]);
   setLoadingText('Loading project…');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
@@ -1022,12 +1022,12 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   }
   let grab: Grab | null = null;
   // Readout above the model during the two-hand gesture: the angle and size now, and what they were before.
-  const hud = new Panel(0.4, 0.13, 1000);
+  const hud = new Panel(0.4, 0.13, 1000, 'surface');
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
-  const objButton = new Panel(0.2, 0.07, 1000);
-  objButton.set([{ rect: { x: 6, y: 6, w: 188, h: 58 }, text: 'Oggetto', size: 34, onClick: () => openObjectMenu() }]);
+  const objButton = new Panel(0.2, 0.07, 1000, 'surface');
+  objButton.set([{ rect: { x: 6, y: 6, w: 188, h: 58 }, text: 'Oggetto', size: 34, primary: true, onClick: () => openObjectMenu() }]);
   objButton.mesh.visible = false;
   host.root.add(objButton.mesh);
   host.add(objButton);

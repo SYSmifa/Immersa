@@ -140,7 +140,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
 
   function render() {
     const widgets: Widget[] = [
-      { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: theme().muted },
+      { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: theme().headerSub },
       { kind: 'field', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${req?.secret ? '•'.repeat(text.length) : text}│`, size: 40 },
       { rect: { x: W - PAD - 170, y: 48, w: 170, h: 70 }, text: 'Annulla', size: 28, onClick: cancel },
     ];
