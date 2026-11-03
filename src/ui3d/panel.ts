@@ -1,4 +1,5 @@
 import { hsvToHex, hsvToRgb, type Hsv } from './color';
+import { theme } from './theme';
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
 
 export interface Rect {
@@ -124,8 +125,8 @@ function drawColorPicker(c: CanvasRenderingContext2D, w: Widget) {
     return;
   }
   const g = c.createLinearGradient(x, 0, x + ww, 0);
-  g.addColorStop(0, w.kind === 'bar' ? '#2f3648' : '#000000');
-  g.addColorStop(1, w.kind === 'bar' ? '#8fa6d8' : hsvToHex(hue, sat, 1));
+  g.addColorStop(0, w.kind === 'bar' ? theme().field : '#000000');
+  g.addColorStop(1, w.kind === 'bar' ? theme().accent[1] : hsvToHex(hue, sat, 1));
   c.fillStyle = g;
   roundRect(c, x, y, ww, h, 12);
   c.fill();
@@ -156,7 +157,7 @@ export class Panel {
     width: number, // metres
     height: number,
     pxPerMetre = 1200,
-    private background = 'rgba(14,16,22,0.94)',
+    private background?: string, // a flat colour; by default the theme's panel gradient
   ) {
     this.pxW = Math.round(width * pxPerMetre);
     this.pxH = Math.round(height * pxPerMetre);
@@ -214,9 +215,20 @@ export class Panel {
     this.dirty = false;
     const c = this.ctx;
     c.clearRect(0, 0, this.pxW, this.pxH);
-    c.fillStyle = this.background;
-    roundRect(c, 0, 0, this.pxW, this.pxH, 28);
+    const T = theme();
+    if (this.background) c.fillStyle = this.background;
+    else {
+      const g = c.createLinearGradient(0, 0, 0, this.pxH);
+      g.addColorStop(0, T.bg[0]);
+      g.addColorStop(1, T.bg[1]);
+      c.fillStyle = g;
+    }
+    roundRect(c, 0, 0, this.pxW, this.pxH, T.panelRadius);
     c.fill();
+    c.strokeStyle = T.border;
+    c.lineWidth = 3;
+    roundRect(c, 1.5, 1.5, this.pxW - 3, this.pxH - 3, T.panelRadius);
+    c.stroke();
     for (const w of this.widgets) this.drawWidget(c, w);
     this.texture.needsUpdate = true;
     this.stamp++;
@@ -230,24 +242,37 @@ export class Panel {
     const hover = w === this.hover && !w.disabled;
     const down = w === this.pressed && !w.disabled;
 
+    const T = theme();
+    const textColor = w.disabled ? T.textDisabled : w.active || w.primary ? T.onAccent : T.text;
     if (kind !== 'label') {
-      let bg = '#2a3040';
-      if (kind === 'field') bg = '#0a0c11';
-      else if (w.disabled) bg = '#191d27';
-      else if (down) bg = '#4a78ff';
-      else if (w.active || w.primary) bg = hover ? '#4f7dff' : '#3466f0';
-      else if (hover) bg = '#3a4560';
-      c.fillStyle = bg;
-      roundRect(c, x, y, ww, h, kind === 'key' ? 14 : 16);
+      const r = Math.min(kind === 'key' ? T.keyRadius : T.radius, h / 2, ww / 2);
+      let fill: string | CanvasGradient = T.button;
+      if (kind === 'field') fill = T.field;
+      else if (w.disabled) fill = T.disabled;
+      else if (down) fill = T.accentDown;
+      else if (w.active || w.primary) {
+        const [a, b] = hover ? T.accentHover : T.accent;
+        const g = c.createLinearGradient(x, y, x + ww, y);
+        g.addColorStop(0, a);
+        g.addColorStop(1, b);
+        fill = g;
+      } else if (hover) fill = T.buttonHover;
+      c.fillStyle = fill;
+      roundRect(c, x, y, ww, h, r);
       c.fill();
       if (kind === 'field') {
-        c.strokeStyle = '#3a4560';
+        c.strokeStyle = T.border;
         c.lineWidth = 2;
+        c.stroke();
+      } else if (T.outline && !w.active && !w.primary && !w.disabled) {
+        c.strokeStyle = T.outline;
+        c.lineWidth = 2;
+        roundRect(c, x + 1, y + 1, ww - 2, h - 2, r);
         c.stroke();
       }
     }
 
-    c.fillStyle = w.disabled ? '#667086' : (w.color ?? '#ffffff');
+    c.fillStyle = w.color && !w.disabled && !(w.active || w.primary) ? w.color : textColor;
     c.textBaseline = 'middle';
     const left = (w.align ?? (kind === 'row' || kind === 'label' || kind === 'field' ? 'left' : 'center')) === 'left';
     c.textAlign = left ? 'left' : 'center';
@@ -261,7 +286,7 @@ export class Panel {
       c.strokeStyle = '#ffffff55';
       c.lineWidth = 2;
       c.stroke();
-      c.fillStyle = w.disabled ? '#667086' : (w.color ?? '#ffffff');
+      c.fillStyle = w.color && !w.disabled && !(w.active || w.primary) ? w.color : textColor;
     }
     c.font = `${size}px ${FONT}`;
     if (kind === 'label' && w.wrap) {
@@ -273,7 +298,7 @@ export class Panel {
     if (w.sub) {
       c.fillText(fit(c, w.text, maxW), tx, y + h * 0.36);
       c.font = `${Math.round(size * 0.68)}px ${FONT}`;
-      c.fillStyle = w.disabled ? '#667086' : '#aab4cc';
+      c.fillStyle = w.disabled ? T.textDisabled : w.active || w.primary ? T.onAccent : T.sub;
       c.fillText(fit(c, w.sub, maxW), tx, y + h * 0.74);
     } else {
       c.fillText(fit(c, w.text, maxW), tx, y + h / 2 + 1);

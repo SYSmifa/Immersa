@@ -11,6 +11,7 @@ import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/rec
 import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
+import { theme } from '../ui3d/theme';
 import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
@@ -1021,11 +1022,11 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   }
   let grab: Grab | null = null;
   // Readout above the model during the two-hand gesture: the angle and size now, and what they were before.
-  const hud = new Panel(0.4, 0.13, 1000, 'rgba(14,16,22,0.88)');
+  const hud = new Panel(0.4, 0.13, 1000);
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
-  const objButton = new Panel(0.2, 0.07, 1000, 'rgba(14,16,22,0.92)');
+  const objButton = new Panel(0.2, 0.07, 1000);
   objButton.set([{ rect: { x: 6, y: 6, w: 188, h: 58 }, text: 'Oggetto', size: 34, onClick: () => openObjectMenu() }]);
   objButton.mesh.visible = false;
   host.root.add(objButton.mesh);
@@ -1103,7 +1104,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     if (text !== hudText) {
       hudText = text;
       const row = (t: string, y: number, h: number, size: number, color?: string) => ({ kind: 'label' as const, rect: { x: 10, y, w: hud.pxW - 20, h }, text: t, size, align: 'center' as const, color });
-      hud.set([row(l1, 8, 40, 32), row(l2, 48, 40, 32), row(size, 88, 36, 26, '#9fb0d0')]);
+      hud.set([row(l1, 8, 40, 32), row(l2, 48, 40, 32), row(size, 88, 36, 26, theme().muted)]);
     }
     const top = new Box3().setFromObject(holder);
     hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.18, (top.min.z + top.max.z) / 2);

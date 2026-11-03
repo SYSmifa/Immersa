@@ -1,3 +1,4 @@
+import { theme } from './theme';
 import { hsvToHex, type Hsv } from './color';
 import type { Widget } from './panel';
 
@@ -123,11 +124,11 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   }
   const [h, s, v] = o.hsv;
   out.push({ kind: 'wheel', rect: { x: 410, y: 100, w: 240, h: 240 }, text: '', hsv: o.hsv, onPoint: (fx, fy) => a.objPick(((Math.atan2(fy - 0.5, fx - 0.5) / (2 * Math.PI) + 1) % 1), Math.min(1, Math.hypot(fx - 0.5, fy - 0.5) * 2), null) });
-  out.push({ kind: 'label', rect: { x: 668, y: 104, w: 170, h: 30 }, text: 'Anteprima', size: 20, color: '#8e99b3' });
+  out.push({ kind: 'label', rect: { x: 668, y: 104, w: 170, h: 30 }, text: 'Anteprima', size: 20, color: theme().dim });
   out.push({ rect: { x: 668, y: 140, w: 150, h: 150 }, kind: 'label', text: '', swatch: hsvToHex(h, s, v) });
-  out.push({ kind: 'label', rect: { x: 668, y: 300, w: 170, h: 30 }, text: hsvToHex(h, s, v).toUpperCase(), size: 24, color: '#cdd6ea' });
+  out.push({ kind: 'label', rect: { x: 668, y: 300, w: 170, h: 30 }, text: hsvToHex(h, s, v).toUpperCase(), size: 24, color: theme().text2 });
   out.push({ kind: 'slider', rect: { x: 410, y: 358, w: 408, h: 36 }, text: '', hsv: o.hsv, onPoint: (fx) => a.objPick(null, null, fx) });
-  out.push({ kind: 'label', rect: { x: 410, y: 398, w: 420, h: 30 }, text: 'Verso il centro: più chiaro · barra: più scuro', size: 19, color: '#8e99b3' });
+  out.push({ kind: 'label', rect: { x: 410, y: 398, w: 420, h: 30 }, text: 'Verso il centro: più chiaro · barra: più scuro', size: 19, color: theme().dim });
   const n = OBJECT_COLORS.length + 1;
   const gap = 8;
   const w = (MENU_W - 2 * PAD - (n - 1) * gap) / n;
@@ -168,13 +169,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(label('Loading...', 130));
     } else {
       const ready = !!v.loginEmail && v.loginPassLen > 0;
-      out.push(label('Sign in to your account', 80, 36, 26, '#9fb0d0'));
+      out.push(label('Sign in to your account', 80, 36, 26, theme().muted));
       out.push(button(v.loginEmail ? `Email: ${v.loginEmail}` : 'Tap to type your email', 140, a.askEmail));
       out.push(button(v.loginPassLen ? `Password: ${'•'.repeat(Math.min(v.loginPassLen, 16))}` : 'Tap to type your password', 220, a.askPassword));
       out.push(button('Sign in', 310, () => a.signIn(false), { primary: true, disabled: !ready }));
       out.push(button('Create account', 390, () => a.signIn(true), { disabled: !ready }));
     }
-    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
+    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
     return out;
   }
 
@@ -182,14 +183,14 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const o = v.object;
     out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 500, h: 46 }, text: 'Oggetto', size: 38 });
     out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
-    out.push(label(o.name, 58, 36, 26, '#9fb0d0'));
+    out.push(label(o.name, 58, 36, 26, theme().muted));
     if (o.colorPage) return colorPage(o, out, a);
     out.push(button(`Rotazione: ${o.yawDeg}°`, 108, a.objRotation));
     out.push(button(`Scala: ×${o.scale.toFixed(2)}${o.size ? `   (${o.size})` : ''}`, 180, a.objScale));
     out.push(button('Colore e materiali', 252, a.objOpenColor, { swatch: o.color ?? undefined }));
     const gap = 8;
     if (o.confirmDelete) {
-      out.push(label(`Eliminare "${o.name}"?`, 336, 40, 28, '#ff9c8a'));
+      out.push(label(`Eliminare "${o.name}"?`, 336, 40, 28, theme().bad));
       const half = (MENU_W - 2 * PAD - gap) / 2;
       out.push({ rect: { x: PAD, y: 384, w: half, h: 64 }, text: 'Sì, elimina', primary: true, onClick: a.objDeleteYes });
       out.push({ rect: { x: PAD + half + gap, y: 384, w: half, h: 64 }, text: 'Annulla', onClick: a.objDeleteNo });
@@ -197,7 +198,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(button('Elimina oggetto', 324, a.objDelete));
       out.push(button('Indietro', 396, a.objClose));
     }
-    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
+    if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
     return out;
   }
 
@@ -211,7 +212,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         : `Nessuna stanza scansionata${project}`;
   out.push({ kind: 'label', rect: { x: PAD, y: 14, w: 300, h: 46 }, text: 'Immersa', size: 38 });
   out.push({ rect: { x: MENU_W - PAD - 64, y: 14, w: 64, h: 46 }, text: '✕', size: 28, onClick: a.close });
-  out.push(label(where, 58, 36, 24, '#9fb0d0'));
+  out.push(label(where, 58, 36, 24, theme().muted));
 
   const tabW = (MENU_W - 2 * PAD - 3 * 12) / 4;
   TABS.forEach(([tab, name], i) => {
@@ -228,7 +229,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     if (v.projects === null) {
       out.push(label('Carico i progetti...', top));
     } else if (!v.projects.length) {
-      out.push(label('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', top, 140, 28, '#cdd6ea', true));
+      out.push(label('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', top, 140, 28, theme().text2, true));
     } else {
       const pages = Math.ceil(v.projects.length / PER_PAGE);
       const page = Math.min(v.page, pages - 1);
@@ -256,28 +257,28 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   } else if (v.tab === 'scan') {
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
-      out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, '#cdd6ea', true));
+      out.push(label(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, top, 120, 28, theme().text2, true));
       out.push(button('Rinomina stanza', top + 140, a.renameRoom));
       out.push(button('Non è questa stanza', top + 220, a.notThisRoom));
       if (v.captureAvailable) out.push(button('Scansiona di nuovo', top + 300, a.scan));
     } else if (v.candidate) {
-      out.push(label(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, top, 110, 28, '#cdd6ea', true));
+      out.push(label(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, top, 110, 28, theme().text2, true));
       out.push(button('Sì, sono in questa stanza', top + 130, a.confirmCandidate, { primary: true }));
       out.push(
         v.captureAvailable
           ? button('No, scansiona la stanza in cui sono', top + 210, a.scan)
-          : label('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top + 210, 90, 24, '#8e99b3', true),
+          : label('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top + 210, 90, 24, theme().dim, true),
       );
     } else if (v.liveReady) {
-      out.push(label('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', top, 100, 28, '#cdd6ea', true));
+      out.push(label('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', top, 100, 28, theme().text2, true));
       out.push(button('Salva stanza', top + 120, a.saveRoom, { primary: true }));
       if (v.captureAvailable) out.push(button('Scansiona di nuovo', top + 200, a.scan));
     } else if (v.captureAvailable) {
-      out.push(label('Nessuna scansione trovata in questa stanza.', top, 60, 28, '#cdd6ea', true));
+      out.push(label('Nessuna scansione trovata in questa stanza.', top, 60, 28, theme().text2, true));
       out.push(button('Scansiona la stanza', top + 80, a.scan, { primary: true }));
       out.push(button('Rileggi', top + 160, a.reread));
     } else {
-      out.push(label('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top, 150, 26, '#cdd6ea', true));
+      out.push(label('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', top, 150, 26, theme().text2, true));
       out.push(button('Rileggi', top + 170, a.reread, { primary: true }));
     }
   } else if (v.tab === 'options') {
@@ -288,18 +289,18 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(half(`Snap rotazione/scala: ${v.snap ? 'sì' : 'no'}`, 0, top + 72, a.toggleSnap));
     out.push(half('Chiudi il progetto', 1, top + 72, a.closeProject, { disabled: !v.currentProjectId }));
     out.push(half(`Pannelli nitidi (layer): ${v.layers ? 'sì' : 'no'}`, 0, top + 144, a.toggleLayers));
-    out.push(label('Allineamento delle stanze (diagnostica)', top + 218, 28, 20, '#8e99b3'));
-    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 246 + i * 24, 24, 21, line.includes(': NO') ? '#ff9c8a' : '#9be7b0')));
-    v.events.forEach((line, i) => out.push(label(line, top + 324 + i * 24, 24, 19, '#8e99b3')));
+    out.push(label('Allineamento delle stanze (diagnostica)', top + 218, 28, 20, theme().dim));
+    v.fits.slice(0, 3).forEach((line, i) => out.push(label(line, top + 246 + i * 24, 24, 21, line.includes(': NO') ? theme().bad : theme().good)));
+    v.events.forEach((line, i) => out.push(label(line, top + 324 + i * 24, 24, 19, theme().dim)));
   } else {
     out.push(label(v.email ?? 'Non collegato', top, 44, 30));
-    out.push(label('Account Immersa', top + 44, 36, 22, '#8e99b3'));
+    out.push(label('Account Immersa', top + 44, 36, 22, theme().dim));
     out.push(button('Esci', top + 110, a.signOut));
-    out.push(label(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', top + 222, 60, 19, '#8e99b3', true));
-    out.push(label(`Versione: ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, top + 190, 30, 22, '#8e99b3'));
+    out.push(label(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', top + 222, 60, 19, theme().dim, true));
+    out.push(label(`Versione: ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, top + 190, 30, 22, theme().dim));
   }
 
-  if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, '#ffd36b'));
-  else if (v.info) out.push(label(v.info, MENU_H - 50, 32, 20, '#6f7a93'));
+  if (v.message) out.push(label(v.message, MENU_H - 56, 40, 24, theme().notice));
+  else if (v.info && v.tab !== 'load') out.push(label(v.info, MENU_H - 50, 32, 20, theme().faint));
   return out;
 }

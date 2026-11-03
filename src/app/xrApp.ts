@@ -45,7 +45,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   });
 
   // Small menu button floating above the left wrist / controller.
-  const wrist = new Panel(0.07, 0.07, 1000, 'rgba(14,16,22,0.92)');
+  const wrist = new Panel(0.07, 0.07, 1000);
   wrist.set([{ rect: { x: 4, y: 4, w: 62, h: 62 }, text: '☰', size: 40, onClick: () => core.menu.toggle() }]);
   wrist.mesh.visible = false;
   core.host.root.add(wrist.mesh);
