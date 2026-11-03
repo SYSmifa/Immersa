@@ -2,9 +2,9 @@ import { CircleGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, Quate
 
 // The hand's laser, in the style of Meta's: a soft white beam that fades in at the hand and out at the tip, and a grey
 // circle where it lands that shrinks while the pinch is held.
-const LASER_OPACITY = 0.85; // the beam is never more opaque than this
+const LASER_OPACITY = 1; // the middle of the beam is fully opaque
 const FADE = 0.45; // m of fade at each end
-const RADIUS = 0.003; // m (beam is 6 mm thick)
+const RADIUS = 0.0022; // m (beam is 4.4 mm thick)
 const RETICLE = 0.0094; // m, radius of the circle
 const RETICLE_PINCH = 0.6; // its size while pinching, as a fraction
 
