@@ -20,7 +20,6 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -35,6 +34,7 @@ import { listMaterials } from '../room/selection';
 import { createStructureLayer, FLOOR_COLOR, placeStructure, WALL_COLOR } from '../room/structures';
 import type { Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
+import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
 import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type StructureEdit } from './editorUi';
 
@@ -48,6 +48,7 @@ interface Deps {
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const dateOf = (iso: string) => new Date(iso).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const WALL_HEIGHT = 2.5;
 const WALL_THICKNESS = 0.1;
@@ -56,6 +57,24 @@ const GRID_STEP = 0.05;
 const VERTEX_RANGE = 0.2; // m: how close a point must be to a vertex of another wall / floor to jump onto it
 const ORTHO_FOV = 1; // "orthographic" = a tiny field of view from far away: picking, orbit and gizmo keep working unchanged
 const orthoK = (fov: number) => Math.tan(MathUtils.degToRad(fov / 2)) / Math.tan(MathUtils.degToRad(ORTHO_FOV / 2));
+
+// A softer, more modern gizmo: Aura palette (coral / teal / blue), slimmer, translucent planes.
+function restyleGizmo(t: TransformControls) {
+  const axis = { X: 0xf2545b, Y: 0x2dd4bf, Z: 0x4c8dff } as Record<string, number>;
+  const plane = { XY: axis.Z, YZ: axis.X, XZ: axis.Y } as Record<string, number>;
+  t.size = 0.8;
+  t.getHelper().traverse((o) => {
+    const m = (o as Mesh).material as (MeshBasicMaterial & { _color?: Color; _opacity?: number }) | undefined;
+    if (!m || !m.color) return;
+    const hex = axis[o.name] ?? plane[o.name] ?? (o.name === 'XYZ' || o.name === 'E' || o.name === 'XYZE' ? 0xe8edf5 : null);
+    if (hex === null) return;
+    m.color.set(hex);
+    m._color = m.color.clone();
+    m.opacity = plane[o.name] ? 0.35 : o.name === 'E' || o.name === 'XYZE' ? 0.5 : 0.95;
+    m._opacity = m.opacity;
+    m.transparent = true;
+  });
+}
 
 // Entry for the PC: stage without AR, then the editor (the login box lives in its sidebar).
 export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload']) {
@@ -83,8 +102,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let local = false;
 
   const planesGroup = new Group();
-  let shell: Group | null = null; // walls, doors, windows of the open room
-  let shellVisible = true;
+  const hiddenRooms = new Set<string>(); // rooms whose scan is hidden (eye in the sidebar)
   const modelsGroup = new Group();
   const structuresGroup = new Group();
   scene.add(planesGroup, modelsGroup, structuresGroup);
@@ -96,11 +114,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   // Selection outline: a screen-space azure edge round the selected objects.
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const outlinePass = new OutlinePass(new Vector2(window.innerWidth, window.innerHeight), scene, camera);
-  outlinePass.edgeStrength = 5;
-  outlinePass.edgeThickness = 1.5;
-  outlinePass.visibleEdgeColor.set(0x35b8ff);
-  outlinePass.hiddenEdgeColor.set(0x1d6fa5);
+  const outlinePass = new SelectionOutlinePass(scene, camera);
   composer.addPass(outlinePass);
   composer.addPass(new OutputPass());
   window.addEventListener('resize', () => composer.setSize(window.innerWidth, window.innerHeight));
@@ -119,6 +133,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   scene.add(pivot);
   const transform = new TransformControls(camera, renderer.domElement);
   scene.add(transform.getHelper());
+  restyleGizmo(transform);
   transform.addEventListener('dragging-changed', (e) => {
     controls.enabled = !e.value;
     lastDrag = Date.now();
@@ -141,7 +156,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const selStructs = () => sel.filter((k) => k[0] === 's').map((k) => findStructure(k.slice(2))).filter((s): s is Structure => !!s);
   const objectOf = (key: string): Object3D | null => (key[0] === 'm' ? layer.holders.get(key.slice(2)) : structLayer.meshes.get(key.slice(2))) ?? null;
   const wallYaw = (s: Structure) => -Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]);
-  const anchorOf = (s: Structure): [number, number] => [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
+  // The pivot of a wall / floor is its first point: that is what snaps onto the grid and onto other vertices.
+  const anchorOf = (s: Structure): [number, number] => [s.a[0], s.a[1]];
 
   // ---- history (undo / redo): snapshots of the project's models and structures ----
   let hist: string[] = [];
@@ -214,7 +230,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     transform.showX = mode !== 'rotate'; // only yaw makes sense for things standing on the floor
     transform.showZ = mode !== 'rotate';
     transform.setSpace(local && mode !== 'scale' ? 'local' : 'world');
-    transform.setTranslationSnap(snapGrid ? GRID_STEP : null);
+    transform.setTranslationSnap(null); // done by hand in objectChange: the pivot lands exactly on a grid point
     transform.setRotationSnap(snapGrid ? MathUtils.degToRad(15) : null);
     transform.setScaleSnap(snapGrid ? GRID_STEP : null);
   }
@@ -274,6 +290,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   transform.addEventListener('objectChange', () => {
     if (!start) return;
     const mode = effectiveGizmo();
+    if (snapGrid && mode === 'translate') {
+      pivot.position.x = Math.round(pivot.position.x / GRID_STEP) * GRID_STEP;
+      pivot.position.z = Math.round(pivot.position.z / GRID_STEP) * GRID_STEP;
+      pivot.position.y = Math.round(pivot.position.y / GRID_STEP) * GRID_STEP;
+    }
     // Vertex snap while moving: the closest end of a moved wall / floor (or a model's centre) jumps onto a vertex.
     if (snapVertex && mode === 'translate') {
       const ids = new Set(selStructs().map((s) => s.id));
@@ -339,10 +360,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   function refreshLists() {
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name })));
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, sub: `Creata il ${dateOf(r.createdAt)}` })));
     ui.setProject(
       project?.name ?? '',
-      projectRoomsList().map((r) => ({ id: r.id, name: r.name })),
+      projectRoomsList().map((r) => ({ id: r.id, name: r.name, hidden: hiddenRooms.has(r.id) })),
       room?.id ?? null,
       rooms.filter((r) => !project?.roomIds.includes(r.id)).map((r) => ({ id: r.id, name: r.name })),
     );
@@ -389,7 +410,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
             metalness: m.materialFinish?.[i]?.metalness ?? m.finish?.metalness ?? info.metalness,
           }))
         : [];
-      return { kind: 'model', scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, size: holder ? modelSize(holder) : null, materials };
+      return {
+        kind: 'model',
+        key: `m:${m.id}`,
+        color: m.color ?? null,
+        finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
+        scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, size: holder ? modelSize(holder) : null, materials };
     }
     const s = selStructs()[0];
     if (!s) return null;
@@ -397,6 +423,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const dz = Math.abs(s.b[1] - s.a[1]);
     return {
       kind: 'structure',
+      key: `s:${s.id}`,
       type: s.kind,
       height: s.height,
       thickness: s.thickness,
@@ -408,7 +435,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function refreshAll() {
     refreshOutline();
     ui.setDetails(detailsInfo());
-    outlinePass.selectedObjects = sel.map(objectOf).filter((o): o is Object3D => !!o);
+    outlinePass.selected = sel.map(objectOf).filter((o): o is Object3D => !!o);
     refreshToolbar();
   }
 
@@ -443,7 +470,6 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function showRoom(r: Room | null) {
     room = r;
     planesGroup.clear();
-    shell = null;
     setOrtho(false);
     build = null;
     layer.sync(models());
@@ -454,9 +480,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       ui.setStatus(project ? 'Questo progetto non ha stanze: aggiungine una.' : 'Apri un progetto, o creane uno nuovo.');
       return;
     }
-    const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? []);
-    shell = plan.shell;
-    shell.visible = shellVisible;
+    planesGroup.visible = !hiddenRooms.has(r.id);
+    const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false);
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true);
     const spot = floorCentre(r.scan.planes);
     planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
@@ -569,9 +594,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       showRoom(projectRoomsList()[0] ?? null);
       resetHistory();
     },
-    onShell(visible) {
-      shellVisible = visible;
-      if (shell) shell.visible = visible;
+    onRoomVisible(id) {
+      if (hiddenRooms.has(id)) hiddenRooms.delete(id);
+      else hiddenRooms.add(id);
+      if (room?.id === id) planesGroup.visible = !hiddenRooms.has(id);
+      refreshLists();
     },
     async onUpload(file) {
       if (!room || !project) return ui.setStatus('Scegli un progetto e una sua stanza prima di caricare un modello');

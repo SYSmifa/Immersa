@@ -42,6 +42,7 @@ export interface RoomScan {
 export interface Room {
   id: string;
   name: string;
+  createdAt: string;
   updatedAt: string;
   scan: RoomScan;
 }

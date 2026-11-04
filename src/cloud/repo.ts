@@ -7,6 +7,7 @@ interface RoomRow {
   id: string;
   name: string;
   data: RoomScan;
+  created_at: string | null;
   updated_at: string;
 }
 interface ProjectRow {
@@ -19,10 +20,10 @@ interface ProjectRow {
   updated_at: string;
 }
 
-const ROOM_COLS = 'id,name,data,updated_at';
+const ROOM_COLS = 'id,name,data,created_at,updated_at';
 const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,updated_at';
 
-const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, updatedAt: r.updated_at, scan: r.data });
+const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, createdAt: r.created_at ?? r.updated_at, updatedAt: r.updated_at, scan: r.data });
 const toProject = (r: ProjectRow): Project => {
   const roomIds = r.room_ids?.length ? r.room_ids : r.room_id ? [r.room_id] : [];
   return {

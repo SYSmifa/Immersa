@@ -9,6 +9,12 @@ create table if not exists public.rooms (
   updated_at timestamptz not null default now()
 );
 
+-- Creation date of a room (older rooms get their last update as an approximation; safe to re-run).
+alter table public.rooms add column if not exists created_at timestamptz;
+update public.rooms set created_at = updated_at where created_at is null;
+alter table public.rooms alter column created_at set default now();
+alter table public.rooms alter column created_at set not null;
+
 -- The scan replaced by the last automatic update (one backup).
 alter table public.rooms add column if not exists previous_data jsonb;
 

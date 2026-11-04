@@ -67,8 +67,8 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     scale: 1,
   });
   const rooms: Room[] = [
-    { id: 'r1', name: 'Salotto', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6), boxes: boxRoomBoxes(5, 4) } },
-    { id: 'r2', name: 'Cucina', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
+    { id: 'r1', name: 'Salotto', createdAt: '2026-03-14T10:00:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6), boxes: boxRoomBoxes(5, 4) } },
+    { id: 'r2', name: 'Cucina', createdAt: '2026-05-02T16:30:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
   const projects: Project[] = [
     { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
@@ -89,7 +89,7 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     },
     listRooms: async () => rooms.map((r) => ({ ...r })),
     async createRoom(name: string, scan: RoomScan) {
-      const room = { id: `r${rooms.length + 1}`, name, updatedAt: now(), scan };
+      const room = { id: `r${rooms.length + 1}`, name, createdAt: now(), updatedAt: now(), scan };
       rooms.push(room);
       return room;
     },

@@ -1,5 +1,6 @@
 import '@fontsource/sen/latin-500.css';
 import '@fontsource/sen/latin-700.css';
+import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { AURA } from '../ui3d/theme';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
@@ -29,9 +30,9 @@ export interface EditorHandlers {
   onRenameProject(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
+  onRoomVisible(id: string): void;
   onAddRoom(id: string): void;
   onRemoveRoom(): void;
-  onShell(visible: boolean): void;
   onUpload(file: File): void;
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
@@ -67,8 +68,17 @@ export interface MaterialRow {
 }
 export type Details =
   | { kind: 'multi'; count: number }
-  | { kind: 'model'; scale: number; yawDeg: number; size: [number, number, number] | null; materials: MaterialRow[] }
-  | { kind: 'structure'; type: BuildKind; height: number; thickness: number; color: string; measure: string };
+  | {
+      kind: 'model';
+      key: string;
+      scale: number;
+      yawDeg: number;
+      size: [number, number, number] | null;
+      color: string | null; // the colour given to every material, if any
+      finish: { roughness: number; metalness: number }; // for 'every material'
+      materials: MaterialRow[];
+    }
+  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string; measure: string };
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -80,7 +90,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-type Option = { id: string; name: string };
+type Option = { id: string; name: string; sub?: string; hidden?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -117,6 +127,10 @@ const CSS = `
   text-align:left;width:100%;font-weight:500;transition:.12s}
 .ed-item:hover{background:var(--tint)}
 .ed-item.on{border-color:var(--acc);background:var(--tint)}
+.ed-item.off span{opacity:.45}
+.ed-eye{border:0;background:#0000;padding:4px;border-radius:8px;cursor:pointer;color:#475467;display:flex}
+.ed-eye:hover{background:#0001}
+.ed-item .ed-eye svg{width:20px;height:20px;color:#475467}
 .ed-item svg{width:18px;height:18px;flex:none;color:#0f9488}
 .ed-item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-item small{color:#667085;font-weight:500}
@@ -141,15 +155,29 @@ const CSS = `
 .ed-save.dirty{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d;font-weight:700}
 .ed-save:disabled{opacity:.4}
 .ed-hint{padding:7px 16px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007;color:#cfd6e4;font-size:13px;display:none}
-.ed-right{position:fixed;right:12px;top:12px;bottom:12px;width:270px;z-index:9;display:none;flex-direction:column;gap:10px;pointer-events:none}
+.ed-right{position:fixed;right:12px;top:12px;bottom:12px;width:300px;z-index:9;display:none;flex-direction:column;gap:10px;pointer-events:none}
 .ed-right>*{pointer-events:auto}
 .ed-outline{padding:14px;display:flex;flex-direction:column;gap:6px;max-height:34vh;min-height:0}
 .ed-outline .ed-list{overflow:auto;display:flex;flex-direction:column;gap:5px}
 .ed-details{padding:14px;display:none;flex-direction:column;gap:8px;overflow:auto;min-height:0}
 .ed-meta{color:#667085;font-size:12px}
-.ed-mat{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid #e5e8ee}
-.ed-mat label{display:flex;align-items:center;gap:8px;font-size:12px;color:#475467}
-.ed-mat label b{width:22px;color:#12151c}
+.ed-pick{display:flex;flex-direction:column;align-items:center;gap:8px;padding:4px 0}
+.ed-wheel{position:relative;width:168px;height:168px;touch-action:none;cursor:crosshair}
+.ed-wheel canvas{width:100%;height:100%;border-radius:50%;box-shadow:0 2px 10px #0003}
+.ed-wheel i{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px #0007,0 2px 6px #0006;pointer-events:none}
+.ed-pickrow{display:flex;gap:10px;align-items:center;width:100%}
+.ed-chipc{width:34px;height:34px;border-radius:10px;border:1px solid #0002;flex:none}
+.ed-hex{font-weight:700;letter-spacing:.04em;color:#344054;font-size:13px}
+.ed-bright{flex:1;height:14px;-webkit-appearance:none;appearance:none;border-radius:999px;outline:none;border:1px solid #0002}
+.ed-bright::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #14b8a6;box-shadow:0 1px 5px #0005;cursor:pointer}
+.ed-presets{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;width:100%}
+.ed-presets button{width:24px;height:24px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #0003;cursor:pointer;padding:0}
+.ed-presets button.orig{width:auto;border-radius:999px;padding:0 10px;background:#e8ecf3;font-size:12px;color:#12151c;font-weight:500;box-shadow:none;border:0}
+.ed-sw{width:18px;height:18px;border-radius:6px;border:1px solid #0003;flex:none}
+.ed-sub{color:#667085;font-size:12px;font-weight:500;padding:2px 2px 0}
+.ed-fin{display:grid;grid-template-columns:76px 1fr 34px;gap:8px;align-items:center;font-size:13px;color:#344054;font-weight:500}
+.ed-fin input{width:100%;accent-color:var(--acc)}
+.ed-fin span:last-child{color:#667085;font-size:12px}
 .ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
@@ -175,6 +203,8 @@ const ICON = {
   scale: svg('<path d="M4 20L20 4M14 4h6v6M4 14v6h6"/>'),
   cube: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/>'),
   back: svg('<path d="M15 5l-7 7 7 7"/>'),
+  eye: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+  eyeOff: svg('<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7c1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
 };
 
 export function createEditorUi(h: EditorHandlers) {
@@ -311,7 +341,7 @@ export function createEditorUi(h: EditorHandlers) {
     const cards = roomItems.map((r) => {
       const t = el('div', r.name);
       t.style.fontWeight = '700';
-      return card(t, row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')));
+      return card(t, ...(r.sub ? [el('div', r.sub, 'ed-meta')] : []), row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')));
     });
     body.replaceChildren(
       back('Indietro', goHome),
@@ -320,10 +350,6 @@ export function createEditorUi(h: EditorHandlers) {
     );
   }
 
-  const shellBox = el('input');
-  shellBox.type = 'checkbox';
-  shellBox.checked = true;
-  shellBox.onchange = () => h.onShell(shellBox.checked);
   const fileInput = el('input', '', 'ed-file');
   fileInput.type = 'file';
   fileInput.accept = '.glb';
@@ -336,11 +362,15 @@ export function createEditorUi(h: EditorHandlers) {
     const name = el('div', projectName);
     name.style.cssText = 'font-weight:700;font-size:16px';
     const rooms = projectRoomItems.map((r) => {
-      const b = el('button', '', `ed-item${r.id === currentRoomId ? ' on' : ''}`);
-      b.innerHTML = `${ICON.room}<span></span>`;
-      b.querySelector('span')!.textContent = r.name;
-      b.onclick = () => h.onProjectRoom(r.id);
-      return b;
+      const wrap = el('div', '', `ed-item${r.id === currentRoomId ? ' on' : ''}${r.hidden ? ' off' : ''}`);
+      wrap.innerHTML = `${ICON.room}<span></span><button class="ed-eye" title="Nascondi / mostra la scansione di questa stanza">${r.hidden ? ICON.eyeOff : ICON.eye}</button>`;
+      wrap.querySelector('span')!.textContent = r.name;
+      (wrap.querySelector('.ed-eye') as HTMLElement).onclick = (e) => {
+        e.stopPropagation();
+        h.onRoomVisible(r.id);
+      };
+      wrap.onclick = () => h.onProjectRoom(r.id);
+      return wrap;
     });
     const addable = select();
     fill(addable, addableItems, null, addableItems.length ? '— aggiungi una stanza —' : "(nessun'altra stanza)");
@@ -350,15 +380,12 @@ export function createEditorUi(h: EditorHandlers) {
     const remove = pill('Togli la stanza dal progetto', h.onRemoveRoom, 'bad');
     remove.disabled = !hasRoom;
     fileInput.disabled = !hasRoom;
-    const shellLabel = el('label', '', 'ed-check');
-    shellLabel.append(shellBox, document.createTextNode('Mostra le pareti scansionate'));
     body.replaceChildren(
       back('Chiudi progetto', h.onCloseProject),
       card(name, row(pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       title('Stanze del progetto'),
       ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),
-      shellLabel,
       title('Aggiungi un modello (.glb)'),
       fileInput,
     );
@@ -430,29 +457,129 @@ export function createEditorUi(h: EditorHandlers) {
     i.onchange = () => i.value !== '' && Number.isFinite(Number(i.value)) && onInput(Number(i.value), true);
     return i;
   };
-  const colorField = (value: string, onInput: (hex: string, commit: boolean) => void) => {
-    const i = el('input');
-    i.type = 'color';
-    i.value = value;
-    i.oninput = () => onInput(i.value, false);
-    i.onchange = () => onInput(i.value, true);
-    return i;
+  const PRESETS = ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#eceff1', '#424242'];
+  // The headset's colour page, in DOM: a hue / saturation wheel, a brightness bar and preset dots.
+  const picker = (hex: string, onInput: (hex: string, commit: boolean) => void, onOriginal?: () => void) => {
+    let [hh, ss, vv] = hexToHsv(hex);
+    const box = el('div', '', 'ed-pick');
+    const wheel = el('div', '', 'ed-wheel');
+    const canvas = el('canvas');
+    const N = 168;
+    canvas.width = N;
+    canvas.height = N;
+    const ctx = canvas.getContext('2d')!;
+    const img = ctx.createImageData(N, N);
+    for (let y = 0; y < N; y++)
+      for (let x = 0; x < N; x++) {
+        const dx = (x + 0.5) / N - 0.5;
+        const dy = (y + 0.5) / N - 0.5;
+        const r = Math.hypot(dx, dy) * 2;
+        const o = (y * N + x) * 4;
+        if (r > 1) continue;
+        const c = hsvToHex(((Math.atan2(dy, dx) / (2 * Math.PI)) + 1) % 1, r, 1);
+        img.data[o] = parseInt(c.slice(1, 3), 16);
+        img.data[o + 1] = parseInt(c.slice(3, 5), 16);
+        img.data[o + 2] = parseInt(c.slice(5, 7), 16);
+        img.data[o + 3] = 255;
+      }
+    ctx.putImageData(img, 0, 0);
+    const mark = el('i');
+    wheel.append(canvas, mark);
+    const chip = el('div', '', 'ed-chipc');
+    const label = el('span', '', 'ed-hex');
+    const bright = el('input', '', 'ed-bright');
+    bright.type = 'range';
+    bright.min = '0';
+    bright.max = '1';
+    bright.step = '0.01';
+    const paint = () => {
+      const now = hsvToHex(hh, ss, vv);
+      const ang = hh * 2 * Math.PI;
+      mark.style.left = `${(0.5 + (Math.cos(ang) * ss) / 2) * 100}%`;
+      mark.style.top = `${(0.5 + (Math.sin(ang) * ss) / 2) * 100}%`;
+      mark.style.background = now;
+      chip.style.background = now;
+      label.textContent = now.toUpperCase();
+      bright.value = String(vv);
+      bright.style.background = `linear-gradient(90deg,#000,${hsvToHex(hh, ss, 1)})`;
+      return now;
+    };
+    paint();
+    const fromPointer = (e: PointerEvent, commit: boolean) => {
+      const r = wheel.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width - 0.5;
+      const fy = (e.clientY - r.top) / r.height - 0.5;
+      hh = ((Math.atan2(fy, fx) / (2 * Math.PI)) + 1) % 1;
+      ss = Math.min(1, Math.hypot(fx, fy) * 2);
+      onInput(paint(), commit);
+    };
+    let down = false;
+    wheel.onpointerdown = (e) => {
+      down = true;
+      wheel.setPointerCapture(e.pointerId);
+      fromPointer(e, false);
+    };
+    wheel.onpointermove = (e) => down && fromPointer(e, false);
+    wheel.onpointerup = (e) => {
+      down = false;
+      fromPointer(e, true);
+    };
+    bright.oninput = () => {
+      vv = Number(bright.value);
+      onInput(paint(), false);
+    };
+    bright.onchange = () => onInput(paint(), true);
+    const presets = el('div', '', 'ed-presets');
+    if (onOriginal) {
+      const o = el('button', 'Originale', 'orig');
+      o.onclick = onOriginal;
+      presets.append(o);
+    }
+    for (const c of PRESETS) {
+      const b = el('button');
+      b.style.background = c;
+      b.title = c;
+      b.onclick = () => {
+        [hh, ss, vv] = hexToHsv(c);
+        onInput(paint(), true);
+      };
+      presets.append(b);
+    }
+    const info = el('div', '', 'ed-pickrow');
+    info.append(chip, label, bright);
+    box.append(wheel, info, presets);
+    return box;
   };
-  const slider = (label: string, value: number, onInput: (v: number, commit: boolean) => void) => {
+  const finishRow = (name: string, value: number, onInput: (v: number, commit: boolean) => void) => {
     const r = el('input');
     r.type = 'range';
     r.min = '0';
     r.max = '1';
     r.step = '0.01';
     r.value = String(value);
-    r.oninput = () => onInput(Number(r.value), false);
+    const num = el('span', value.toFixed(2));
+    r.oninput = () => {
+      num.textContent = Number(r.value).toFixed(2);
+      onInput(Number(r.value), false);
+    };
     r.onchange = () => onInput(Number(r.value), true);
-    const l = el('label');
-    l.append(el('b', label), r);
-    return l;
+    const row = el('div', '', 'ed-fin');
+    row.append(el('span', name), r, num);
+    return row;
   };
 
+  let matTarget: 'all' | number = 'all';
+  let lastKey = '';
   let lastSig = '';
+  let pending: Details | null | undefined;
+  let interacting = false;
+  details.addEventListener('pointerdown', () => (interacting = true));
+  window.addEventListener('pointerup', () => {
+    if (!interacting) return;
+    interacting = false;
+    // A refresh that arrived during a drag is applied now.
+    setTimeout(() => pending !== undefined && api.setDetails(pending), 0);
+  });
   function renderDetails(d: Details | null) {
     details.style.display = d ? 'flex' : 'none';
     if (!d) return;
@@ -461,20 +588,40 @@ export function createEditorUi(h: EditorHandlers) {
       details.replaceChildren(el('div', `${d.count} oggetti selezionati`, 'ed-h'), card(el('div', 'Il gizmo li muove e li ruota insieme.', 'ed-meta'), del));
       return;
     }
+    if (d.key !== lastKey) {
+      lastKey = d.key;
+      matTarget = 'all';
+    }
     if (d.kind === 'model') {
-      const size = el('div', d.size ? `${d.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...', 'ed-meta');
-      const mats = d.materials.map((m, i) => {
-        const wrap = el('div', '', 'ed-mat');
-        const head = row(colorField(m.color, (hex, c) => h.onModelLook({ target: i, color: hex }, c)), el('span', m.name));
-        head.style.fontSize = '12px';
-        wrap.append(
-          head,
-          slider('R', m.roughness, (v, c) => h.onModelLook({ target: i, roughness: v }, c)),
-          slider('M', m.metalness, (v, c) => h.onModelLook({ target: i, metalness: v }, c)),
-        );
-        return wrap;
+      const size = el('div', d.size ? `Dimensioni reali ${d.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...', 'ed-meta');
+      if (typeof matTarget === 'number' && matTarget >= d.materials.length) matTarget = 'all';
+      const items: { name: string; color: string | null; t: 'all' | number }[] = [
+        { name: 'Tutti i materiali', color: d.color, t: 'all' },
+        ...d.materials.map((m, i) => ({ name: m.name, color: m.color, t: i as number | 'all' })),
+      ];
+      const targets = items.map((it) => {
+        const b = el('button', '', `ed-item${it.t === matTarget ? ' on' : ''}`);
+        b.innerHTML = '<i class="ed-sw"></i><span></span>';
+        (b.querySelector('.ed-sw') as HTMLElement).style.background = it.color ?? 'repeating-conic-gradient(#d0d5dd 0 25%,#fff 0 50%) 50%/10px 10px';
+        b.querySelector('span')!.textContent = it.name;
+        b.onclick = () => {
+          matTarget = it.t;
+          renderDetails(d);
+        };
+        return b;
       });
-      const all = row(el('span', 'Tutti'), colorField(d.materials[0]?.color ?? '#ffffff', (hex, c) => h.onModelLook({ target: 'all', color: hex }, c)));
+      const cur = matTarget === 'all' ? null : d.materials[matTarget];
+      const hex = cur ? cur.color : (d.color ?? d.materials[0]?.color ?? '#ffffff');
+      const fin = cur ? { roughness: cur.roughness, metalness: cur.metalness } : d.finish;
+      const t = matTarget;
+      const colour = d.materials.length
+        ? card(
+            picker(hex, (c, commit) => h.onModelLook({ target: t, color: c }, commit), () => h.onModelLook(t === 'all' ? { target: 'all', color: null } : { target: t, color: null }, true)),
+            finishRow('Rugosità', fin.roughness, (v, c) => h.onModelLook({ target: t, roughness: v }, c)),
+            finishRow('Metallico', fin.metalness, (v, c) => h.onModelLook({ target: t, metalness: v }, c)),
+            pill('Tutti i colori originali', () => h.onModelLook({ reset: true }, true)),
+          )
+        : card(el('div', 'carico...', 'ed-meta'));
       details.replaceChildren(
         el('div', 'Modello', 'ed-h'),
         card(
@@ -482,19 +629,25 @@ export function createEditorUi(h: EditorHandlers) {
           row(el('span', 'Rotazione °'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
           size,
         ),
-        el('div', 'Materiali', 'ed-h'),
-        card(
-          ...(mats.length ? [all, ...mats, pill('Colori originali', () => h.onModelLook({ reset: true }, true))] : [el('div', 'carico...', 'ed-meta')]),
-        ),
+        el('div', 'Colore e materiali', 'ed-h'),
+        el('div', '', 'ed-list-mini'),
+        ...targets,
+        colour,
         card(del),
       );
+      details.querySelector('.ed-list-mini')?.remove();
       return;
     }
     const rows: HTMLElement[] = [];
     if (d.type === 'wall') rows.push(row(el('span', 'Altezza (m)'), numberField(d.height, '0.1', '0.05', (v, c) => h.onStructure({ height: v }, c))));
     rows.push(row(el('span', 'Spessore (m)'), numberField(d.thickness, '0.01', '0.01', (v, c) => h.onStructure({ thickness: v }, c))));
-    rows.push(row(el('span', 'Colore'), colorField(d.color, (hex, c) => h.onStructure({ color: hex }, c))));
-    details.replaceChildren(el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'), card(...rows, el('div', d.measure, 'ed-meta')), card(del));
+    details.replaceChildren(
+      el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
+      card(...rows, el('div', d.measure, 'ed-meta')),
+      el('div', 'Colore', 'ed-h'),
+      card(picker(d.color, (c, commit) => h.onStructure({ color: c }, commit))),
+      card(del),
+    );
   }
 
   render();
@@ -506,7 +659,7 @@ export function createEditorUi(h: EditorHandlers) {
     if (view === 'project') renderProject();
   };
 
-  return {
+  const api = {
     footer,
     setStatus(text: string) {
       toast.textContent = text;
@@ -570,6 +723,8 @@ export function createEditorUi(h: EditorHandlers) {
       );
     },
     setDetails(d: Details | null) {
+      pending = d;
+      if (interacting) return; // a drag on the wheel / slider is going on: do not rebuild it under the pointer
       const sig = JSON.stringify(d);
       if (sig === lastSig) return;
       // While typing in a field, a refresh of the same kind of object must not rewrite it under the cursor.
@@ -579,4 +734,5 @@ export function createEditorUi(h: EditorHandlers) {
     },
     openId: () => openId,
   };
+  return api;
 }
