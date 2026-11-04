@@ -27,6 +27,7 @@ export interface Head {
 }
 interface Options {
   onLayers?(on: boolean): void; // the Options switch for panels as WebXR layers
+  onFps?(on: boolean): void; // the Options switch for the fps readout
   scene: Scene;
   backend: Backend;
   signOut(): void;
@@ -62,6 +63,14 @@ const restartMark = {
       return null;
     }
   },
+};
+const FPS_KEY = 'immersa.fps';
+export const fpsPreferred = () => {
+  try {
+    return localStorage.getItem(FPS_KEY) === '1';
+  } catch {
+    return false;
+  }
 };
 const SNAP_KEY = 'immersa.snap';
 const readSnap = () => {
@@ -103,7 +112,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
 // (WebXR in xrApp.ts, a mouse and fake planes in the UI test harness).
-export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
+export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Options) {
   const host = new UiHost();
   scene.add(host.root);
   const rig = new Group(); // menu + keyboard, follows the head
@@ -185,6 +194,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     outline: true,
     snap: readSnap(),
     layers: layersPreferred(),
+    fps: fpsPreferred(),
     showOccluders: false,
     message: '',
   };
@@ -915,6 +925,16 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
     objClose() {
       objectOpen = false;
       confirmDelete = false;
+      refreshView();
+    },
+    toggleFps() {
+      view.fps = !view.fps;
+      try {
+        localStorage.setItem(FPS_KEY, view.fps ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      onFps?.(view.fps);
       refreshView();
     },
     toggleLayers() {

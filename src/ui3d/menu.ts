@@ -46,6 +46,7 @@ export interface MenuView {
   page: number;
   outline: boolean;
   layers: boolean; // panels drawn as WebXR layers (sharper)
+  fps: boolean; // fps readout in the headset
   snap: boolean; // magnetic snap of rotation and scale (two-hand gesture)
   showOccluders: boolean;
   message: string;
@@ -64,6 +65,7 @@ export interface MenuActions {
   toggleOutline(): void;
   toggleSnap(): void;
   toggleLayers(): void;
+  toggleFps(): void;
   toggleOccluders(): void;
   closeProject(): void;
   objRotation(): void;
@@ -304,6 +306,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'room_plan'));
     out.push(toggle(2, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
     out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
+    out.push(toggle(5, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
     out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 164, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(surface(M, top + 250, W, 134));
     out.push(text('Diagnostica', M + 24, top + 260, 300, 26, 19, T.dim, { bold: true }));

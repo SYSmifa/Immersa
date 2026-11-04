@@ -26,10 +26,11 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onResume: () => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onResume: () => void) {
   const layers: ReturnType<typeof createPanelLayers> = createPanelLayers(renderer, (text) => core.logEvent(text));
   const core = createAppCore({
     onLayers: (on) => layers.setEnabled(on),
+    onFps,
     scene,
     backend,
     signOut: async () => {
