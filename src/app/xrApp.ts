@@ -14,6 +14,10 @@ import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head
 // length): after this long without any the app restarts. The headset reports the planes of every stored room, so
 // "none at all" is never normal.
 const NO_PLANES_MS = 1500;
+// Coming back after at least this long the app restarts at once, whether or not the planes are gone. The system applies the
+// "boundaryless" manifest flag when the app is launched; after a standby it may bring its own (stationary) boundary back
+// under the running app, and walking out of it hides the models. A fresh launch has no boundary again.
+const RESTART_AWAY_MS = 10000;
 const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
 // How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
@@ -141,6 +145,13 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           wakeStart = now;
           wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
           core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s`);
+        }
+        if (away >= RESTART_AWAY_MS && !restarting && !core.isScanning()) {
+          restarting = true;
+          core.logEvent('ritorno lungo: riapro l\'app (confini)');
+          core.prepareResume();
+          core.showRestarting();
+          setTimeout(onResume, 600); // long enough to read the message
         }
       }
     });
