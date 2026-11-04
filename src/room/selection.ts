@@ -219,3 +219,21 @@ export function paintPart(node: Object3D, part: { color?: string; finish?: Finis
     else mesh.material = next;
   });
 }
+
+// Models exported from CAD often carry fully metallic materials. Without anything to reflect a metal is black, so the
+// metallic ones get the same soft room-like environment as a material given a finish (call once the model is loaded).
+export function lightMetals(root: Object3D) {
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const s = m as Shiny;
+      if (!((s.metalness ?? 0) > 0.3) || s.envMap) continue;
+      env ??= envSource?.() ?? null;
+      if (!env) return;
+      s.envMap = env;
+      s.envMapIntensity = 1;
+      s.needsUpdate = true;
+    }
+  });
+}

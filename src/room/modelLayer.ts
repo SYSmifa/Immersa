@@ -2,7 +2,7 @@ import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } 
 import { modelUrl } from '../cloud/models';
 import { createGltfLoader } from '../scene/gltf';
 import { applyParts, nodeByPath } from './parts';
-import { paintModel, paintPart } from './selection';
+import { lightMetals, paintModel, paintPart } from './selection';
 import type { RoomModel } from './types';
 
 // Keeps scene objects in step with `room.models`: loads each GLB once (cached per
@@ -76,6 +76,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
     asset(m.path)
       .then((obj) => {
         holder.add(obj.clone(true));
+        lightMetals(holder);
         const look = holder.userData.look as RoomModel | undefined;
         if (look) refresh(holder, look);
       })
