@@ -41,5 +41,5 @@ La chiave `android.keystore` (e la sua password) va conservata: senza, niente ag
 
 Il Guardian è del sistema, non della pagina. Per le app in passthrough Meta prevede il flag di manifest
 `com.oculus.feature.CONTEXTUAL_BOUNDARYLESS_APP`. `docs/enable-boundaryless.ps1` lo aggiunge al manifest
-dell'APK (`Documents\immersa-apk`, con backup `.bak`), poi ricompila, firma e installa. Esito da verificare sul visore: se il
-Guardian compare ancora, riprovare con `-Required true`; se l'app non parte più, rimettere il `.bak` e ricompilare.
+dell'APK (`Documents\immersa-apk`, con backup `.bak`), poi ricompila, firma e installa. Esito (4 nov 2026): flag presente nell'APK (`aapt2 dump badging` mostra `uses-feature-not-required`) e installato, ma dopo lo standby
+la richiesta dei confini compare ancora. Se l'app non parte più, rimettere il `.bak` e ricompilare.
