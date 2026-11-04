@@ -32,7 +32,8 @@ export interface Widget {
   size?: number; // font px
   bold?: boolean;
   color?: string;
-  fill?: string; // chip / iconbtn fill
+  fill?: string; // chip / iconbtn / pill fill
+  hoverFill?: string; // pill: the fill (with white text) while the ray is on it
   wrap?: boolean; // labels only
   icon?: IconName;
   since?: number; // splash: when it appeared (performance.now), for the fade-in
@@ -464,6 +465,7 @@ export class Panel {
     let fill: string | CanvasGradient = T.surface;
     if (kind === 'field') fill = '#ffffff';
     else if (w.disabled) fill = 'rgba(255,255,255,0.5)';
+    else if (w.fill) fill = hover || down ? (w.hoverFill ?? w.fill) : w.fill;
     else if (accent) fill = gradient(c, x, y, ww, hover ? T.accentHover : T.accent);
     else if (w.glass) fill = hover ? T.glassHover : T.glass;
     else if (down) fill = T.surfaceDown;
@@ -479,7 +481,7 @@ export class Panel {
       c.lineWidth = 2.5;
       c.stroke();
     }
-    const textColor = w.disabled ? T.textDisabled : accent || w.glass ? '#ffffff' : (w.color ?? T.text);
+    const textColor = w.disabled ? T.textDisabled : (hover || down) && w.hoverFill ? '#ffffff' : accent || w.glass ? '#ffffff' : (w.color ?? T.text);
     c.fillStyle = textColor;
     const left = (w.align ?? (kind === 'row' || kind === 'field' ? 'left' : 'center')) === 'left';
     c.textAlign = left ? 'left' : 'center';

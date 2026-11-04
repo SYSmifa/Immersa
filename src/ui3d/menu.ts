@@ -260,7 +260,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         });
         // The open project has its own close button instead of the "Aperto" label (the one in Options stays too).
         if (open) {
-          out.push({ kind: 'pill', glass: true, icon: 'close', rect: { x: M + W - 18 - 150, y: top + i * 94 + 18, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
+          out.push({ kind: 'pill', fill: '#ffffff', hoverFill: T.bad, color: T.accentText, icon: 'close', rect: { x: M + W - 18 - 150, y: top + i * 94 + 18, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
         }
       });
       if (pages > 1) {
