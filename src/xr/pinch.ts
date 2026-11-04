@@ -35,3 +35,22 @@ function gripPoint(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): V
   const p = pose.transform.position;
   return new Vector3(p.x, p.y, p.z);
 }
+
+// Where the palm of a tracked hand points (unit vector in `ref`), or null for controllers / an untracked hand. Taken from
+// the positions of the wrist and of the index and little finger bases, so it does not depend on joint axis conventions.
+export function palmNormal(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): { normal: Vector3; wrist: Vector3 } | null {
+  const hand = (src as any).hand;
+  if (!hand) return null;
+  const at = (name: string) => {
+    const joint = hand.get(name);
+    const pose = joint && frame.getJointPose?.(joint, ref);
+    return pose ? new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z) : null;
+  };
+  const wrist = at('wrist');
+  const index = at('index-finger-metacarpal');
+  const little = at('pinky-finger-metacarpal');
+  if (!wrist || !index || !little) return null;
+  const normal = index.sub(wrist).cross(little.sub(wrist)).normalize();
+  if (src.handedness === 'left') normal.negate(); // mirrored hand
+  return { normal, wrist };
+}

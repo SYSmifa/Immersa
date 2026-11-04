@@ -3,7 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
-import { pinchPoint } from '../xr/pinch';
+import { palmNormal, pinchPoint } from '../xr/pinch';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -28,6 +28,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onResume: () => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
+  let laserHidden = false; // the dominant hand is turned palm up / towards the face (the system's own gesture): no laser
   const layers: ReturnType<typeof createPanelLayers> = createPanelLayers(renderer, (text) => core.logEvent(text));
   const core = createAppCore({
     onLayers: (on) => layers.setEnabled(on),
@@ -109,6 +110,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (hand === 'left' || hand === 'right') {
         const role = hand === dominant ? 'right' : 'left'; // core: 'right' = main hand, 'left' = the other
         // Only the main hand presses on panels; the other one never clicks (its pinch opens / closes the menu).
+        if (role === 'right' && laserHidden) return; // a pinch of the system gesture, not a click
         const consumed = role === 'right' ? core.host.press(id) : false;
         if (role === 'right') rightPinching = true;
         core.pinchDown(role, id, consumed);
@@ -223,6 +225,16 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           dir.set(0, 0, -1).applyQuaternion(quat);
           const origin = new Vector3(p.x, p.y, p.z);
           if (src.handedness === dominant) {
+            const palm = palmNormal(frame, src, ref);
+            if (palm) {
+              const toHead = head().pos.sub(palm.wrist).normalize();
+              const facing = Math.max(palm.normal.y, palm.normal.dot(toHead)); // 1: palm straight up / at the face
+              laserHidden = laserHidden ? facing > 0.35 : facing > 0.55; // hysteresis: no flicker at the edge
+            } else laserHidden = false;
+          }
+          if (src.handedness === dominant && laserHidden) {
+            core.host.setRay(id, null);
+          } else if (src.handedness === dominant) {
             core.host.noCursor.add(id);
             const hit = core.aim(id, origin, dir);
             laser.meshReticle = !layers.active;
@@ -247,6 +259,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (!laserOn) {
         laser.hide();
         rightPinching = false;
+        if (!seen.size) laserHidden = false;
       }
       for (const id of activeIds) if (!seen.has(id)) core.host.setRay(id, null);
       activeIds = seen;
