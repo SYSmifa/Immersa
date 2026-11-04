@@ -102,10 +102,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let local = false;
 
   const planesGroup = new Group();
+  const gridGroup = new Group(); // the floor grid stays when a room's scan is hidden
   const hiddenRooms = new Set<string>(); // rooms whose scan is hidden (eye in the sidebar)
   const modelsGroup = new Group();
   const structuresGroup = new Group();
-  scene.add(planesGroup, modelsGroup, structuresGroup);
+  scene.add(planesGroup, gridGroup, modelsGroup, structuresGroup);
   const layer = createModelLayer(modelsGroup, (t) => ui.setStatus(`Errore modello: ${t}`));
   const structLayer = createStructureLayer(structuresGroup);
 
@@ -133,6 +134,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   scene.add(pivot);
   const transform = new TransformControls(camera, renderer.domElement);
   scene.add(transform.getHelper());
+  outlinePass.ignore = [transform.getHelper()];
   restyleGizmo(transform);
   transform.addEventListener('dragging-changed', (e) => {
     controls.enabled = !e.value;
@@ -470,6 +472,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function showRoom(r: Room | null) {
     room = r;
     planesGroup.clear();
+    gridGroup.clear();
     setOrtho(false);
     build = null;
     layer.sync(models());
@@ -484,7 +487,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false);
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true);
     const spot = floorCentre(r.scan.planes);
-    planesGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
+    gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
     const centre = bounds.getCenter(new Vector3());
     const span = Math.max(3, bounds.getSize(new Vector3()).length());

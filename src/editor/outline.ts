@@ -59,6 +59,7 @@ const compose = new ShaderMaterial({
 
 export class SelectionOutlinePass extends Pass {
   selected: Object3D[] = [];
+  ignore: Object3D[] = []; // never in the mask (the gizmo: it shows and hides its own handles every frame, so hide its root)
   private mask = new WebGLRenderTarget(1, 1, { type: FloatType, format: RGBAFormat, minFilter: NearestFilter, magFilter: NearestFilter });
   private quad = new FullScreenQuad(compose);
   private ids: ShaderMaterial[] = [];
@@ -94,6 +95,11 @@ export class SelectionOutlinePass extends Pass {
     while (this.ids.length < this.selected.length) this.ids.push(idMaterial(this.ids.length + 1));
     // Hide everything else, give the selected meshes their id colour, draw, put it all back.
     const restore: (() => void)[] = [];
+    for (const g of this.ignore) {
+      const was = g.visible;
+      g.visible = false;
+      restore.push(() => (g.visible = was));
+    }
     this.scene.traverse((o) => {
       const m = o as Mesh;
       if (!(m.isMesh || (o as unknown as { isLine?: boolean }).isLine || (o as unknown as { isPoints?: boolean }).isPoints || (o as unknown as { isSprite?: boolean }).isSprite)) return;
