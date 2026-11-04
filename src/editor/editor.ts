@@ -33,9 +33,10 @@ import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
+import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
 import { createStructureLayer, placeStructure } from '../room/structures';
-import type { Project, Room, RoomModel, Structure } from '../room/types';
+import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -103,6 +104,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let snapGrid = true;
   let snapVertex = true;
   let local = false;
+  let partSel: { modelId: string; path: string } | null = null; // a component of a model is chosen (double click)
   let keepBuild = false; // a Shift-held series of walls / floors is going on
 
   const planesGroup = new Group();
@@ -153,6 +155,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (e.value) startDrag();
     else {
       start = null;
+      partStart = null;
       refreshPivot();
       commit();
       refreshAll();
@@ -200,6 +203,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     layer.sync(models());
     structLayer.sync(structures());
     sel = sel.filter((k) => (k[0] === 'm' ? findModel(k.slice(2)) : findStructure(k.slice(2))));
+    if (partSel && !findModel(partSel.modelId)) partSel = null;
     markDirty();
     setSelection(sel);
   }
@@ -218,9 +222,51 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   // ---- selection, pivot and gizmo ----
-  const effectiveGizmo = (): Gizmo => (gizmo === 'scale' && !(selModels().length === 1 && sel.length === 1) ? 'translate' : gizmo);
+  const effectiveGizmo = (): Gizmo => (gizmo === 'scale' && !partSel && !(selModels().length === 1 && sel.length === 1) ? 'translate' : gizmo);
+
+  // ---- a chosen component of a model ----
+  const partModel = () => (partSel ? findModel(partSel.modelId) : null);
+  const partHolder = () => (partSel ? (layer.holders.get(partSel.modelId) ?? null) : null);
+  const partNode = () => {
+    const h = partHolder();
+    return h && partSel ? nodeByPath(h, partSel.path) : null;
+  };
+  const partEdit = (create = false): PartEdit | undefined => {
+    const m = partModel();
+    if (!m || !partSel) return undefined;
+    if (create) {
+      m.parts ??= {};
+      return (m.parts[partSel.path] ??= {});
+    }
+    return m.parts?.[partSel.path];
+  };
+  function setPart(modelId: string | null, path: string | null) {
+    partSel = modelId && path ? { modelId, path } : null;
+    if (partSel) sel = [`m:${modelId}`];
+    if (partSel && !build) {
+      refreshPivot();
+      transform.attach(pivot);
+    } else if (!sel.length || build) transform.detach();
+    else {
+      refreshPivot();
+      transform.attach(pivot);
+    }
+    applyGizmo();
+    refreshAll();
+  }
 
   function refreshPivot() {
+    const node = partNode();
+    const holder = partHolder();
+    const pm = partModel();
+    if (node && holder && pm) {
+      const e = partEdit();
+      pivot.position.copy(pivotWorld(holder, node, e));
+      pivot.rotation.set(0, local ? pm.yaw + (e?.yaw ?? 0) : 0, 0); // "relative": along the component's own heading
+      pivot.scale.setScalar(1);
+      pivot.updateMatrixWorld(true);
+      return;
+    }
     const ms = selModels();
     const ss = selStructs();
     const n = ms.length + ss.length;
@@ -250,6 +296,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   function setSelection(keys: string[]) {
     sel = keys;
+    partSel = null;
     if (keys.length && !build) {
       refreshPivot();
       transform.attach(pivot);
@@ -272,7 +319,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     structs: Map<string, { a: [number, number]; b: [number, number]; y: number }>;
   }
   let start: Start | null = null;
+  let partStart: { c: Vector3; q: Quaternion; d: [number, number, number]; yaw: number; scale: number } | null = null;
   function startDrag() {
+    if (partSel) {
+      const e = partEdit();
+      partStart = { c: pivot.position.clone(), q: pivot.quaternion.clone(), d: [...(e?.d ?? [0, 0, 0])] as [number, number, number], yaw: e?.yaw ?? 0, scale: e?.scale ?? 1 };
+      start = { c: pivot.position.clone(), q: pivot.quaternion.clone(), models: new Map(), structs: new Map() };
+      return;
+    }
     start = {
       c: pivot.position.clone(),
       q: pivot.quaternion.clone(),
@@ -303,6 +357,32 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   transform.addEventListener('objectChange', () => {
     if (!start) return;
     const mode = effectiveGizmo();
+    if (partSel && partStart) {
+      // A component: the pivot's move, in the model's own frame at scale 1.
+      if (snapGrid && mode === 'translate') {
+        pivot.position.x = Math.round(pivot.position.x / GRID_STEP) * GRID_STEP;
+        pivot.position.z = Math.round(pivot.position.z / GRID_STEP) * GRID_STEP;
+      }
+      const pm = partModel();
+      const e = partEdit(true);
+      if (!pm || !e) return;
+      const dp = pivot.position.clone().sub(partStart.c);
+      const cs = Math.cos(pm.yaw);
+      const sn = Math.sin(pm.yaw);
+      // world -> model frame: undo the model's turn about Y and its scale
+      e.d = [partStart.d[0] + (dp.x * cs - dp.z * sn) / pm.scale, partStart.d[1] + dp.y / pm.scale, partStart.d[2] + (dp.x * sn + dp.z * cs) / pm.scale];
+      if (mode === 'rotate') {
+        const dq = pivot.quaternion.clone().multiply(partStart.q.clone().invert());
+        e.yaw = partStart.yaw + 2 * Math.atan2(dq.y, dq.w);
+      }
+      if (mode === 'scale') {
+        e.scale = Math.max(0.05, partStart.scale * Math.max(0.001, [pivot.scale.x, pivot.scale.y, pivot.scale.z].reduce((a, b) => (Math.abs(b - 1) > Math.abs(a - 1) ? b : a), 1)));
+      }
+      layer.sync(models());
+      markDirty();
+      ui.setDetails(detailsInfo());
+      return;
+    }
     if (snapGrid && mode === 'translate') {
       pivot.position.x = Math.round(pivot.position.x / GRID_STEP) * GRID_STEP;
       pivot.position.z = Math.round(pivot.position.z / GRID_STEP) * GRID_STEP;
@@ -410,6 +490,24 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   function detailsInfo(): Details | null {
+    const pn = partNode();
+    const pm = partModel();
+    if (pn && pm && partSel) {
+      const e = partEdit();
+      const info = listMaterials(pn)[0];
+      return {
+        kind: 'part',
+        key: `p:${pm.id}:${partSel.path}`,
+        name: partName(pn),
+        model: pm.name,
+        scale: e?.scale ?? 1,
+        yawDeg: ((e?.yaw ?? 0) * 180) / Math.PI,
+        color: e?.color ?? pm.color ?? info?.color ?? '#ffffff',
+        tinted: !!e?.color,
+        finish: { roughness: e?.finish?.roughness ?? pm.finish?.roughness ?? info?.roughness ?? 0.5, metalness: e?.finish?.metalness ?? pm.finish?.metalness ?? info?.metalness ?? 0 },
+        moved: !!(e?.d || e?.yaw || (e?.scale && e.scale !== 1)),
+      };
+    }
     if (sel.length === 0) return null;
     if (sel.length > 1) return { kind: 'multi', count: sel.length };
     const m = selModels()[0];
@@ -449,7 +547,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function refreshAll() {
     refreshOutline();
     ui.setDetails(detailsInfo());
-    outlinePass.selected = sel.map(objectOf).filter((o): o is Object3D => !!o);
+    const pn2 = partNode();
+    outlinePass.selected = pn2 ? [pn2] : sel.map(objectOf).filter((o): o is Object3D => !!o);
     refreshToolbar();
   }
 
@@ -756,6 +855,47 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       changed(doCommit);
     },
     onDeleteSelection: deleteSelection,
+    onPartScale(value, doCommit) {
+      const e = partEdit(true);
+      if (!e || !(value > 0)) return;
+      e.scale = value;
+      refreshPivot();
+      changed(doCommit);
+    },
+    onPartYaw(deg, doCommit) {
+      const e = partEdit(true);
+      if (!e) return;
+      const r = (deg * Math.PI) / 180;
+      e.yaw = Math.atan2(Math.sin(r), Math.cos(r));
+      refreshPivot();
+      changed(doCommit);
+    },
+    onPartLook(edit, doCommit) {
+      const e = partEdit(true);
+      if (!e) return;
+      if (edit.color !== undefined) {
+        if (edit.color === null) delete e.color;
+        else e.color = edit.color;
+      }
+      if (edit.roughness !== undefined || edit.metalness !== undefined) {
+        e.finish = { ...e.finish, ...(edit.roughness !== undefined && { roughness: edit.roughness }), ...(edit.metalness !== undefined && { metalness: edit.metalness }) };
+      }
+      changed(doCommit);
+    },
+    onPartReset() {
+      const m = partModel();
+      const e = partEdit();
+      if (!m?.parts || !e || !partSel) return;
+      delete e.d;
+      delete e.yaw;
+      delete e.scale;
+      if (!Object.keys(e).length) delete m.parts[partSel.path];
+      if (!Object.keys(m.parts).length) delete m.parts;
+      refreshPivot();
+      changed(true);
+      ui.setStatus('Componente riposizionato dov\'era.');
+    },
+    onPartExit: () => partSel && setPart(partSel.modelId, null),
   });
   window.addEventListener('beforeunload', (e) => {
     if (dirty) e.preventDefault();
@@ -870,6 +1010,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       setSelection(sel); // the gizmo was hidden while building: bring it back on the last one made
     }
   };
+  // Double click on a model: its component under the mouse (again on the same: the one it is part of).
+  renderer.domElement.addEventListener('dblclick', (e) => {
+    if (build) return;
+    ray.setFromCamera(ndcOf(e as unknown as PointerEvent), camera);
+    const hit = ray.intersectObjects([...layer.holders.values()], true)[0];
+    let o: Object3D | null = hit?.object ?? null;
+    while (o && !o.userData.modelId) o = o.parent;
+    if (!hit || !o) return partSel ? setPart(partSel.modelId, null) : undefined;
+    const id = o.userData.modelId as string;
+    const path = partFromMesh(o, hit.object, partSel?.modelId === id ? partSel.path : null);
+    if (!path) return ui.setStatus('Questo modello non ha componenti separati.');
+    setPart(id, path);
+    ui.setStatus(`Componente: ${partName(nodeByPath(o, path)!)} (Esc per uscire)`);
+  });
   window.addEventListener('keyup', (e) => e.key === 'Shift' && endSeries());
   window.addEventListener('blur', endSeries);
 
@@ -888,11 +1042,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     } else if (mod && k === 'y') {
       e.preventDefault();
       jump(hi + 1);
-    } else if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
-    else if (e.key === 'Escape') {
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (!partSel) deleteSelection();
+    } else if (e.key === 'Escape') {
       dropPreview();
       build = null;
-      setSelection([]);
+      if (partSel) setPart(partSel.modelId, null); // leave the component, keep the model
+      else setSelection([]);
     } else if (!mod && room) {
       const next = ({ w: 'translate', e: 'rotate', r: 'scale' } as Record<string, Gizmo>)[k];
       if (next) {

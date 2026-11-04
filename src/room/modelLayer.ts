@@ -1,7 +1,8 @@
 import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
 import { modelUrl } from '../cloud/models';
 import { createGltfLoader } from '../scene/gltf';
-import { paintModel } from './selection';
+import { applyParts, nodeByPath } from './parts';
+import { paintModel, paintPart } from './selection';
 import type { RoomModel } from './types';
 
 // Keeps scene objects in step with `room.models`: loads each GLB once (cached per
@@ -39,10 +40,36 @@ export function preloadModels(paths: string[]) {
 }
 
 // What colouring a model asks for, as a comparable string ('' = the file's own colours).
+const partsKey = (m: RoomModel) => (m.parts && Object.keys(m.parts).length ? JSON.stringify(m.parts) : '');
 const lookKey = (m: RoomModel) => [m.color, m.materialColors, m.finish, m.materialFinish].map((x) => (x && Object.keys(x).length ? JSON.stringify(x) : '')).join('|').replace(/^\|+$/, '');
 
 export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
   const holders = new Map<string, Group>();
+
+  // Colours of the model, then the moved / coloured components on top; each only when it changed.
+  function refresh(h: Group, m: RoomModel) {
+    if (!h.children.length) return;
+    const lk = lookKey(m);
+    const pk = partsKey(m);
+    if ((h.userData.painted ?? '') !== lk) {
+      paintModel(h, m);
+      h.userData.painted = lk;
+      h.userData.partsPainted = null; // the materials were reset
+    }
+    if ((h.userData.partsKey ?? '') !== pk || (pk && !h.userData.partsApplied)) {
+      applyParts(h, m.parts);
+      h.userData.partsApplied = true;
+      h.userData.partsKey = pk;
+    }
+    if ((h.userData.partsPainted ?? '') !== pk) {
+      paintModel(h, m); // first the model's own look everywhere (a component's colour may have been removed)
+      for (const [path, e] of Object.entries(m.parts ?? {})) {
+        const node = nodeByPath(h, path);
+        if (node && (e.color || e.finish)) paintPart(node, e);
+      }
+      h.userData.partsPainted = pk;
+    }
+  }
 
   function attach(holder: Group, m: RoomModel) {
     pending++;
@@ -50,10 +77,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
       .then((obj) => {
         holder.add(obj.clone(true));
         const look = holder.userData.look as RoomModel | undefined;
-        if (look && lookKey(look)) {
-          paintModel(holder, look);
-          holder.userData.painted = lookKey(look);
-        }
+        if (look) refresh(holder, look);
       })
       .catch((e: Error) => {
         onError(`${m.name}: ${e.message}`);
@@ -83,10 +107,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
           attach(h, m);
         }
         h.userData.look = m;
-        if ((h.userData.painted ?? '') !== lookKey(m) && h.children.length) {
-          paintModel(h, m);
-          h.userData.painted = lookKey(m);
-        }
+        refresh(h, m);
         h.position.set(...m.pos);
         h.rotation.set(0, m.yaw, 0);
         h.scale.setScalar(m.scale);

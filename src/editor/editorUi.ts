@@ -55,6 +55,12 @@ export interface EditorHandlers {
   onModelLook(edit: LookEdit, commit: boolean): void;
   onStructure(edit: StructureEdit, commit: boolean): void;
   onDeleteSelection(): void;
+  // a chosen component of a model
+  onPartScale(value: number, commit: boolean): void;
+  onPartYaw(deg: number, commit: boolean): void;
+  onPartLook(edit: { color?: string | null; roughness?: number; metalness?: number }, commit: boolean): void;
+  onPartReset(): void;
+  onPartExit(): void;
 }
 
 export interface OutlineItem {
@@ -79,6 +85,18 @@ export type Details =
       color: string | null; // the colour given to every material, if any
       finish: { roughness: number; metalness: number }; // for 'every material'
       materials: MaterialRow[];
+    }
+  | {
+      kind: 'part';
+      key: string;
+      name: string; // the component
+      model: string; // the model it belongs to
+      scale: number;
+      yawDeg: number;
+      color: string;
+      tinted: boolean; // has a colour of its own
+      finish: { roughness: number; metalness: number };
+      moved: boolean; // not where / as it is in the file
     }
   | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; measure: string };
 export interface ToolbarState {
@@ -622,6 +640,25 @@ export function createEditorUi(h: EditorHandlers) {
     if (d.key !== lastKey) {
       lastKey = d.key;
       matTarget = 'all';
+    }
+    if (d.kind === 'part') {
+      details.replaceChildren(
+        el('div', d.name, 'ed-h'),
+        el('div', `Componente di ${d.model}`, 'ed-sub'),
+        card(
+          row(el('span', 'Scala'), numberField(d.scale, '0.01', '0.05', (v, c) => h.onPartScale(v, c))),
+          row(el('span', 'Rotazione °'), numberField(d.yawDeg, '1', null, (v, c) => h.onPartYaw(v, c))),
+          pill('Riposiziona dov\'era', h.onPartReset),
+        ),
+        el('div', 'Colore', 'ed-h'),
+        card(
+          picker(d.color, (c, commit) => h.onPartLook({ color: c }, commit), d.tinted ? () => h.onPartLook({ color: null }, true) : undefined),
+          finishRow('Rugosità', d.finish.roughness, (v, c) => h.onPartLook({ roughness: v }, c)),
+          finishRow('Metallico', d.finish.metalness, (v, c) => h.onPartLook({ metalness: v }, c)),
+        ),
+        card(pill('Esci dal componente (Esc)', h.onPartExit)),
+      );
+      return;
     }
     if (d.kind === 'model') {
       const size = el('div', d.size ? `Dimensioni reali ${d.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...', 'ed-meta');

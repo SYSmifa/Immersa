@@ -29,6 +29,17 @@ export interface RoomModel {
   materialColors?: Record<string, string>; // per material (index in the model's material list): overrides `color`
   finish?: { roughness?: number; metalness?: number }; // 0..1, every material
   materialFinish?: Record<string, { roughness?: number; metalness?: number }>; // per material: overrides `finish`
+  parts?: Record<string, PartEdit>; // changes to single components (parts of the file), by path (see room/parts.ts)
+}
+
+// A component of a model changed on its own. Offsets are in the model's own frame at scale 1 (they follow the model
+// when it is moved, turned or scaled); yaw and scale act about the component's pivot (centre of its footprint, at its bottom).
+export interface PartEdit {
+  d?: Vec3; // moved from where it was in the file
+  yaw?: number; // turned about Y, radians
+  scale?: number; // 1 = as in the file
+  color?: string; // tint of the whole component
+  finish?: { roughness?: number; metalness?: number };
 }
 
 // Our own room format; the Meta scan is only one possible source of `planes`.

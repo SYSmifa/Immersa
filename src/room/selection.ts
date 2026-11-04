@@ -206,3 +206,16 @@ export function paintModel(holder: Object3D, look: Look) {
     else mesh.material = next;
   });
 }
+
+// A component's own colour and finish, on top of the model's (call after paintModel: it puts the materials back first).
+export function paintPart(node: Object3D, part: { color?: string; finish?: Finish }) {
+  if (!part.color && part.finish?.roughness === undefined && part.finish?.metalness === undefined) return;
+  node.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const base = baseOf(mesh);
+    const next = Array.isArray(base) ? base.map((m) => tinted(m, part.color, part.finish)) : tinted(base, part.color, part.finish);
+    if (mesh.userData[ORIGINAL]) mesh.userData[ORIGINAL] = next;
+    else mesh.material = next;
+  });
+}
