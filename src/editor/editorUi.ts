@@ -1,5 +1,6 @@
 import '@fontsource/sen/latin-500.css';
 import '@fontsource/sen/latin-700.css';
+import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { AURA } from '../ui3d/theme';
 
@@ -21,6 +22,7 @@ export interface StructureEdit {
   height?: number;
   thickness?: number;
   color?: string | null;
+  texture?: string | null; // null = plain colour
 }
 
 export interface EditorHandlers {
@@ -78,7 +80,7 @@ export type Details =
       finish: { roughness: number; metalness: number }; // for 'every material'
       materials: MaterialRow[];
     }
-  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string; measure: string };
+  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; measure: string };
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -178,6 +180,12 @@ const CSS = `
 .ed-fin{display:grid;grid-template-columns:76px 1fr 34px;gap:8px;align-items:center;font-size:13px;color:#344054;font-weight:500}
 .ed-fin input{width:100%;accent-color:var(--acc)}
 .ed-fin span:last-child{color:#667085;font-size:12px}
+.ed-tex{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ed-texbtn{position:relative;height:58px;border-radius:12px;border:2px solid transparent;background-size:cover;background-position:center;cursor:pointer;overflow:hidden;padding:0;
+  box-shadow:0 0 0 1px #0002 inset}
+.ed-texbtn.none{background:repeating-conic-gradient(#d0d5dd 0 25%,#fff 0 50%) 50%/12px 12px}
+.ed-texbtn.on{border-color:var(--acc);box-shadow:0 0 0 2px #14b8a655}
+.ed-texbtn span{position:absolute;left:0;right:0;bottom:0;padding:2px 0;background:#000a;color:#fff;font-size:11px;font-weight:500}
 .ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
@@ -568,6 +576,23 @@ export function createEditorUi(h: EditorHandlers) {
     return row;
   };
 
+  // The catalogue as a grid of small previews; the first tile is "no texture" (plain colour).
+  const textureGrid = (current: string | null, onPick: (id: string | null) => void) => {
+    const grid = el('div', '', 'ed-tex');
+    const tile = (id: string | null, name: string) => {
+      const b = el('button', '', `ed-texbtn${id === current ? ' on' : ''}`);
+      b.title = name;
+      if (id) b.style.backgroundImage = `url(${textureCanvas(id)!.toDataURL('image/jpeg', 0.7)})`;
+      else b.classList.add('none');
+      const l = el('span', name);
+      b.append(l);
+      b.onclick = () => onPick(id);
+      return b;
+    };
+    grid.append(tile(null, 'Nessuna'), ...TEXTURES.map((t) => tile(t.id, t.name)));
+    return grid;
+  };
+
   let matTarget: 'all' | number = 'all';
   let lastKey = '';
   let lastSig = '';
@@ -644,8 +669,10 @@ export function createEditorUi(h: EditorHandlers) {
     details.replaceChildren(
       el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
       card(...rows, el('div', d.measure, 'ed-meta')),
-      el('div', 'Colore', 'ed-h'),
-      card(picker(d.color, (c, commit) => h.onStructure({ color: c }, commit))),
+      el('div', 'Texture', 'ed-h'),
+      card(textureGrid(d.texture, (id) => h.onStructure({ texture: id }, true))),
+      el('div', d.texture ? 'Tinta' : 'Colore', 'ed-h'),
+      card(picker(d.color ?? (d.texture ? '#ffffff' : d.type === 'wall' ? '#e9ecf2' : '#c7cdd9'), (c, commit) => h.onStructure({ color: c }, commit))),
       card(del),
     );
   }
@@ -706,8 +733,8 @@ export function createEditorUi(h: EditorHandlers) {
       bRedo.disabled = !s.canRedo;
       hint.style.display = s.build ? 'block' : 'none';
       hint.textContent =
-        (s.build === 'wall' ? 'Parete: trascina sul pavimento (Maiusc = linea dritta)' : 'Pavimento: trascina sul pavimento') +
-        ' · tieni premuto Maiusc per crearne altri di fila · Esc per uscire';
+        (s.build === 'wall' ? 'Parete: trascina sul pavimento' : 'Pavimento: trascina sul pavimento') +
+        ' · tieni premuto Maiusc per crearne altri: rilasciandolo si esce · Esc per uscire';
     },
     setOutline(items: OutlineItem[], selected: Set<string>) {
       outlineList.replaceChildren(
@@ -728,7 +755,8 @@ export function createEditorUi(h: EditorHandlers) {
       const sig = JSON.stringify(d);
       if (sig === lastSig) return;
       // While typing in a field, a refresh of the same kind of object must not rewrite it under the cursor.
-      if (d && lastSig && details.contains(document.activeElement) && JSON.parse(lastSig)?.kind === d.kind) return;
+      const typing = document.activeElement instanceof HTMLInputElement && ['number', 'text'].includes(document.activeElement.type);
+      if (d && lastSig && typing && details.contains(document.activeElement) && JSON.parse(lastSig)?.kind === d.kind) return;
       lastSig = sig;
       renderDetails(d);
     },

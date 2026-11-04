@@ -34,7 +34,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
 import { listMaterials } from '../room/selection';
-import { createStructureLayer, FLOOR_COLOR, placeStructure, WALL_COLOR } from '../room/structures';
+import { createStructureLayer, placeStructure } from '../room/structures';
 import type { Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -103,6 +103,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let snapGrid = true;
   let snapVertex = true;
   let local = false;
+  let keepBuild = false; // a Shift-held series of walls / floors is going on
 
   const planesGroup = new Group();
   const gridGroup = new Group(); // the floor grid stays when a room's scan is hidden
@@ -439,7 +440,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       type: s.kind,
       height: s.height,
       thickness: s.thickness,
-      color: s.color ?? (s.kind === 'wall' ? WALL_COLOR : FLOOR_COLOR),
+      color: s.color ?? null,
+      texture: s.texture ?? null,
       measure: s.kind === 'wall' ? `Lunga ${Math.hypot(dx, dz).toFixed(2)} m` : `${dx.toFixed(2)} × ${dz.toFixed(2)} m · ${(dx * dz).toFixed(2)} m²`,
     };
   }
@@ -660,6 +662,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onSave: save,
     onBuild(kind) {
       build = kind;
+      keepBuild = false;
       if (kind) {
         transform.detach();
         ui.setStatus(kind === 'wall' ? 'Parete: trascina sul pavimento' : 'Pavimento: trascina sul pavimento');
@@ -745,6 +748,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
         if (edit.thickness !== undefined && edit.thickness > 0) s.thickness = edit.thickness;
         if (edit.color) s.color = edit.color;
+        if (edit.texture !== undefined) {
+          if (edit.texture === null) delete s.texture;
+          else s.texture = edit.texture;
+        }
       }
       changed(doCommit);
     },
@@ -830,6 +837,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           const id = newId();
           project.structures.push({ id, roomId: room.id, ...d });
           // Back to selection after each one; Shift held keeps the tool for the next.
+          // Shift held: keep the tool for the next one; letting go of Shift leaves it (see the keyup below).
+          keepBuild = e.shiftKey;
           if (!e.shiftKey) build = null;
           structLayer.sync(structures());
           setSelection([`s:${id}`]);
@@ -851,6 +860,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     while (o && !o.userData.modelId && !o.userData.structureId) o = o.parent;
     pick(o ? (o.userData.modelId ? `m:${o.userData.modelId}` : `s:${o.userData.structureId}`) : null, e.shiftKey || e.ctrlKey || e.metaKey);
   });
+
+  // Releasing Shift (or leaving the window) ends a Shift-held series of walls / floors.
+  const endSeries = () => {
+    if (!keepBuild) return;
+    keepBuild = false;
+    if (build && !drag) {
+      build = null;
+      refreshToolbar();
+    }
+  };
+  window.addEventListener('keyup', (e) => e.key === 'Shift' && endSeries());
+  window.addEventListener('blur', endSeries);
 
   window.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;

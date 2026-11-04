@@ -58,7 +58,8 @@ export interface Structure {
   y: number;
   height: number; // walls only
   thickness: number;
-  color?: string;
+  color?: string; // tint (plain colour when there is no texture)
+  texture?: string; // id in the texture catalogue (room/textures.ts)
 }
 
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.
