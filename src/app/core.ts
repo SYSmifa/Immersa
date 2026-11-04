@@ -317,7 +317,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       color: m.color ?? null,
       confirmDelete,
       colorPage,
-      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats) })),
+      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats), info: x.info })),
       target: colorTarget,
       matPage,
       hsv: pick,

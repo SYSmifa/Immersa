@@ -122,7 +122,17 @@ let envSource: (() => Texture) | null = null;
 let env: Texture | null = null;
 export const setFinishEnvironment = (make: () => Texture) => (envSource = make);
 
-type Shiny = Material & { color?: Color; roughness?: number; metalness?: number; envMap?: Texture | null; envMapIntensity?: number };
+type Shiny = Material & {
+  color?: Color;
+  roughness?: number;
+  metalness?: number;
+  envMap?: Texture | null;
+  envMapIntensity?: number;
+  emissive?: Color;
+  emissiveMap?: Texture | null;
+  map?: Texture | null;
+  vertexColors?: boolean;
+};
 function tinted(src: Material, hex: string | undefined, finish: Finish | undefined): Material {
   let byLook = tints.get(src);
   if (!byLook) tints.set(src, (byLook = new Map()));
@@ -130,7 +140,12 @@ function tinted(src: Material, hex: string | undefined, finish: Finish | undefin
   let m = byLook.get(key);
   if (!m) {
     const t = src.clone() as Shiny;
-    if (hex) t.color?.set(hex);
+    if (hex) {
+      t.color?.set(hex);
+      // A colour that was picked must show: an emissive part (or its texture) would light the surface whatever the colour.
+      if (t.emissive) t.emissive.setRGB(0, 0, 0);
+      if ('emissiveMap' in t) t.emissiveMap = null;
+    }
     if (finish && 'roughness' in t) {
       if (finish.roughness !== undefined) t.roughness = finish.roughness;
       if (finish.metalness !== undefined) t.metalness = finish.metalness;
@@ -151,6 +166,7 @@ function tinted(src: Material, hex: string | undefined, finish: Finish | undefin
 export interface MaterialInfo {
   name: string;
   color: string; // '#rrggbb' as in the file
+  info: string; // what kind of material it is (type, texture, emissive...), to understand how a model looks
   roughness: number; // as in the file (0.5 when the material has none)
   metalness: number;
 }
@@ -176,6 +192,13 @@ export function listMaterials(holder: Object3D): MaterialInfo[] {
   return materialsOf(holder).map((m, i) => ({
     name: m.name ? `${i + 1} · ${m.name}` : `Materiale ${i + 1}`, // the number keeps duplicated or generic names apart
     color: `#${(m as Shiny).color?.getHexString() ?? 'ffffff'}`,
+    info: [
+      m.type.replace('Material', '').replace('Mesh', ''),
+      (m as Shiny).map ? 'texture' : '',
+      (m as Shiny).emissive && ((m as Shiny).emissive!.getHex() > 0 || (m as Shiny).emissiveMap) ? 'emissivo' : '',
+      (m as Shiny).vertexColors ? 'colori vertici' : '',
+      m.transparent ? 'trasparente' : '',
+    ].filter(Boolean).join(' · '),
     roughness: (m as Shiny).roughness ?? 0.5,
     metalness: (m as Shiny).metalness ?? 0,
   }));
