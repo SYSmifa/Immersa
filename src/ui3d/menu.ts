@@ -19,6 +19,8 @@ export interface ObjectView {
   matPage: number;
   hsv: Hsv; // the colour in the picker
   finish: { roughness: number; metalness: number }; // of the target, as shown now
+  // Set when the selection is one component of a model.
+  part?: { model: string; moved: boolean };
   // Set when the selection is a wall or a floor instead of a model.
   structure?: {
     kind: 'wall' | 'floor';
@@ -91,6 +93,8 @@ export interface MenuActions {
   objHeight(): void;
   objThickness(): void;
   objTexture(id: string | null): void;
+  objReset(): void;
+  objExitPart(): void;
   objDelete(): void;
   objDeleteYes(): void;
   objDeleteNo(): void;
@@ -194,8 +198,18 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
 
 function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: string): Widget[] {
   if (o.colorPage) return colorPage(o, out, a);
-  out.push(backButton(a.objClose), title(o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
+  out.push(backButton(o.part ? a.objExitPart : a.objClose), title(o.part ? 'Componente' : o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
   const half = (W - 16) / 2;
+  if (o.part) {
+    out.push({ kind: 'card', icon: 'rotate', rect: { x: M, y: 112, w: half, h: 104 }, text: `${o.yawDeg}°`, sub: 'Rotazione', size: 34, onClick: a.objRotation });
+    out.push({ kind: 'card', icon: 'scale', rect: { x: M + half + 16, y: 112, w: half, h: 104 }, text: `×${o.scale.toFixed(2)}`, sub: 'Scala', size: 34, onClick: a.objScale });
+    out.push({ kind: 'chip', rect: { x: M, y: 230, w: 520, h: 40 }, text: `Parte di ${o.part.model} · trascinala con il pinch`, size: 19, fill: theme().glass });
+    out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Colore e finitura', sub: o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colori originali', swatch: o.color ?? o.materials[0]?.color, onClick: a.objOpenColor });
+    out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: W, h: 64 }, text: "Riposiziona dov'era", size: 26, disabled: !o.part.moved, onClick: a.objReset });
+    out.push({ kind: 'pill', icon: 'close', rect: { x: M, y: 480, w: W, h: 64 }, text: 'Esci dal componente', size: 26, onClick: a.objExitPart });
+    if (message) out.push(...toast(message, 556));
+    return out;
+  }
   if (o.structure) {
     const st = o.structure;
     if (st.kind === 'wall') out.push({ kind: 'card', icon: 'scale', rect: { x: M, y: 112, w: half, h: 104 }, text: `${st.height.toFixed(2)} m`, sub: 'Altezza', size: 34, onClick: a.objHeight });

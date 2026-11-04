@@ -29,8 +29,10 @@ export function runUiTest() {
     const ndc = new Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const origin = camera.getWorldPosition(new Vector3());
     const dir = new Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(origin).normalize();
+    lastAim = { origin, dir };
     core.aim('mouse', origin, dir);
   };
+  let lastAim: { origin: Vector3; dir: Vector3 } | null = null; // like the headset, the pointer is reported every frame
   const dom = renderer.domElement;
   dom.addEventListener('pointermove', ray);
   dom.addEventListener('pointerdown', (e) => {
@@ -45,6 +47,7 @@ export function runUiTest() {
   let last = performance.now();
   renderer.setAnimationLoop(() => {
     const now = performance.now();
+    if (lastAim) core.aim('mouse', lastAim.origin, lastAim.dir);
     core.tick(now, head(), Math.min(0.1, (now - last) / 1000));
     last = now;
     renderer.render(scene, camera);

@@ -1,16 +1,17 @@
-import { Box3, Group, Matrix4, Raycaster, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Plane, Raycaster, Scene, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createStructureLayer, type StructureLayer } from '../room/structures';
 import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
+import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
+import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { theme } from '../ui3d/theme';
@@ -320,6 +321,26 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const structMesh = (st: Structure) => houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null;
   const structName = (st: Structure) => `${st.kind === 'wall' ? 'Parete' : 'Pavimento'} ${structsOf(st.roomId).filter((x) => x.kind === st.kind).indexOf(st) + 1}`;
   const DEFAULT_TINT = { wall: '#e9ecf2', floor: '#c7cdd9' };
+  // A component of the selected model (double pinch): moved, turned, scaled and coloured on its own.
+  let selectedPart: { modelId: string; path: string } | null = null;
+  const partModelOf = () => (selectedPart ? (current?.models.find((x) => x.id === selectedPart!.modelId) ?? null) : null);
+  const partHolderOf = () => {
+    const m = partModelOf();
+    return m ? (houses.get(m.roomId)?.layer.holders.get(m.id) ?? null) : null;
+  };
+  const partNodeOf = (): Object3D | null => {
+    const h = partHolderOf();
+    return h && selectedPart ? nodeByPath(h, selectedPart.path) : null;
+  };
+  const partEditOf = (create = false): PartEdit | undefined => {
+    const m = partModelOf();
+    if (!m || !selectedPart) return undefined;
+    if (create) {
+      m.parts ??= {};
+      return (m.parts[selectedPart.path] ??= {});
+    }
+    return m.parts?.[selectedPart.path];
+  };
   let colorPage = false; // the object menu shows the colour page
   let colorTarget: 'all' | number = 'all'; // what the colour page changes: every material, or one (index in the list)
   let matPage = 0;
@@ -363,7 +384,34 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       },
     };
   }
+  function partView(): ObjectView | null {
+    const m = partModelOf();
+    const node = partNodeOf();
+    if (!m || !node) return null;
+    const e = partEditOf();
+    const info = listMaterials(node)[0];
+    const color = e?.color ?? m.color ?? info?.color ?? '#ffffff';
+    return {
+      name: partName(node),
+      yawDeg: ((Math.round(((e?.yaw ?? 0) * 180) / Math.PI) % 360) + 360) % 360,
+      scale: e?.scale ?? 1,
+      size: '',
+      color: e?.color ?? null,
+      confirmDelete: false,
+      colorPage,
+      materials: [{ name: 'Tutto il componente', color }],
+      target: 'all',
+      matPage: 0,
+      hsv: pick,
+      finish: { roughness: e?.finish?.roughness ?? m.finish?.roughness ?? info?.roughness ?? 0.5, metalness: e?.finish?.metalness ?? m.finish?.metalness ?? info?.metalness ?? 0 },
+      part: { model: m.name, moved: !!(e?.d || e?.yaw || (e?.scale && e.scale !== 1)) },
+    };
+  }
   function objectView(): ObjectView | null {
+    if (objectOpen && selectedPart) {
+      const v = partView();
+      if (v) return v;
+    }
     const st = objectOpen ? selectedStruct() : null;
     if (st) return structureView(st);
     const m = objectOpen ? selectedModel() : null;
@@ -899,6 +947,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       say('Rileggo la stanza...', 3000);
     },
     async objRotation() {
+      if (selectedPart) {
+        const text = await ask('Rotazione del componente (gradi)', String(view.object?.yawDeg ?? 0), { max: 7, capital: false });
+        const n = parseNumber(text);
+        if (n === null) return text === null ? undefined : say('Numero non valido', 4000);
+        partEditOf(true)!.yaw = wrap((n * Math.PI) / 180);
+        return applyPartChange();
+      }
       const m = selectedModel();
       if (!m) return;
       const text = await ask('Rotazione (gradi)', String(view.object?.yawDeg ?? 0), { max: 7, capital: false });
@@ -909,6 +964,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       applyModelChange(m);
     },
     async objScale() {
+      if (selectedPart) {
+        const text = await ask('Scala del componente (1 = come nel file)', String(Number((partEditOf()?.scale ?? 1).toFixed(3))), { max: 8, capital: false });
+        const n = parseNumber(text);
+        if (n === null || n <= 0) return text === null ? undefined : say('Scala non valida (deve essere maggiore di 0)', 4000);
+        partEditOf(true)!.scale = Math.min(20, Math.max(0.05, n));
+        return applyPartChange();
+      }
       const m = selectedModel();
       if (!m) return;
       const text = await ask('Scala (1 = dimensione reale)', String(Number(m.scale.toFixed(3))), { max: 8, capital: false });
@@ -920,6 +982,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // Colour: preset or "Orig." (null) for the chosen target.
     objColor(hex: string | null) {
+      if (selectedPart) {
+        if (hex) pick = hexToHsv(hex);
+        return setPartColor(hex);
+      }
       const st = selectedStruct();
       if (st) {
         if (hex) pick = hexToHsv(hex);
@@ -931,6 +997,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       setColor(m, hex);
     },
     objOpenColor() {
+      if (selectedPart) {
+        colorPage = true;
+        colorTarget = 'all';
+        matPage = 0;
+        const node = partNodeOf();
+        const m = partModelOf();
+        pick = hexToHsv(partEditOf()?.color ?? m?.color ?? (node ? listMaterials(node)[0]?.color : undefined) ?? '#ffffff');
+        return refreshView();
+      }
       const st = selectedStruct();
       if (st) {
         colorPage = true;
@@ -964,11 +1039,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       refreshView();
     },
     objFinish(key: 'roughness' | 'metalness', value: number) {
+      if (selectedPart) {
+        const e = partEditOf(true)!;
+        e.finish = { ...e.finish, [key]: value };
+        return applyPartChange();
+      }
       const m = selectedModel();
       if (m) setFinish(m, key, value);
     },
     // Wheel (hue, saturation) and brightness bar: a null part stays as it is.
     objPick(h: number | null, sat: number | null, v: number | null) {
+      if (selectedPart) {
+        pick = [h ?? pick[0], sat ?? pick[1], v ?? pick[2]];
+        return setPartColor(hsvToHex(...pick));
+      }
       const st = selectedStruct();
       if (st) {
         pick = [h ?? pick[0], sat ?? pick[1], v ?? pick[2]];
@@ -1009,6 +1093,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (id) st.texture = id;
       else delete st.texture;
       applyStructChange(st);
+    },
+    objReset() {
+      const m = partModelOf();
+      const e = partEditOf();
+      if (!m?.parts || !e || !selectedPart) return;
+      delete e.d;
+      delete e.yaw;
+      delete e.scale;
+      if (!Object.keys(e).length) delete m.parts[selectedPart.path];
+      if (!Object.keys(m.parts).length) delete m.parts;
+      applyPartChange();
+      say('Componente riposizionato dov\'era', 3000);
+    },
+    objExitPart() {
+      selectedPart = null;
+      if (objectOpen) closeMenu();
+      refreshView();
     },
     objDeleteYes() {
       const st = selectedStruct();
@@ -1115,9 +1216,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
   const hovered = new Map<string, string>(); // pointer id -> model id ('s:<id>' for a wall / floor)
   const structRay = new Raycaster();
+  const partRay = new Raycaster();
+  let lastPress: { id: string; t: number } | null = null; // for the double pinch
   const hoverPoint = new Map<string, Vector3>(); // pointer id -> where its ray meets the wall / floor it hovers
   let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
-  let looked: { id: string; holder: Group } | null = null;
+  let looked: { key: string; node: Object3D } | null = null;
 
   const deg = (r: number) => Math.round((r * 180) / Math.PI);
   function selectStruct(id: string | null) {
@@ -1128,7 +1231,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const st = selectedStruct();
     say(st ? `Selezionato: ${structName(st)}` : 'Selezione annullata', 2500);
   }
+  function selectPart(modelId: string, path: string) {
+    if (selectedPart?.modelId === modelId && selectedPart.path === path) return;
+    if (objectOpen) closeMenu();
+    selectedStructId = null;
+    selectedId = modelId;
+    selectedPart = { modelId, path };
+    const node = partNodeOf();
+    say(`Componente: ${node ? partName(node) : path}`, 2500);
+  }
   function selectModel(id: string | null) {
+    if (selectedPart && id !== selectedId) selectedPart = null;
     if (id && selectedStructId) selectedStructId = null;
     if (id === selectedId) return;
     if (id && objectOpen) closeMenu(); // another model pinched while a menu is open: it closes
@@ -1145,16 +1258,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const glowId = objectOpen ? null : selectedStructId;
     for (const h of houses.values()) h.structs.highlight(glowId);
     if (selectedId && !current?.models.some((m) => m.id === selectedId)) selectedId = null;
+    if (selectedPart && !partNodeOf()) selectedPart = null;
     // While the object menu is open the model shows its real colours (the azure look would hide a colour change).
-    const lookId = objectOpen ? null : selectedId;
-    if (looked && looked.id !== lookId) {
-      clearSelectionLook(looked.holder);
+    const lookKey = objectOpen ? null : selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : selectedId ? `m:${selectedId}` : null;
+    if (looked && looked.key !== lookKey) {
+      clearSelectionLook(looked.node);
       looked = null;
     }
-    if (!lookId || looked) return;
-    const m = current?.models.find((x) => x.id === lookId);
-    const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
-    if (holder && applySelectionLook(holder)) looked = { id: lookId, holder };
+    if (!lookKey || looked) return;
+    const m = current?.models.find((x) => x.id === selectedId);
+    const node = selectedPart ? partNodeOf() : m && houses.get(m.roomId)?.layer.holders.get(m.id);
+    if (node && applySelectionLook(node)) looked = { key: lookKey, node };
   }
 
   // Per frame and per pointer: UI first (the nearest panel wins), else the nearest model in front of it.
@@ -1164,6 +1278,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     hovered.delete(id);
     hoverPoint.delete(id);
     rays.set(id, { origin: origin.clone(), dir: dir.clone() });
+    if (partGrab && partGrab.pointer === id) {
+      partGrab.seen = true;
+      return { length: grabLaser, target: 'model' };
+    }
     if (grab && grab.pointer === id) {
       grab.seen = true;
       if (grab.phase !== 'pending') return { length: grabLaser, target: 'model' }; // the laser ends on the model's base
@@ -1211,6 +1329,31 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return selectStruct(target.slice(2)); // a wall / floor: selects, no dragging yet
     }
     selectStruct(null);
+    // Double pinch on a model: the component under the ray. One pinch on the chosen component: drag it.
+    const now = performance.now();
+    const double = !!target && lastPress?.id === target && now - lastPress.t < 450;
+    lastPress = target ? { id: target, t: now } : null;
+    const holder = target ? current && houses.get(current.models.find((x) => x.id === target)?.roomId ?? '')?.layer.holders.get(target) : null;
+    const ray = rays.get(id);
+    if (target && holder && ray && (double || selectedPart?.modelId === target)) {
+      partRay.set(ray.origin, ray.dir);
+      partRay.far = 8;
+      const hit = partRay.intersectObject(holder, true)[0];
+      if (hit) {
+        if (double) {
+          const path = partFromMesh(holder, hit.object, selectedPart?.modelId === target ? selectedPart.path : null);
+          if (path) return selectPart(target, path);
+          say('Questo modello non ha componenti separati', 3000);
+        } else if (selectedPart) {
+          const hp = partFromMesh(holder, hit.object, null);
+          if (hp && (hp === selectedPart.path || hp.startsWith(`${selectedPart.path}/`)) && startPartGrab(id)) return;
+        }
+      }
+    }
+    if (selectedPart) {
+      selectedPart = null; // pinched the model elsewhere: back to the whole model
+      if (objectOpen) closeMenu();
+    }
     selectModel(target);
     // Holding the pinch drags the model (see updateGrab); a quick pinch only selects it.
     if (target) grab = { pointer: id, modelId: target, phase: 'pending', seen: true, t0: null, last: null, offset: new Vector3(), decay: true, two: null };
@@ -1276,6 +1419,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const st = selectedStruct();
     const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
     let top: Vector3 | null = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
+    const pn = selectedPart ? partNodeOf() : null;
+    if (pn && houses.get(selectedPart!.modelId ? (partModelOf()?.roomId ?? '') : '')?.root.visible) {
+      const box = new Box3().setFromObject(pn);
+      top = box.isEmpty() ? null : new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
+    }
     // A wall's top is out of reach: the button floats where it was pinched, a little towards you and up, within arm's reach.
     if (st && structHit && houses.get(st.roomId)?.root.visible) {
       const toHead = new Vector3(head.pos.x - structHit.x, 0, head.pos.z - structHit.z).normalize();
@@ -1287,10 +1435,44 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         top.copy(head.pos).addScaledVector(away, 2.4 / far);
       }
     }
-    objButton.mesh.visible = !!top && !grab && !rig.visible;
+    objButton.mesh.visible = !!top && !grab && !partGrab && !rig.visible;
     if (!top) return;
     objButton.mesh.position.copy(top).y += 0.17;
     objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
+  }
+  // ---- dragging the chosen component: it slides on the horizontal plane through its pivot ----
+  let partGrab: { pointer: string; y: number; l0: Vector3; d0: [number, number, number]; seen: boolean } | null = null;
+  function planePoint(pointer: string, y: number): Vector3 | null {
+    const ray = rays.get(pointer);
+    return ray ? (partRay.ray.set(ray.origin, ray.dir).intersectPlane(new Plane(new Vector3(0, 1, 0), -y), new Vector3()) ?? null) : null;
+  }
+  function startPartGrab(pointer: string): boolean {
+    const holder = partHolderOf();
+    const node = partNodeOf();
+    if (!holder || !node) return false;
+    const y = pivotWorld(holder, node, partEditOf()).y;
+    const p = planePoint(pointer, y);
+    if (!p) return false;
+    partGrab = { pointer, y, l0: holder.worldToLocal(p), d0: [...(partEditOf()?.d ?? [0, 0, 0])] as [number, number, number], seen: true };
+    return true;
+  }
+  function endPartGrab() {
+    partGrab = null;
+  }
+  function updatePartGrab() {
+    const g = partGrab;
+    if (!g) return;
+    const m = partModelOf();
+    const holder = partHolderOf();
+    if (!m || !holder || !g.seen) return endPartGrab();
+    g.seen = false;
+    const p = planePoint(g.pointer, g.y);
+    if (!p) return;
+    const l = holder.worldToLocal(p); // the model's own frame: where `d` lives
+    const e = partEditOf(true)!;
+    e.d = [g.d0[0] + l.x - g.l0.x, g.d0[1], g.d0[2] + l.z - g.l0.z];
+    houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));
+    markUnsaved();
   }
   // Sets the colour of the chosen target (null: back to the file's own). "All" replaces every per-material colour.
   function setColor(m: RoomModel, hex: string | null) {
@@ -1326,6 +1508,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       m.materialFinish = { ...m.materialFinish, [k]: { ...m.materialFinish?.[k], [key]: v } };
     }
     applyModelChange(m);
+  }
+  function applyPartChange() {
+    const m = partModelOf();
+    if (m) houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));
+    markUnsaved();
+    refreshView();
+  }
+  function setPartColor(hex: string | null) {
+    const e = partEditOf(true)!;
+    if (hex) e.color = hex;
+    else {
+      delete e.color;
+      delete e.finish;
+    }
+    applyPartChange();
   }
   function applyStructChange(st: Structure) {
     houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
@@ -1399,6 +1596,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     else {
       mainHeld = false;
       if (grab?.pointer === id) endGrab();
+      if (partGrab?.pointer === id) endPartGrab();
     }
   }
   // Magnetic snaps, only for the gesture that is engaged. Rotation: first the room's walls (the model's sides parallel
@@ -1789,6 +1987,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       checkPending();
       followHead(head, dt);
       updateGrab(dt);
+      updatePartGrab();
       placeObjectButton(head);
       syncOutline();
       host.update();
@@ -1842,6 +2041,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
+    selectedPart: () => selectedPart,
     say,
     // Test hook.
     debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
