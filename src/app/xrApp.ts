@@ -5,7 +5,7 @@ import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
 import { Panel } from '../ui3d/panel';
 import { handAnchor, pinchPoint } from '../xr/pinch';
-import { createAppCore, LAST_PROJECT_KEY, type Capture, type Head } from './core';
+import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,10 +27,17 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
 }
 
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onResume: () => void) {
+  let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
+  let rightPinching = false; // the dominant hand is pinching
   const layers: ReturnType<typeof createPanelLayers> = createPanelLayers(renderer, (text) => core.logEvent(text));
   const core = createAppCore({
     onLayers: (on) => layers.setEnabled(on),
     onFps,
+    onHand: (h) => {
+      dominant = h; // the laser, the selection and the two-hand gesture swap hands
+      core.host.noCursor.clear();
+      rightPinching = false;
+    },
     scene,
     backend,
     signOut: async () => {
@@ -56,8 +63,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   // Laser from the right hand (hand tracking or controller).
   const laser = createLaser();
   core.host.root.add(laser.mesh);
-  let rightPinching = false;
-
   const ids = new Map<XRInputSource, string>();
   let activeIds = new Set<string>();
   let bound: XRSession | null = null;
@@ -109,15 +114,21 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const id = idOf(e.inputSource);
       const consumed = core.host.press(id);
       const hand = e.inputSource.handedness;
-      if (hand === 'right') rightPinching = true;
-      if (hand === 'left' || hand === 'right') core.pinchDown(hand, id, consumed);
+      if (hand === 'left' || hand === 'right') {
+        const role = hand === dominant ? 'right' : 'left'; // core: 'right' = main hand, 'left' = the other
+        if (role === 'right') rightPinching = true;
+        core.pinchDown(role, id, consumed);
+      }
     });
     session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
     session.addEventListener('selectend', (ev) => {
       const src = (ev as XRInputSourceEvent).inputSource;
       core.host.cancel(idOf(src));
-      if (src.handedness === 'right') rightPinching = false;
-      if (src.handedness === 'left' || src.handedness === 'right') core.pinchUp(src.handedness, idOf(src));
+      if (src.handedness === 'left' || src.handedness === 'right') {
+        const role = src.handedness === dominant ? 'right' : 'left';
+        if (role === 'right') rightPinching = false;
+        core.pinchUp(role, idOf(src));
+      }
     });
     session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only logged here (the plane check in tick() decides about the restart).
@@ -202,8 +213,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       let pl: Vector3 | null = null;
       let pr: Vector3 | null = null;
       for (const src of frame.session.inputSources) {
-        if (src.handedness === 'left') pl = pinchPoint(frame, src, ref);
-        else if (src.handedness === 'right') pr = pinchPoint(frame, src, ref);
+        if (src.handedness === 'none') continue;
+        if (src.handedness === dominant) pr = pinchPoint(frame, src, ref);
+        else pl = pinchPoint(frame, src, ref);
       }
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
       const seen = new Set<string>();
@@ -219,7 +231,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           quat.set(q.x, q.y, q.z, q.w);
           dir.set(0, 0, -1).applyQuaternion(quat);
           const origin = new Vector3(p.x, p.y, p.z);
-          if (src.handedness === 'right') {
+          if (src.handedness === dominant) {
             core.host.noCursor.add(id);
             const hit = core.aim(id, origin, dir);
             laser.meshReticle = !layers.active;
@@ -234,9 +246,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         } else {
           core.host.setRay(id, null);
         }
-        if (src.handedness === 'left') {
+        if (src.handedness !== dominant && src.handedness !== 'none') {
           anchor = handAnchor(frame, src, ref);
-          // Left controller face buttons (X / Y) also toggle the menu.
+          // The other controller's face buttons (X / Y, or A / B) also toggle the menu.
           const pressed = !!(src.gamepad?.buttons[4]?.pressed || src.gamepad?.buttons[5]?.pressed);
           if (pressed && !leftToggleHeld) core.menu.toggle();
           leftToggleHeld = pressed;

@@ -28,6 +28,7 @@ export interface Head {
 interface Options {
   onLayers?(on: boolean): void; // the Options switch for panels as WebXR layers
   onFps?(on: boolean): void; // the Options switch for the fps readout
+  onHand?(hand: 'left' | 'right'): void; // the Options switch for the dominant hand
   scene: Scene;
   backend: Backend;
   signOut(): void;
@@ -63,6 +64,14 @@ const restartMark = {
       return null;
     }
   },
+};
+const HAND_KEY = 'immersa.hand';
+export const handPreferred = (): 'left' | 'right' => {
+  try {
+    return localStorage.getItem(HAND_KEY) === 'left' ? 'left' : 'right';
+  } catch {
+    return 'right';
+  }
 };
 const FPS_KEY = 'immersa.fps';
 export const fpsPreferred = () => {
@@ -112,7 +121,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
 // (WebXR in xrApp.ts, a mouse and fake planes in the UI test harness).
-export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Options) {
+export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand }: Options) {
   const host = new UiHost();
   scene.add(host.root);
   const rig = new Group(); // menu + keyboard, follows the head
@@ -195,6 +204,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
+    dominant: handPreferred(),
     showOccluders: false,
     message: '',
   };
@@ -927,6 +937,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
       confirmDelete = false;
       refreshView();
     },
+    toggleHand() {
+      view.dominant = view.dominant === 'right' ? 'left' : 'right';
+      try {
+        localStorage.setItem(HAND_KEY, view.dominant);
+      } catch {
+        /* storage can be unavailable */
+      }
+      onHand?.(view.dominant);
+      refreshView();
+    },
     toggleFps() {
       view.fps = !view.fps;
       try {
@@ -1071,7 +1091,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
   }
   let grab: Grab | null = null;
   // Readout above the model during the two-hand gesture: the angle and size now, and what they were before.
-  const hud = new Panel(0.4, 0.13, 1000, 'surface');
+  const hud = new Panel(0.58, 0.2, 1000, 'clear');
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
@@ -1143,20 +1163,28 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
   };
   let hudText = '';
   let snapNote = '';
-  function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number) {
+  // Two separate cards while turning / scaling: rotation and scale, each with its icon, the value now and the value before.
+  // The one that is being changed is lit.
+  function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number, turning: boolean, scaling: boolean) {
     const deg = (r: number) => ((Math.round((r * 180) / Math.PI) % 360) + 360) % 360;
     const dim = modelSize(holder);
     const size = dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '';
-    const l1 = `Rotazione ${deg(m.yaw)}°   (era ${deg(yaw0)}°)${snapNote.includes('r') ? '  ⟂' : ''}`;
-    const l2 = `Scala ×${m.scale.toFixed(2)}   (era ×${scale0.toFixed(2)})${snapNote.includes('s') ? '  ⟂' : ''}`;
-    const text = `${l1}|${l2}|${size}`;
+    const rot = `${deg(m.yaw)}°`;
+    const rotSub = `era ${deg(yaw0)}°${snapNote.includes('r') ? '  ⟂' : ''}`;
+    const sca = `×${m.scale.toFixed(2)}`;
+    const scaSub = `era ×${scale0.toFixed(2)}${snapNote.includes('s') ? '  ⟂' : ''}`;
+    const text = `${rot}|${rotSub}|${sca}|${scaSub}|${size}|${turning}|${scaling}`;
     if (text !== hudText) {
       hudText = text;
-      const row = (t: string, y: number, h: number, size: number, color?: string) => ({ kind: 'label' as const, rect: { x: 10, y, w: hud.pxW - 20, h }, text: t, size, align: 'center' as const, color });
-      hud.set([row(l1, 8, 40, 32), row(l2, 48, 40, 32), row(size, 88, 36, 26, theme().muted)]);
+      const half = (hud.pxW - 24 - 16) / 2;
+      hud.set([
+        { kind: 'card', icon: 'rotate', rect: { x: 12, y: 12, w: half, h: 100 }, text: rot, sub: rotSub, size: 34, active: turning },
+        { kind: 'card', icon: 'scale', rect: { x: 12 + half + 16, y: 12, w: half, h: 100 }, text: sca, sub: scaSub, size: 34, active: scaling },
+        ...(size ? [{ kind: 'chip' as const, rect: { x: 12 + (hud.pxW - 24 - 330) / 2, y: 128, w: 330, h: 40 }, text: size, size: 19, fill: theme().surface, color: theme().text2 }] : []),
+      ]);
     }
     const top = new Box3().setFromObject(holder);
-    hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.18, (top.min.z + top.max.z) / 2);
+    hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.22, (top.min.z + top.max.z) / 2);
     if (lastHead) hud.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - hud.mesh.position.x, lastHead.pos.z - hud.mesh.position.z), 0);
     hud.mesh.visible = true;
     hud.draw();
@@ -1167,13 +1195,31 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
   let pinchR: Vector3 | null = null;
   const rays = new Map<string, { origin: Vector3; dir: Vector3 }>();
 
+  // 'right' is the main (dominant) hand, 'left' the other one: xrApp maps the real hands onto these two.
+  // A quick pinch of the other hand opens / closes the menu, unless the main hand is pinching (then it is the second hand
+  // of the turn / scale gesture) or the pinch was a press on a panel.
+  const TAP_MS = 700;
+  let mainHeld = false;
+  let offArmedAt: number | null = null;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
-    if (hand === 'left') leftHeld = !consumedByUi;
-    else if (!consumedByUi) pressModel(id);
+    if (hand === 'left') {
+      leftHeld = !consumedByUi;
+      offArmedAt = !consumedByUi && !mainHeld && !grab ? performance.now() : null;
+    } else {
+      mainHeld = true;
+      offArmedAt = null;
+      if (!consumedByUi) pressModel(id);
+    }
   }
   function pinchUp(hand: 'left' | 'right', id: string) {
-    if (hand === 'left') leftHeld = false;
-    else if (grab?.pointer === id) endGrab();
+    if (hand === 'left') {
+      leftHeld = false;
+      if (offArmedAt !== null && performance.now() - offArmedAt < TAP_MS) (rig.visible ? closeMenu : openMenu)();
+      offArmedAt = null;
+    } else {
+      mainHeld = false;
+      if (grab?.pointer === id) endGrab();
+    }
   }
   // Magnetic snaps, only for the gesture that is engaged. Rotation: first the room's walls (the model's sides parallel
   // to a wall, a wide pull), else steps of 15 degrees from where it started (a relative step: the angles of the headset
@@ -1316,7 +1362,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps }: Opti
       m.yaw = t.yaw;
       m.scale = t.scale;
       house.layer.sync(modelsOf(m.roomId)); // position untouched: the model turns and grows on the spot
-      showHud(m, holder, t.yaw0, t.scale0);
+      showHud(m, holder, t.yaw0, t.scale0, t.turnFrom > 0, t.scaleFrom > 0);
       return;
     }
     const hit = dragTarget(m, house, ray.origin, ray.dir) ?? g.last;

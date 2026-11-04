@@ -47,6 +47,7 @@ export interface MenuView {
   outline: boolean;
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
+  dominant: 'left' | 'right'; // the hand that points with the laser
   snap: boolean; // magnetic snap of rotation and scale (two-hand gesture)
   showOccluders: boolean;
   message: string;
@@ -66,6 +67,7 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
+  toggleHand(): void;
   toggleOccluders(): void;
   closeProject(): void;
   objRotation(): void;
@@ -306,12 +308,12 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'room_plan'));
     out.push(toggle(2, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
     out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
-    out.push(toggle(5, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
-    out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 164, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
-    out.push(surface(M, top + 250, W, 134));
-    out.push(text('Diagnostica', M + 24, top + 260, 300, 26, 19, T.dim, { bold: true }));
-    v.fits.slice(0, 2).forEach((line, i) => out.push(text(line, M + 24, top + 286 + i * 22, W - 48, 22, 18, line.includes(': NO') ? T.bad : T.good)));
-    v.events.slice(-3).forEach((line, i) => out.push(text(line, M + 24, top + 332 + i * 16, W - 48, 18, 15, T.dim)));
+    out.push(toggle(4, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
+    out.push({ kind: 'card', icon: 'user', rect: { x: M + half + 14, y: top + 164, w: half, h: 72 }, text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
+    out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 246, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
+    out.push(surface(M, top + 330, W, 50));
+    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 336, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
+    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 357, W - 48, 18, 14, T.dim)));
   } else {
     out.push(surface(M, top, W, 380));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
