@@ -14,7 +14,7 @@ export interface ObjectView {
   color: string | null;
   confirmDelete: boolean;
   colorPage: boolean; // the colour page instead of the main one
-  materials: { name: string; color: string; info: string }[]; // each with the colour it shows now
+  materials: { name: string; color: string }[]; // each with the colour it shows now
   target: 'all' | number; // what the colour page changes
   matPage: number;
   hsv: Hsv; // the colour in the picker
@@ -130,16 +130,16 @@ const ptTone = (name: string) => name.length;
 // Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or presets.
 function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.name, M + 70), closeButton(a));
-  const items: { name: string; color: string | null; info?: string; t: 'all' | number }[] = [
+  const items: { name: string; color: string | null; t: 'all' | number }[] = [
     { name: 'Tutti i materiali', color: o.color, t: 'all' },
-    ...o.materials.map((m, i) => ({ name: m.name, color: m.color, info: m.info, t: i })),
+    ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
   ];
   const pages = Math.max(1, Math.ceil(items.length / ROWS));
   const page = Math.min(o.matPage, pages - 1);
   // left: what to change
   out.push(surface(M, 104, 352, 322));
   items.slice(page * ROWS, (page + 1) * ROWS).forEach((it, i) =>
-    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, sub: it.info, size: 22, swatch: it.color ?? undefined, active: o.target === it.t, onClick: () => a.objColorTarget(it.t) }),
+    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: o.target === it.t, onClick: () => a.objColorTarget(it.t) }),
   );
   if (pages > 1) {
     out.push({ kind: 'iconbtn', icon: 'left', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });

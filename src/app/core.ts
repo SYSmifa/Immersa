@@ -128,7 +128,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
   // Start-up screen: the cube drawing itself with the Immersa logo in front, nothing behind it (the room shows through).
-  const splashPanel = new Panel(1.48, 0.92, 700, 'clear'); // twice the size it was, same pixel budget
+  const splashPanel = new Panel(0.74, 0.46, 1200, 'clear');
   splashPanel.animated = true;
   splashPanel.mesh.visible = false;
   host.root.add(splashPanel.mesh);
@@ -317,7 +317,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
       color: m.color ?? null,
       confirmDelete,
       colorPage,
-      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats), info: x.info })),
+      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats) })),
       target: colorTarget,
       matPage,
       hsv: pick,
