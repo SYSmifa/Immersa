@@ -22,6 +22,10 @@ interface ProjectRow {
 
 const ROOM_COLS = 'id,name,data,created_at,updated_at';
 const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,updated_at';
+// Until supabase/schema.sql has been re-run the newer columns do not exist: read (and write) without them instead of failing.
+const ROOM_COLS_OLD = 'id,name,data,updated_at';
+const PROJECT_COLS_OLD = 'id,room_id,room_ids,name,models,updated_at';
+const missingColumn = (e: { message?: string } | null) => !!e && /column|schema cache/i.test(e.message ?? '');
 
 const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, createdAt: r.created_at ?? r.updated_at, updatedAt: r.updated_at, scan: r.data });
 const toProject = (r: ProjectRow): Project => {
@@ -54,12 +58,16 @@ export function createSupabaseBackend(): Backend {
       await supabase?.auth.signOut();
     },
     async listRooms() {
-      const { data, error } = await client().from('rooms').select(ROOM_COLS).order('updated_at', { ascending: false });
+      const res = await client().from('rooms').select(ROOM_COLS).order('updated_at', { ascending: false });
+      let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('rooms').select(ROOM_COLS_OLD).order('updated_at', { ascending: false })) as unknown as typeof res);
       check(error);
       return (data as RoomRow[]).map(toRoom);
     },
     async createRoom(name, scan) {
-      const { data, error } = await client().from('rooms').insert({ name, data: scan }).select(ROOM_COLS).single();
+      const res = await client().from('rooms').insert({ name, data: scan }).select(ROOM_COLS).single();
+      let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('rooms').insert({ name, data: scan }).select(ROOM_COLS_OLD).single()) as unknown as typeof res);
       check(error);
       return toRoom(data as RoomRow);
     },
@@ -76,16 +84,17 @@ export function createSupabaseBackend(): Backend {
       check(error);
     },
     async listProjects() {
-      const { data, error } = await client().from('projects').select(PROJECT_COLS).order('updated_at', { ascending: false });
+      const res = await client().from('projects').select(PROJECT_COLS).order('updated_at', { ascending: false });
+      let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('projects').select(PROJECT_COLS_OLD).order('updated_at', { ascending: false })) as unknown as typeof res);
       check(error);
       return (data as ProjectRow[]).map(toProject);
     },
     async createProject(name, roomIds, models, structures = []) {
-      const { data, error } = await client()
-        .from('projects')
-        .insert({ name, room_id: roomIds[0] ?? null, room_ids: roomIds, models, structures })
-        .select(PROJECT_COLS)
-        .single();
+      const row = { name, room_id: roomIds[0] ?? null, room_ids: roomIds, models };
+      const res = await client().from('projects').insert({ ...row, structures }).select(PROJECT_COLS).single();
+      let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('projects').insert(row).select(PROJECT_COLS_OLD).single()) as unknown as typeof res);
       check(error);
       return toProject(data as ProjectRow);
     },
@@ -98,7 +107,11 @@ export function createSupabaseBackend(): Backend {
         row.room_ids = patch.roomIds;
         row.room_id = patch.roomIds[0] ?? null;
       }
-      const { error } = await client().from('projects').update(row).eq('id', id);
+      let { error } = await client().from('projects').update(row).eq('id', id);
+      if (missingColumn(error) && 'structures' in row) {
+        delete row.structures; // schema not updated yet: the rest is still saved
+        ({ error } = await client().from('projects').update(row).eq('id', id));
+      }
       check(error);
     },
     async deleteProject(id) {
