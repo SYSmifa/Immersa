@@ -90,6 +90,22 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
+  // Experiment: ask the browser not to let the headset sleep (Screen Wake Lock). Quest Browser may not support it, or the
+  // system may ignore it: the result is written to the log (Account) to see.
+  let wake: { release(): Promise<void> } | null = null;
+  async function holdAwake() {
+    try {
+      const api = (navigator as any).wakeLock;
+      if (!api) return core.logEvent('wake lock: non supportato');
+      await wake?.release().catch(() => undefined);
+      wake = await api.request('screen');
+      core.logEvent('wake lock: ottenuto');
+      (wake as any).addEventListener?.('release', () => core.logEvent('wake lock: rilasciato'));
+    } catch (e) {
+      core.logEvent(`wake lock: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   function bind(session: XRSession) {
     bound = session;
     zeroSince = 0;
@@ -107,6 +123,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     core.logEvent(`app: ${['standalone', 'fullscreen', 'browser'].find((m) => matchMedia(`(display-mode: ${m})`).matches)} ${document.referrer.slice(0, 40)}`);
     core.logEvent(`funzioni: ${((s.enabledFeatures ?? []) as string[]).join(' ') || 'n/d'}`);
     probeAt = performance.now() + 4000;
+    void holdAwake();
 
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;
@@ -139,6 +156,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (session.visibilityState === 'hidden') {
         awaySince ||= now;
       } else if (session.visibilityState === 'visible' && awaySince) {
+        void holdAwake(); // the lock is released when the page is hidden: ask again
         const away = now - awaySince;
         awaySince = 0;
         probeAt = now + 3000;
