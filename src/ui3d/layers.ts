@@ -47,6 +47,9 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
   let applied: any[] = [];
   let announced = false;
   let touched = false; // raw GL calls were made this frame
+  let savedActive: number | null = null; // the texture unit three.js had active before them
+  // A texture unit three.js never uses (it stays within MAX_TEXTURE_IMAGE_UNITS): the layer images are written there.
+  const SPARE_UNIT = gl.TEXTURE0 + Math.min(gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number, 32) - 1;
   const pos = new Vector3();
   const quat = new Quaternion();
   const scl = new Vector3();
@@ -128,6 +131,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     touched = true;
     const sub = binding.getSubImage(it.layer, frame);
     const vp = sub.viewport;
+    // three.js remembers which texture is bound on which unit and does not bind again what it thinks is there: writing on
+    // the unit it had active replaced one of its textures behind its back and the models were drawn with the wrong texture.
+    savedActive ??= gl.getParameter(gl.ACTIVE_TEXTURE) as number;
+    gl.activeTexture(SPARE_UNIT);
     gl.bindTexture(gl.TEXTURE_2D, sub.colorTexture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, FLIP_Y);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -277,11 +284,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         log(`layer: ${e instanceof Error ? e.message : String(e)}`);
       }
       if (touched) {
+        // Put back the one piece of GL state we moved (see write()).
         touched = false;
-        if (touched) {
-        touched = false;
-        renderer.resetState(); // the raw GL calls above changed state that three.js caches
-      }
+        if (savedActive !== null) gl.activeTexture(savedActive);
+        savedActive = null;
       }
     },
   };
