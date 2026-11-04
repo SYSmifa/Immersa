@@ -3,13 +3,29 @@ import '@fontsource/sen/latin-700.css';
 import { AURA } from '../ui3d/theme';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
-// Layout for mouse + keyboard: left sidebar (project, rooms, models), top toolbar (tools), right inspector, bottom toast.
-export type Tool = 'select' | 'translate' | 'rotate' | 'build';
+// Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
+// centre-top toolbar, top-right outline of the scene with the details of the selection under it, toast at the bottom.
 export type BuildKind = 'floor' | 'wall';
+export type Gizmo = 'translate' | 'rotate' | 'scale';
+export type View = 'home' | 'projects' | 'rooms' | 'new' | 'project';
+
+export interface LookEdit {
+  target?: 'all' | number; // which material; omitted with `reset`
+  color?: string | null; // null = back to the file's colour
+  roughness?: number;
+  metalness?: number;
+  reset?: boolean; // every colour and finish back to the file's own
+}
+export interface StructureEdit {
+  height?: number;
+  thickness?: number;
+  color?: string | null;
+}
 
 export interface EditorHandlers {
-  onProject(id: string): void;
-  onNewProject(): void;
+  onOpenProject(id: string): void;
+  onCreateProject(name: string, roomIds: string[]): void;
+  onCloseProject(): void;
   onRenameProject(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
@@ -17,87 +33,149 @@ export interface EditorHandlers {
   onRemoveRoom(): void;
   onShell(visible: boolean): void;
   onUpload(file: File): void;
-  onSelect(id: string): void;
-  onTool(tool: Tool): void;
-  onBuildKind(kind: BuildKind): void;
-  onScale(value: number): void;
-  onDeleteModel(): void;
-  onStructureHeight(value: number): void;
-  onDeleteStructure(): void;
-  onSave(): void;
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
+  onSave(): void;
+  // toolbar
+  onBuild(kind: BuildKind | null): void;
+  onGizmo(mode: Gizmo): void;
+  onOrtho(on: boolean): void;
+  onSnapGrid(on: boolean): void;
+  onSnapVertex(on: boolean): void;
+  onLocal(on: boolean): void;
+  onUndo(): void;
+  onRedo(): void;
+  // outline + details
+  onPick(key: string, additive: boolean): void;
+  onModelScale(value: number, commit: boolean): void;
+  onModelYaw(deg: number, commit: boolean): void;
+  onModelLook(edit: LookEdit, commit: boolean): void;
+  onStructure(edit: StructureEdit, commit: boolean): void;
+  onDeleteSelection(): void;
 }
 
-export interface SelectionInfo {
-  scale: number;
-  yawDeg: number; // saved heading
-  size: [number, number, number] | null; // metres, null while the file is loading
+export interface OutlineItem {
+  key: string; // 'm:<id>' model, 's:<id>' structure
+  name: string;
+  kind: 'model' | BuildKind;
 }
-
-export interface StructureInfo {
-  kind: BuildKind;
-  height: number;
-  length: number; // walls: length; floors: area
+export interface MaterialRow {
+  name: string;
+  color: string;
+  roughness: number;
+  metalness: number;
+}
+export type Details =
+  | { kind: 'multi'; count: number }
+  | { kind: 'model'; scale: number; yawDeg: number; size: [number, number, number] | null; materials: MaterialRow[] }
+  | { kind: 'structure'; type: BuildKind; height: number; thickness: number; color: string; measure: string };
+export interface ToolbarState {
+  build: BuildKind | null;
+  gizmo: Gizmo;
+  ortho: boolean;
+  grid: boolean;
+  vertex: boolean;
+  local: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 type Option = { id: string; name: string };
 
 const A = AURA;
 const CSS = `
-.ed{--ink:${A.bgStops[0]};--ink2:${A.bgStops[1]};--ink3:${A.bgStops[2]};--acc:${A.accent[0]};--acc2:${A.accent[1]};--tint:${A.surfaceHover};
+.ed{--ink:${A.bgStops[0][1]};--ink2:${A.bgStops[1][1]};--ink3:${A.bgStops[2][1]};--acc:${A.accent[0]};--acc2:${A.accent[1]};--tint:${A.surfaceHover};
   font-family:'Sen',system-ui,sans-serif;font-size:14px;color:#fff}
 .ed *{box-sizing:border-box;font-family:inherit}
 .ed button,.ed select,.ed input{font-size:14px}
-.ed-side{position:fixed;top:12px;left:12px;bottom:12px;width:310px;z-index:10;display:flex;flex-direction:column;gap:10px;padding:14px;
-  border-radius:22px;background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));box-shadow:0 10px 40px #0008;overflow:auto}
+.ed-panel{background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));box-shadow:0 10px 40px #0008;border-radius:22px}
+.ed-side{position:fixed;top:12px;left:12px;bottom:12px;width:310px;z-index:10;display:flex;flex-direction:column;gap:10px;padding:14px}
+.ed-body{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0}
 .ed-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:.02em}
 .ed-brand i{width:12px;height:12px;border-radius:4px;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 0 12px var(--acc)}
 .ed-title{color:#8b95a7;font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:6px 4px 0}
+.ed-footer{border-top:1px solid #ffffff1a;padding-top:10px}
 .ed-card{background:#fff;color:#12151c;border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .ed-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.ed-card select,.ed-card input[type=number]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none}
-.ed-card input[type=number]{width:90px}
+.ed-row.sp{justify-content:space-between;flex-wrap:nowrap}
+.ed-card select,.ed-card input[type=number],.ed-card input[type=text]{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none}
+.ed-card input[type=number]{width:96px}
 .ed-card select:focus,.ed-card input:focus{border-color:var(--acc)}
-.ed-pill{border:0;border-radius:999px;padding:8px 14px;background:#e8ecf3;color:#12151c;cursor:pointer;font-weight:500;transition:.12s;display:inline-flex;align-items:center;gap:6px}
+.ed-card input[type=color]{width:34px;height:28px;padding:0;border:1px solid #d9dee8;border-radius:8px;background:none;cursor:pointer}
+.ed-card input[type=range]{width:100%;accent-color:var(--acc)}
+.ed-pill{border:0;border-radius:999px;padding:8px 14px;background:#e8ecf3;color:#12151c;cursor:pointer;font-weight:500;transition:.12s;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .ed-pill:hover:not(:disabled){background:var(--tint)}
 .ed-pill:disabled{opacity:.4;cursor:default}
 .ed-pill.acc{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d;font-weight:700}
 .ed-pill.bad:hover:not(:disabled){background:#ef4444;color:#fff}
-.ed-pill.ghost{background:#ffffff14;color:#fff}
-.ed-pill.ghost:hover:not(:disabled){background:#ffffff26}
-.ed-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;background:#fff;color:#12151c;cursor:pointer;border:2px solid transparent;
+.ed-big{display:flex;align-items:center;gap:12px;width:100%;padding:16px;border:0;border-radius:16px;background:#fff;color:#12151c;font-weight:700;font-size:15px;
+  cursor:pointer;text-align:left;transition:.12s}
+.ed-big:hover{background:var(--tint)}
+.ed-big svg{width:24px;height:24px;color:var(--acc)}
+.ed-big small{display:block;font-weight:500;color:#667085;font-size:12px;margin-top:2px}
+.ed-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:#fff;color:#12151c;cursor:pointer;border:2px solid transparent;
   text-align:left;width:100%;font-weight:500;transition:.12s}
 .ed-item:hover{background:var(--tint)}
 .ed-item.on{border-color:var(--acc);background:var(--tint)}
-.ed-list{display:flex;flex-direction:column;gap:6px;max-height:26vh;overflow:auto}
+.ed-item svg{width:18px;height:18px;flex:none;color:#0f9488}
+.ed-item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-item small{color:#667085;font-weight:500}
 .ed-check{display:flex;gap:8px;align-items:center;color:#cfd6e4;padding:0 4px;cursor:pointer}
+.ed-card .ed-check{color:#12151c;padding:4px}
 .ed-check input{accent-color:var(--acc)}
 .ed-file{color:#cfd6e4;font-size:12px}
 .ed-file::file-selector-button{border:0;border-radius:999px;padding:7px 12px;margin-right:8px;background:#ffffff1f;color:#fff;cursor:pointer;font-family:inherit}
-.ed-top{position:fixed;top:12px;left:340px;right:12px;z-index:9;display:flex;gap:10px;align-items:flex-start;pointer-events:none}
+.ed-back{align-self:flex-start;background:#ffffff14;color:#fff}
+.ed-back:hover:not(:disabled){background:#ffffff26}
+.ed-h{font-weight:700;font-size:16px;padding:0 4px}
+.ed-top{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 .ed-top>*{pointer-events:auto}
-.ed-tools{display:flex;gap:4px;padding:6px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
-.ed-tools .ed-pill{background:transparent;color:#cfd6e4}
-.ed-tools .ed-pill:hover:not(:disabled){background:#ffffff1f}
-.ed-tools .ed-pill.on{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d;font-weight:700}
-.ed-grow{flex:1}
-.ed-save{box-shadow:0 6px 24px #0007;padding:11px 20px}
+.ed-tools{display:flex;gap:2px;align-items:center;padding:6px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
+.ed-ib{width:40px;height:40px;border:0;border-radius:50%;background:transparent;color:#cfd6e4;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
+.ed-ib svg{width:21px;height:21px}
+.ed-ib:hover:not(:disabled){background:#ffffff1f}
+.ed-ib:disabled{opacity:.3;cursor:default}
+.ed-ib.on,.ed-ib.on:hover:not(:disabled){background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d}
+.ed-sep{width:1px;height:24px;background:#ffffff26;margin:0 6px}
+.ed-save{padding:0 16px;height:40px;margin-left:4px;background:#ffffff14;color:#cfd6e4;border-radius:999px;border:0;cursor:pointer;font-weight:500}
 .ed-save.dirty{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d;font-weight:700}
-.ed-save:not(.dirty){background:linear-gradient(160deg,var(--ink),var(--ink3));color:#cfd6e4}
-.ed-build{position:fixed;top:72px;left:340px;z-index:9;display:none;gap:10px;align-items:center;padding:8px 14px 8px 8px;border-radius:999px;
-  background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
-.ed-build span{color:#aeb7c8;font-size:13px}
-.ed-insp{position:fixed;right:12px;top:72px;width:250px;z-index:9;display:none;flex-direction:column;gap:10px;padding:14px;border-radius:20px;
-  background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));box-shadow:0 10px 40px #0008}
-.ed-insp b{font-size:15px}
-.ed-insp .ed-card{gap:6px}
-.ed-meta{color:#8b95a7;font-size:12px}
-.ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,60vw);padding:11px 20px;border-radius:999px;
+.ed-save:disabled{opacity:.4}
+.ed-hint{padding:7px 16px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007;color:#cfd6e4;font-size:13px;display:none}
+.ed-right{position:fixed;right:12px;top:12px;bottom:12px;width:270px;z-index:9;display:none;flex-direction:column;gap:10px;pointer-events:none}
+.ed-right>*{pointer-events:auto}
+.ed-outline{padding:14px;display:flex;flex-direction:column;gap:6px;max-height:34vh;min-height:0}
+.ed-outline .ed-list{overflow:auto;display:flex;flex-direction:column;gap:5px}
+.ed-details{padding:14px;display:none;flex-direction:column;gap:8px;overflow:auto;min-height:0}
+.ed-meta{color:#667085;font-size:12px}
+.ed-mat{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid #e5e8ee}
+.ed-mat label{display:flex;align-items:center;gap:8px;font-size:12px;color:#475467}
+.ed-mat label b{width:22px;color:#12151c}
+.ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
-.ed-kbd{color:#8b95a7;font-size:11px;padding:2px 6px;margin-left:4px}
 `;
+
+const svg = (body: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICON = {
+  folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  room: svg('<path d="M4 20V8l8-4 8 4v12M4 20h16M9 20v-6h6v6"/>'),
+  floor: svg('<path d="M3 14l9 5 9-5-9-5zM3 14v-2l9-5 9 5v2"/>'),
+  wall: svg('<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 12h18M9 5v7M15 12v7"/>'),
+  persp: svg('<path d="M12 3l8 4v10l-8 4-8-4V7zM12 11v10M4 7l8 4 8-4"/>'),
+  ortho: svg('<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 12h16M12 4v16"/>'),
+  grid: svg('<path d="M4 4h16v16H4zM4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/>'),
+  magnet: svg('<path d="M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4"/>'),
+  world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+  local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
+  undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
+  redo: svg('<path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/>'),
+  move: svg('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
+  rotate: svg('<path d="M20 12a8 8 0 1 1-3-6.2M20 4v5h-5"/>'),
+  scale: svg('<path d="M4 20L20 4M14 4h6v6M4 14v6h6"/>'),
+  cube: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/>'),
+  back: svg('<path d="M15 5l-7 7 7 7"/>'),
+};
 
 export function createEditorUi(h: EditorHandlers) {
   const style = document.createElement('style');
@@ -142,183 +220,363 @@ export function createEditorUi(h: EditorHandlers) {
     );
     s.value = selected ?? '';
   };
+  const big = (icon: string, label: string, sub: string, onClick: () => void) => {
+    const b = el('button', '', 'ed-big');
+    b.innerHTML = `${icon}<div>${label}<small>${sub}</small></div>`;
+    b.onclick = onClick;
+    return b;
+  };
+  const back = (label: string, to: () => void) => {
+    const b = el('button', '', 'ed-pill ed-back');
+    b.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.back}</span>${label}`;
+    b.onclick = to;
+    return b;
+  };
 
   // ---- sidebar ----
-  const side = el('div', '', 'ed-side');
+  const side = el('div', '', 'ed-panel ed-side');
   const brand = el('div', '', 'ed-brand');
   brand.append(el('i'), document.createTextNode('Immersa'));
+  const body = el('div', '', 'ed-body');
+  const footer = el('div', '', 'ed-footer');
+  side.append(brand, body, footer);
 
-  const projects = select(h.onProject);
-  const projectButtons = [pill('Nuovo', h.onNewProject, 'acc'), pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad')];
+  let view: View = 'home';
+  let projectItems: Option[] = [];
+  let openId: string | null = null;
+  let roomItems: Option[] = [];
+  let projectRoomItems: Option[] = [];
+  let currentRoomId: string | null = null;
+  let addableItems: Option[] = [];
+  let projectName = '';
+  let hasRoom = false;
+  let hasProject = false;
 
-  const projectRooms = select(h.onProjectRoom);
-  const addable = select();
-  const addButton = pill('Aggiungi', () => addable.value && h.onAddRoom(addable.value));
-  const removeButton = pill('Togli dal progetto', h.onRemoveRoom, 'bad');
+  const goHome = () => setView('home');
 
-  const shell = el('input');
-  shell.type = 'checkbox';
-  shell.checked = true;
-  shell.onchange = () => h.onShell(shell.checked);
-  const shellRow = el('label', '', 'ed-check');
-  shellRow.append(shell, document.createTextNode('Mostra le pareti scansionate'));
+  function renderHome() {
+    body.replaceChildren(
+      big(ICON.folder, 'Apri progetto', 'La lista dei tuoi progetti', () => setView('projects')),
+      big(ICON.plus, 'Nuovo progetto', 'Nome e stanze', () => setView('new')),
+      big(ICON.room, 'Le mie stanze', 'Stanze scansionate dal visore', () => setView('rooms')),
+    );
+  }
 
-  const file = el('input', '', 'ed-file');
-  file.type = 'file';
-  file.accept = '.glb';
-  file.onchange = () => {
-    if (file.files?.[0]) h.onUpload(file.files[0]);
-    file.value = '';
+  function renderProjects() {
+    const list = projectItems.map((p) => {
+      const b = el('button', '', 'ed-item');
+      b.innerHTML = `${ICON.folder}<span></span>`;
+      b.querySelector('span')!.textContent = p.name;
+      b.onclick = () => h.onOpenProject(p.id);
+      return b;
+    });
+    body.replaceChildren(
+      back('Indietro', goHome),
+      el('div', 'Apri progetto', 'ed-h'),
+      ...(list.length ? list : [el('div', 'Nessun progetto: creane uno con "Nuovo progetto".', 'ed-title')]),
+    );
+  }
+
+  function renderNew() {
+    const name = el('input');
+    name.type = 'text';
+    name.placeholder = 'Nome del progetto';
+    const checks = roomItems.map((r) => {
+      const c = el('input');
+      c.type = 'checkbox';
+      c.value = r.id;
+      const l = el('label', '', 'ed-check');
+      l.append(c, document.createTextNode(r.name));
+      return l;
+    });
+    const create = pill('Crea progetto', () => {
+      const n = name.value.trim();
+      if (!n) return name.focus();
+      const ids = checks.map((l) => l.firstChild as HTMLInputElement).filter((c) => c.checked).map((c) => c.value);
+      h.onCreateProject(n, ids);
+    }, 'acc');
+    name.onkeydown = (e) => e.key === 'Enter' && create.click();
+    body.replaceChildren(
+      back('Indietro', goHome),
+      el('div', 'Nuovo progetto', 'ed-h'),
+      card(name),
+      title('Stanze del progetto'),
+      card(...(checks.length ? checks : [el('div', 'Nessuna stanza salvata: scansionala dal visore (tab Scan).', 'ed-meta')])),
+      create,
+    );
+    name.focus();
+  }
+
+  function renderRooms() {
+    const cards = roomItems.map((r) => {
+      const t = el('div', r.name);
+      t.style.fontWeight = '700';
+      return card(t, row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')));
+    });
+    body.replaceChildren(
+      back('Indietro', goHome),
+      el('div', 'Le mie stanze', 'ed-h'),
+      ...(cards.length ? cards : [el('div', 'Nessuna stanza: scansionala e salvala dal visore (tab Scan).', 'ed-title')]),
+    );
+  }
+
+  const shellBox = el('input');
+  shellBox.type = 'checkbox';
+  shellBox.checked = true;
+  shellBox.onchange = () => h.onShell(shellBox.checked);
+  const fileInput = el('input', '', 'ed-file');
+  fileInput.type = 'file';
+  fileInput.accept = '.glb';
+  fileInput.onchange = () => {
+    if (fileInput.files?.[0]) h.onUpload(fileInput.files[0]);
+    fileInput.value = '';
   };
-  const list = el('div', '', 'ed-list');
 
-  const accountRooms = select();
-  const accountButtons = [
-    pill('Rinomina', () => accountRooms.value && h.onRenameRoom(accountRooms.value)),
-    pill('Elimina', () => accountRooms.value && h.onDeleteRoom(accountRooms.value), 'bad'),
-  ];
+  function renderProject() {
+    const name = el('div', projectName);
+    name.style.cssText = 'font-weight:700;font-size:16px';
+    const rooms = projectRoomItems.map((r) => {
+      const b = el('button', '', `ed-item${r.id === currentRoomId ? ' on' : ''}`);
+      b.innerHTML = `${ICON.room}<span></span>`;
+      b.querySelector('span')!.textContent = r.name;
+      b.onclick = () => h.onProjectRoom(r.id);
+      return b;
+    });
+    const addable = select();
+    fill(addable, addableItems, null, addableItems.length ? '— aggiungi una stanza —' : "(nessun'altra stanza)");
+    addable.disabled = !addableItems.length;
+    const add = pill('Aggiungi', () => addable.value && h.onAddRoom(addable.value));
+    add.disabled = !addableItems.length;
+    const remove = pill('Togli la stanza dal progetto', h.onRemoveRoom, 'bad');
+    remove.disabled = !hasRoom;
+    fileInput.disabled = !hasRoom;
+    const shellLabel = el('label', '', 'ed-check');
+    shellLabel.append(shellBox, document.createTextNode('Mostra le pareti scansionate'));
+    body.replaceChildren(
+      back('Chiudi progetto', h.onCloseProject),
+      card(name, row(pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad'))),
+      title('Stanze del progetto'),
+      ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: aggiungine una.', 'ed-meta')]),
+      card(row(addable, add), remove),
+      shellLabel,
+      title('Aggiungi un modello (.glb)'),
+      fileInput,
+    );
+  }
 
-  side.append(
-    brand,
-    title('Progetto'),
-    card(projects, row(...projectButtons)),
-    title('Stanze del progetto'),
-    card(projectRooms, row(addable, addButton), removeButton),
-    shellRow,
-    title('Modelli di questa stanza (.glb)'),
-    file,
-    list,
-    title('Tutte le tue stanze'),
-    card(accountRooms, row(...accountButtons)),
-  );
+  function render() {
+    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, project: renderProject })[view]();
+  }
+  function setView(v: View) {
+    view = v;
+    render();
+    syncChrome();
+  }
 
   // ---- toolbar ----
   const top = el('div', '', 'ed-top');
-  const toolDefs: [Tool, string][] = [
-    ['select', 'Seleziona'],
-    ['translate', 'Sposta'],
-    ['rotate', 'Ruota'],
-    ['build', 'Costruisci'],
-  ];
-  const toolButtons = new Map<Tool, HTMLButtonElement>();
   const tools = el('div', '', 'ed-tools');
-  for (const [id, label] of toolDefs) {
-    const b = pill(label, () => h.onTool(id));
-    toolButtons.set(id, b);
-    tools.append(b);
-  }
-  const save = pill('Salva', h.onSave, 'ed-save');
-  top.append(tools, el('div', '', 'ed-grow'), save);
-
-  // Build options (shown with the Build tool).
-  const build = el('div', '', 'ed-build');
-  const kindButtons = new Map<BuildKind, HTMLButtonElement>();
-  for (const [id, label] of [['floor', 'Pavimento'], ['wall', 'Parete']] as [BuildKind, string][]) {
-    const b = pill(label, () => h.onBuildKind(id), 'ghost');
-    kindButtons.set(id, b);
-    build.append(b);
-  }
-  const buildHint = el('span');
-  build.append(buildHint);
-
-  // ---- inspector ----
-  const insp = el('div', '', 'ed-insp');
-  const inspTitle = el('b');
-  const scale = el('input');
-  scale.type = 'number';
-  scale.step = '0.01';
-  scale.min = '0.001';
-  scale.onchange = () => {
-    const v = Number(scale.value);
-    if (v > 0) h.onScale(v);
+  const ib = (icon: string, tip: string, onClick: () => void) => {
+    const b = el('button', '', 'ed-ib');
+    b.innerHTML = icon;
+    b.title = tip;
+    b.onclick = onClick;
+    return b;
   };
-  const size = el('div', '', 'ed-meta');
-  const modelCard = card(row(el('span', 'Scala'), scale), size, pill('Elimina modello', h.onDeleteModel, 'bad'));
-  const height = el('input');
-  height.type = 'number';
-  height.step = '0.1';
-  height.min = '0.05';
-  height.onchange = () => {
-    const v = Number(height.value);
-    if (v > 0) h.onStructureHeight(v);
-  };
-  const heightRow = row(el('span', 'Altezza (m)'), height);
-  const structMeta = el('div', '', 'ed-meta');
-  const structCard = card(heightRow, structMeta, pill('Elimina', h.onDeleteStructure, 'bad'));
-  insp.append(inspTitle, modelCard, structCard);
+  const sep = () => el('div', '', 'ed-sep');
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, canUndo: false, canRedo: false };
+  const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
+  const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
+  const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
+  const bRotate = ib(ICON.rotate, 'Ruota (E)', () => h.onGizmo('rotate'));
+  const bScale = ib(ICON.scale, 'Scala (R)', () => h.onGizmo('scale'));
+  const bOrtho = ib(ICON.persp, 'Camera: prospettiva / ortogonale dall\'alto (pianta)', () => h.onOrtho(!state.ortho));
+  const bGrid = ib(ICON.grid, 'Snap alla griglia (5 cm, rotazione a 15°)', () => h.onSnapGrid(!state.grid));
+  const bVertex = ib(ICON.magnet, 'Snap ai vertici di pareti e pavimenti', () => h.onSnapVertex(!state.vertex));
+  const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
+  const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
+  const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
+  const save = el('button', 'Salva', 'ed-save');
+  save.onclick = h.onSave;
+  tools.append(bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bOrtho, sep(), bGrid, bVertex, bLocal, sep(), bUndo, bRedo, save);
+  const hint = el('div', '', 'ed-hint');
+  top.append(tools, hint);
+
+  // ---- outline + details ----
+  const right = el('div', '', 'ed-right');
+  const outline = el('div', '', 'ed-panel ed-outline');
+  outline.append(el('div', 'Scena', 'ed-h'));
+  const outlineList = el('div', '', 'ed-list');
+  outline.append(outlineList);
+  const details = el('div', '', 'ed-panel ed-details');
+  right.append(outline, details);
 
   const toast = el('div', '', 'ed-toast');
-  root.append(side, top, build, insp, toast);
+  root.append(side, top, right, toast);
 
-  // Keyboard shortcuts are wired by the editor (it knows the state); here only the visual hint.
-  save.append(el('span', 'Ctrl+S', 'ed-kbd'));
+  function syncChrome() {
+    const on = view === 'project' && hasProject;
+    top.style.display = on ? 'flex' : 'none';
+    right.style.display = on ? 'flex' : 'none';
+  }
 
-  const set = (els: HTMLElement[], on: boolean) => els.forEach((e) => ((e as HTMLButtonElement).disabled = !on));
-  const setState = (project: boolean, room: boolean) => {
-    set([projectButtons[1], projectButtons[2], addButton, addable, projectRooms], project);
-    set([removeButton, file, save, ...toolButtons.values()], project && room);
+  const numberField = (value: number, step: string, min: string | null, onInput: (v: number, commit: boolean) => void) => {
+    const i = el('input');
+    i.type = 'number';
+    i.step = step;
+    if (min !== null) i.min = min;
+    i.value = String(Number(value.toFixed(3)));
+    i.oninput = () => i.value !== '' && Number.isFinite(Number(i.value)) && onInput(Number(i.value), false);
+    i.onchange = () => i.value !== '' && Number.isFinite(Number(i.value)) && onInput(Number(i.value), true);
+    return i;
   };
-  setState(false, false);
+  const colorField = (value: string, onInput: (hex: string, commit: boolean) => void) => {
+    const i = el('input');
+    i.type = 'color';
+    i.value = value;
+    i.oninput = () => onInput(i.value, false);
+    i.onchange = () => onInput(i.value, true);
+    return i;
+  };
+  const slider = (label: string, value: number, onInput: (v: number, commit: boolean) => void) => {
+    const r = el('input');
+    r.type = 'range';
+    r.min = '0';
+    r.max = '1';
+    r.step = '0.01';
+    r.value = String(value);
+    r.oninput = () => onInput(Number(r.value), false);
+    r.onchange = () => onInput(Number(r.value), true);
+    const l = el('label');
+    l.append(el('b', label), r);
+    return l;
+  };
+
+  let lastSig = '';
+  function renderDetails(d: Details | null) {
+    details.style.display = d ? 'flex' : 'none';
+    if (!d) return;
+    const del = pill('Elimina', h.onDeleteSelection, 'bad');
+    if (d.kind === 'multi') {
+      details.replaceChildren(el('div', `${d.count} oggetti selezionati`, 'ed-h'), card(el('div', 'Il gizmo li muove e li ruota insieme.', 'ed-meta'), del));
+      return;
+    }
+    if (d.kind === 'model') {
+      const size = el('div', d.size ? `${d.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...', 'ed-meta');
+      const mats = d.materials.map((m, i) => {
+        const wrap = el('div', '', 'ed-mat');
+        const head = row(colorField(m.color, (hex, c) => h.onModelLook({ target: i, color: hex }, c)), el('span', m.name));
+        head.style.fontSize = '12px';
+        wrap.append(
+          head,
+          slider('R', m.roughness, (v, c) => h.onModelLook({ target: i, roughness: v }, c)),
+          slider('M', m.metalness, (v, c) => h.onModelLook({ target: i, metalness: v }, c)),
+        );
+        return wrap;
+      });
+      const all = row(el('span', 'Tutti'), colorField(d.materials[0]?.color ?? '#ffffff', (hex, c) => h.onModelLook({ target: 'all', color: hex }, c)));
+      details.replaceChildren(
+        el('div', 'Modello', 'ed-h'),
+        card(
+          row(el('span', 'Scala'), numberField(d.scale, '0.01', '0.001', (v, c) => h.onModelScale(v, c))),
+          row(el('span', 'Rotazione °'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
+          size,
+        ),
+        el('div', 'Materiali', 'ed-h'),
+        card(
+          ...(mats.length ? [all, ...mats, pill('Colori originali', () => h.onModelLook({ reset: true }, true))] : [el('div', 'carico...', 'ed-meta')]),
+        ),
+        card(del),
+      );
+      return;
+    }
+    const rows: HTMLElement[] = [];
+    if (d.type === 'wall') rows.push(row(el('span', 'Altezza (m)'), numberField(d.height, '0.1', '0.05', (v, c) => h.onStructure({ height: v }, c))));
+    rows.push(row(el('span', 'Spessore (m)'), numberField(d.thickness, '0.01', '0.01', (v, c) => h.onStructure({ thickness: v }, c))));
+    rows.push(row(el('span', 'Colore'), colorField(d.color, (hex, c) => h.onStructure({ color: hex }, c))));
+    details.replaceChildren(el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'), card(...rows, el('div', d.measure, 'ed-meta')), card(del));
+  }
+
+  render();
+
+  const setState = (project: boolean, room: boolean) => {
+    hasProject = project;
+    hasRoom = room;
+    syncChrome();
+    if (view === 'project') renderProject();
+  };
 
   return {
+    footer,
     setStatus(text: string) {
       toast.textContent = text;
     },
-    setDirty(dirty: boolean) {
-      save.classList.toggle('dirty', dirty);
-      save.firstChild!.textContent = dirty ? 'Salva *' : 'Salva';
-    },
+    setView,
+    getView: () => view,
     setProjects(items: Option[], selected: string | null) {
-      fill(projects, items, selected, items.length ? '— scegli un progetto —' : '(nessun progetto)');
+      projectItems = items;
+      openId = selected;
+      if (view === 'projects') renderProjects();
     },
-    setProjectRooms(items: Option[], selected: string | null, addableRooms: Option[]) {
-      fill(projectRooms, items, selected, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
-      fill(addable, addableRooms, null, addableRooms.length ? '— aggiungi una stanza —' : "(nessun'altra stanza)");
+    setRooms(items: Option[]) {
+      roomItems = items;
+      if (view === 'rooms') renderRooms();
     },
-    setAccountRooms(items: Option[]) {
-      fill(accountRooms, items, null, items.length ? '— scegli una stanza —' : '(nessuna stanza)');
+    // The project being edited: its name, rooms, the open room, and the account rooms it could still use.
+    setProject(name: string, rooms: Option[], currentId: string | null, addable: Option[]) {
+      projectName = name;
+      projectRoomItems = rooms;
+      currentRoomId = currentId;
+      addableItems = addable;
+      if (view === 'project') renderProject();
     },
     setState,
-    setTool(tool: Tool, kind: BuildKind) {
-      for (const [id, b] of toolButtons) b.classList.toggle('on', id === tool);
-      for (const [id, b] of kindButtons) b.classList.toggle('acc', tool === 'build' && id === kind);
-      for (const [id, b] of kindButtons) b.classList.toggle('ghost', !(tool === 'build' && id === kind));
-      build.style.display = tool === 'build' ? 'flex' : 'none';
-      buildHint.textContent =
-        kind === 'wall'
-          ? 'Trascina sul pavimento: dal punto iniziale al finale (Maiusc = linea dritta)'
-          : 'Trascina sul pavimento per disegnare il rettangolo';
+    setDirty(dirty: boolean) {
+      save.classList.toggle('dirty', dirty);
+      save.textContent = dirty ? 'Salva *' : 'Salva';
     },
-    setModels(models: Option[], selectedId: string | null) {
-      list.replaceChildren(
-        ...models.map((m) => {
-          const b = el('button', m.name, `ed-item${m.id === selectedId ? ' on' : ''}`);
-          b.onclick = () => h.onSelect(m.id);
-          return b;
-        }),
+    setToolbar(s: ToolbarState) {
+      state = s;
+      const on = (b: HTMLElement, v: boolean) => b.classList.toggle('on', v);
+      on(bFloor, s.build === 'floor');
+      on(bWall, s.build === 'wall');
+      on(bMove, s.gizmo === 'translate');
+      on(bRotate, s.gizmo === 'rotate');
+      on(bScale, s.gizmo === 'scale');
+      on(bOrtho, s.ortho);
+      bOrtho.innerHTML = s.ortho ? ICON.ortho : ICON.persp;
+      on(bGrid, s.grid);
+      on(bVertex, s.vertex);
+      on(bLocal, s.local);
+      bLocal.innerHTML = s.local ? ICON.local : ICON.world;
+      bUndo.disabled = !s.canUndo;
+      bRedo.disabled = !s.canRedo;
+      hint.style.display = s.build ? 'block' : 'none';
+      hint.textContent =
+        (s.build === 'wall' ? 'Parete: trascina sul pavimento (Maiusc = linea dritta)' : 'Pavimento: trascina sul pavimento') +
+        ' · tieni premuto Maiusc per crearne altri di fila · Esc per uscire';
+    },
+    setOutline(items: OutlineItem[], selected: Set<string>) {
+      outlineList.replaceChildren(
+        ...(items.length
+          ? items.map((it) => {
+              const b = el('button', '', `ed-item${selected.has(it.key) ? ' on' : ''}`);
+              b.innerHTML = `${it.kind === 'model' ? ICON.cube : ICON[it.kind]}<span></span>`;
+              b.querySelector('span')!.textContent = it.name;
+              b.onclick = (e) => h.onPick(it.key, e.shiftKey || e.ctrlKey || e.metaKey);
+              return b;
+            })
+          : [el('div', 'Vuota: aggiungi un modello o costruisci.', 'ed-meta')]),
       );
     },
-    setSelection(info: SelectionInfo | null) {
-      modelCard.style.display = info ? 'flex' : 'none';
-      structCard.style.display = 'none';
-      insp.style.display = info ? 'flex' : 'none';
-      if (!info) return;
-      inspTitle.textContent = 'Modello';
-      scale.value = String(info.scale);
-      size.textContent = `${info.size ? `${info.size.map((n) => n.toFixed(2)).join(' × ')} m` : 'carico...'} · ${info.yawDeg.toFixed(0)}°`;
+    setDetails(d: Details | null) {
+      const sig = JSON.stringify(d);
+      if (sig === lastSig) return;
+      // While typing in a field, a refresh of the same kind of object must not rewrite it under the cursor.
+      if (d && lastSig && details.contains(document.activeElement) && JSON.parse(lastSig)?.kind === d.kind) return;
+      lastSig = sig;
+      renderDetails(d);
     },
-    setStructure(info: StructureInfo | null) {
-      structCard.style.display = info ? 'flex' : 'none';
-      if (info) {
-        modelCard.style.display = 'none';
-        insp.style.display = 'flex';
-        inspTitle.textContent = info.kind === 'wall' ? 'Parete' : 'Pavimento';
-        heightRow.style.display = info.kind === 'wall' ? 'flex' : 'none';
-        height.value = String(info.height);
-        structMeta.textContent = info.kind === 'wall' ? `Lunga ${info.length.toFixed(2)} m` : `Superficie ${info.length.toFixed(2)} m²`;
-      } else if (modelCard.style.display === 'none') {
-        insp.style.display = 'none';
-      }
-    },
+    openId: () => openId,
   };
 }

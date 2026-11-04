@@ -3,16 +3,16 @@ import { supabase } from '../cloud/supabase';
 
 // Small DOM login box (top right). Done on the 2D page before entering AR:
 // the session is kept in the browser, so on the Quest it is typed once.
-export async function createLogin() {
+export async function createLogin(parent?: HTMLElement) {
   if (!supabase) return;
   const sb = supabase;
 
   const box = document.createElement('div');
-  box.style.cssText =
-    'position:fixed;bottom:12px;left:12px;width:310px;padding:10px 14px;border-radius:18px;color:#cfd6e4;' +
-    'background:linear-gradient(160deg,#0b0d12,#1d222d);box-shadow:0 6px 24px #0007;font:13px Sen,system-ui,sans-serif;' +
-    'z-index:12;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  document.body.appendChild(box);
+  box.style.cssText = parent
+    ? 'color:#cfd6e4;font:13px Sen,system-ui,sans-serif;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:space-between'
+    : 'position:fixed;top:8px;right:8px;padding:8px 10px;background:#000a;color:#fff;font:13px sans-serif;z-index:10;' +
+      'display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:60vw';
+  (parent ?? document.body).appendChild(box);
 
   const button = (label: string, onClick: () => void) => {
     const b = document.createElement('button');
@@ -26,6 +26,7 @@ export async function createLogin() {
   if (data.session) {
     const label = document.createElement('span');
     label.textContent = data.session.user.email ?? 'signed in';
+    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px';
     box.append(
       label,
       button('Esci', async () => {
