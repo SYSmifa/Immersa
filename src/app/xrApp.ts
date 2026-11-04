@@ -28,7 +28,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onResume: () => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   let laserHidden = false; // the dominant hand is turned palm up / towards the face (the system's own gesture): no laser
@@ -198,21 +198,16 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.planesGap(true); // a wireframe in the wrong place is worse than none
           }
           if (waiting === null && now - zeroSince > NO_PLANES_MS) {
+            // The session is blind. Ending it would close the installed app, and the relaunch from inside is not a
+            // launch from the Library: wait for the planes, and keep the open project for a manual relaunch.
             waiting = now;
-            core.prepareResume(); // the open project comes back after a relaunch (automatic or from the Library)
-            if (core.autoRestart()) {
-              // The session is blind: start over (ending it closes the installed app, the relaunch opens it again).
-              core.logEvent('nessun piano: riapro l\'app');
-              core.showSearching('restart');
-              setTimeout(onResume, 600); // long enough to read the message
-            } else {
-              core.logEvent('nessun piano: aspetto (riavvio automatico spento)');
-              core.showSearching('search');
-            }
+            core.logEvent('nessun piano: aspetto (niente riavvio)');
+            core.prepareResume();
+            core.showSearching(false);
           } else if (waiting !== null && !hinted && now - waiting > LOST_ROOM_MS) {
             hinted = true;
             core.logEvent('piani non tornati: chiudere e riaprire dalla Libreria');
-            core.showSearching('hint');
+            core.showSearching(true);
           }
         } else if (!planes.length) {
           zeroSince = 0; // hidden or scanning: do not count this time
