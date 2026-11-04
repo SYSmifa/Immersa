@@ -1539,7 +1539,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     showSearching(hint: boolean) {
       closeMenu();
       searching = true;
-      setLoadingText('Cerco la stanza', hint ? 'Non la ritrovo: chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
+      setLoadingText('Cerco la stanza', hint ? 'Sei in un\'altra stanza? Chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
       loading.mesh.visible = true;
     },
     hideSearching() {
