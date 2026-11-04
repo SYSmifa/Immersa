@@ -229,7 +229,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             if (palm) {
               const toHead = head().pos.sub(palm.wrist).normalize();
               const facing = Math.max(palm.normal.y, palm.normal.dot(toHead)); // 1: palm straight up / at the face
-              laserHidden = laserHidden ? facing > 0.35 : facing > 0.55; // hysteresis: no flicker at the edge
+              laserHidden = laserHidden ? facing > 0.55 : facing > 0.75; // hysteresis: no flicker at the edge
             } else laserHidden = false;
           }
           if (src.handedness === dominant && laserHidden) {

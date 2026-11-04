@@ -536,6 +536,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     say('Project reload failed', 10000);
   }
 
+  let closeWarnedAt = 0;
   let unsaved = false; // models moved in the headset, not yet saved to the account
 
   function loadProjects() {
@@ -981,6 +982,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       render();
     },
     closeProject() {
+      // Moves made in the headset and not saved would be lost: the first press only warns, a second one (within a few
+      // seconds) closes anyway.
+      if (unsaved && performance.now() - closeWarnedAt > 4000) {
+        closeWarnedAt = performance.now();
+        return say('Modifiche non salvate: premi di nuovo Chiudi per scartarle', 4000);
+      }
+      closeWarnedAt = 0;
       unsaved = false;
       lastProject.clear();
       closeCurrent();

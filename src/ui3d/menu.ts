@@ -255,10 +255,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
           sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
           tone: ptTone(p.name),
           active: open,
-          badge: open ? 'Aperto' : undefined,
-          badgeOn: open,
+          reserve: open ? 150 : undefined, // room for the "Chiudi" button drawn over the card
           onClick: () => a.selectProject(p.id),
         });
+        // The open project has its own close button instead of the "Aperto" label (the one in Options stays too).
+        if (open) {
+          out.push({ kind: 'pill', glass: true, icon: 'close', rect: { x: M + W - 18 - 150, y: top + i * 94 + 18, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
+        }
       });
       if (pages > 1) {
         const y = top - 4 - 0;

@@ -38,6 +38,7 @@ export interface Widget {
   since?: number; // splash: when it appeared (performance.now), for the fade-in
   badge?: string; // card: a pill at the right end
   badgeOn?: boolean; // card: the badge is highlighted
+  reserve?: number; // card: px kept free at the right end for another widget drawn over it
   tone?: number; // card without an icon: which gradient the tile takes
   swatch?: string; // a small colour dot at the right end of a button / row / card
   value?: number; // bar / loader: 0..1 (a loader without a value shows no progress bar)
@@ -568,8 +569,8 @@ export class Panel {
       c.fillText(w.badge, right + bw / 2, cy + 1);
       right -= 10;
     } else {
-      if (!w.disabled && w.onClick) drawIcon(c, 'chevron', right - 8, cy, 22, on ? '#ffffff' : T.faint);
-      right -= 34;
+      if (!w.disabled && w.onClick && !w.reserve) drawIcon(c, 'chevron', right - 8, cy, 22, on ? '#ffffff' : T.faint);
+      right -= 34 + (w.reserve ?? 0);
       if (w.swatch) {
         c.fillStyle = w.swatch;
         c.beginPath();
