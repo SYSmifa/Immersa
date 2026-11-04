@@ -129,6 +129,7 @@ const CSS = `
   text-align:left;width:100%;font-weight:500;transition:.12s}
 .ed-item:hover{background:var(--tint)}
 .ed-item.on{border-color:var(--acc);background:var(--tint)}
+.ed-ini{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-weight:700;font-size:17px}
 .ed-item.off span{opacity:.45}
 .ed-eye{border:0;background:#0000;padding:4px;border-radius:8px;cursor:pointer;color:#475467;display:flex}
 .ed-eye:hover{background:#0001}
@@ -303,7 +304,12 @@ export function createEditorUi(h: EditorHandlers) {
   function renderProjects() {
     const list = projectItems.map((p) => {
       const b = el('button', '', 'ed-item');
-      b.innerHTML = `${ICON.folder}<span></span>`;
+      // Like the headset's project list: the initial on a tile whose colour depends on the name (same rule: name length).
+      const tone = A.tones[p.name.length % A.tones.length];
+      b.innerHTML = '<i class="ed-ini"></i><span></span>';
+      const ini = b.querySelector('.ed-ini') as HTMLElement;
+      ini.textContent = (p.name.trim()[0] ?? '?').toUpperCase();
+      ini.style.background = `linear-gradient(135deg,${tone[0]},${tone[1]})`;
       b.querySelector('span')!.textContent = p.name;
       b.onclick = () => h.onOpenProject(p.id);
       return b;

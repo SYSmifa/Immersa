@@ -68,8 +68,18 @@ function texturedBox(w: number, h: number, d: number, tile: number) {
 
 export function createStructureLayer(parent: Object3D) {
   const meshes = new Map<string, Mesh>();
+  let hl: string | null = null; // the selected one (headset): a soft azure glow
+  const glow = (id: string, m: Mesh) => {
+    const mat = m.material as MeshStandardMaterial;
+    mat.emissive.set(id === hl ? 0x1d7fd0 : 0x000000);
+    mat.emissiveIntensity = id === hl ? 0.7 : 0;
+  };
   return {
     meshes,
+    highlight(id: string | null) {
+      hl = id;
+      for (const [k, m] of meshes) glow(k, m);
+    },
     // Call after any change to the list.
     sync(list: Structure[]) {
       const ids = new Set(list.map((s) => s.id));
@@ -89,6 +99,7 @@ export function createStructureLayer(parent: Object3D) {
           parent.add(m);
           meshes.set(s.id, m);
         }
+        glow(s.id, m);
         const mat = m.material as MeshStandardMaterial;
         const def = textureById(s.texture);
         const tex = def ? textureFor(def.id) : null;

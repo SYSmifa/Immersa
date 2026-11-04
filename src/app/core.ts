@@ -1,21 +1,22 @@
-import { Box3, Group, Matrix4, Scene, Vector3 } from 'three';
+import { Box3, Group, Matrix4, Raycaster, Scene, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createStructureLayer, type StructureLayer } from '../room/structures';
+import { TEXTURES, textureAverage } from '../room/textures';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Project, Room, RoomBox, RoomModel, RoomPlane } from '../room/types';
+import type { Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { theme } from '../ui3d/theme';
 import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
-import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type Tab } from '../ui3d/menu';
+import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type ObjectView, type Tab } from '../ui3d/menu';
 import { Panel } from '../ui3d/panel';
 
 export interface Capture {
@@ -312,6 +313,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let objectOpen = false;
   let confirmDelete = false;
   const selectedModel = () => (selectedId ? (current?.models.find((x) => x.id === selectedId) ?? null) : null);
+  // A wall or floor can be selected too (built in the PC editor): same floating button and object menu.
+  let selectedStructId: string | null = null;
+  const selectedStruct = () => (selectedStructId ? (current?.structures?.find((x) => x.id === selectedStructId) ?? null) : null);
+  const structsOf = (roomId: string) => current?.structures?.filter((x) => x.roomId === roomId) ?? [];
+  const structMesh = (st: Structure) => houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null;
+  const structName = (st: Structure) => `${st.kind === 'wall' ? 'Parete' : 'Pavimento'} ${structsOf(st.roomId).filter((x) => x.kind === st.kind).indexOf(st) + 1}`;
+  const DEFAULT_TINT = { wall: '#e9ecf2', floor: '#c7cdd9' };
   let colorPage = false; // the object menu shows the colour page
   let colorTarget: 'all' | number = 'all'; // what the colour page changes: every material, or one (index in the list)
   let matPage = 0;
@@ -330,7 +338,34 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       metalness: own?.metalness ?? m.finish?.metalness ?? base?.metalness ?? 0,
     };
   }
-  function objectView() {
+  function structureView(st: Structure): ObjectView {
+    const dx = Math.abs(st.b[0] - st.a[0]);
+    const dz = Math.abs(st.b[1] - st.a[1]);
+    return {
+      name: structName(st),
+      yawDeg: 0,
+      scale: 1,
+      size: st.kind === 'wall' ? `Lunga ${Math.hypot(dx, dz).toFixed(2)} m` : `${dx.toFixed(2)} × ${dz.toFixed(2)} m · ${(dx * dz).toFixed(2)} m²`,
+      color: st.color ?? null,
+      confirmDelete,
+      colorPage,
+      materials: [],
+      target: 'all',
+      matPage,
+      hsv: pick,
+      finish: { roughness: 0.5, metalness: 0 },
+      structure: {
+        kind: st.kind,
+        height: st.height,
+        thickness: st.thickness,
+        texture: st.texture ?? null,
+        textures: [{ id: null, name: 'Nessuna', color: st.color ?? DEFAULT_TINT[st.kind] }, ...TEXTURES.map((t) => ({ id: t.id, name: t.name, color: textureAverage(t.id) }))],
+      },
+    };
+  }
+  function objectView(): ObjectView | null {
+    const st = objectOpen ? selectedStruct() : null;
+    if (st) return structureView(st);
     const m = objectOpen ? selectedModel() : null;
     if (!m) {
       objectOpen = false;
@@ -885,12 +920,24 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // Colour: preset or "Orig." (null) for the chosen target.
     objColor(hex: string | null) {
+      const st = selectedStruct();
+      if (st) {
+        if (hex) pick = hexToHsv(hex);
+        return setStructColor(st, hex);
+      }
       const m = selectedModel();
       if (!m) return;
       if (hex) pick = hexToHsv(hex);
       setColor(m, hex);
     },
     objOpenColor() {
+      const st = selectedStruct();
+      if (st) {
+        colorPage = true;
+        matPage = 0;
+        pick = hexToHsv(st.color ?? DEFAULT_TINT[st.kind]);
+        return refreshView();
+      }
       const m = selectedModel();
       if (!m) return;
       colorPage = true;
@@ -922,6 +969,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // Wheel (hue, saturation) and brightness bar: a null part stays as it is.
     objPick(h: number | null, sat: number | null, v: number | null) {
+      const st = selectedStruct();
+      if (st) {
+        pick = [h ?? pick[0], sat ?? pick[1], v ?? pick[2]];
+        return setStructColor(st, hsvToHex(...pick));
+      }
       const m = selectedModel();
       if (!m) return;
       pick = [h ?? pick[0], sat ?? pick[1], v ?? pick[2]];
@@ -935,7 +987,42 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       confirmDelete = false;
       refreshView();
     },
+    async objHeight() {
+      const st = selectedStruct();
+      if (!st) return;
+      const n = parseNumber(await ask('Altezza (metri)', String(Number(st.height.toFixed(3))), { max: 6, capital: false }));
+      if (n === null || n <= 0) return say('Altezza non valida (deve essere maggiore di 0)', 4000);
+      st.height = Math.min(20, Math.max(0.05, n));
+      applyStructChange(st);
+    },
+    async objThickness() {
+      const st = selectedStruct();
+      if (!st) return;
+      const n = parseNumber(await ask('Spessore (centimetri)', String(Number((st.thickness * 100).toFixed(1))), { max: 6, capital: false }));
+      if (n === null || n <= 0) return say('Spessore non valido (deve essere maggiore di 0)', 4000);
+      st.thickness = Math.min(2, Math.max(0.005, n / 100));
+      applyStructChange(st);
+    },
+    objTexture(id: string | null) {
+      const st = selectedStruct();
+      if (!st) return;
+      if (id) st.texture = id;
+      else delete st.texture;
+      applyStructChange(st);
+    },
     objDeleteYes() {
+      const st = selectedStruct();
+      if (st && current) {
+        current.structures = current.structures.filter((x) => x.id !== st.id);
+        const name = structName(st);
+        selectedStructId = null;
+        objectOpen = false;
+        confirmDelete = false;
+        houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
+        markUnsaved();
+        refreshView();
+        return say(`Eliminato: ${name} (non salvato)`, 4000);
+      }
       const m = selectedModel();
       if (!m || !current) return;
       current.models = current.models.filter((x) => x.id !== m.id);
@@ -1016,7 +1103,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!current || !unsaved) return;
     const p = current;
     try {
-      await backend.saveProject(p.id, { models: p.models });
+      await backend.saveProject(p.id, { models: p.models, structures: p.structures });
       if (current === p) unsaved = false;
       refreshView();
       say('Modifiche salvate', 3000);
@@ -1026,11 +1113,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   // Model selection: a pointing hand (ray) hovers the model it points at; a pinch selects it (azure outline).
-  const hovered = new Map<string, string>(); // pointer id -> model id
+  const hovered = new Map<string, string>(); // pointer id -> model id ('s:<id>' for a wall / floor)
+  const structRay = new Raycaster();
+  const hoverPoint = new Map<string, Vector3>(); // pointer id -> where its ray meets the wall / floor it hovers
+  let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
   let looked: { id: string; holder: Group } | null = null;
 
   const deg = (r: number) => Math.round((r * 180) / Math.PI);
+  function selectStruct(id: string | null) {
+    if (id === selectedStructId) return;
+    selectedStructId = id;
+    if (id) selectedId = null;
+    else if (objectOpen) closeMenu();
+    const st = selectedStruct();
+    say(st ? `Selezionato: ${structName(st)}` : 'Selezione annullata', 2500);
+  }
   function selectModel(id: string | null) {
+    if (id && selectedStructId) selectedStructId = null;
     if (id === selectedId) return;
     selectedId = id;
     if (!id && objectOpen) closeMenu(); // nothing selected any more: the object's menu goes away
@@ -1040,6 +1139,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // Keeps the outline on the selected model's holder (and only there); the model may still be loading.
   function syncOutline() {
+    if (selectedStructId && !current?.structures?.some((x) => x.id === selectedStructId)) selectedStructId = null;
+    // While the object menu is open the real colours must show, so no glow then.
+    const glowId = objectOpen ? null : selectedStructId;
+    for (const h of houses.values()) h.structs.highlight(glowId);
     if (selectedId && !current?.models.some((m) => m.id === selectedId)) selectedId = null;
     // While the object menu is open the model shows its real colours (the azure look would hide a colour change).
     const lookId = objectOpen ? null : selectedId;
@@ -1058,6 +1161,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function aim(id: string, origin: Vector3, dir: Vector3): { length: number; target: 'panel' | 'model' | 'none' } {
     const panelDist = host.setRay(id, origin, dir);
     hovered.delete(id);
+    hoverPoint.delete(id);
     rays.set(id, { origin: origin.clone(), dir: dir.clone() });
     if (grab && grab.pointer === id) {
       grab.seen = true;
@@ -1074,6 +1178,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         if (d !== null && d <= limit && (!best || d < best.d)) best = { id: m.id, d };
       }
     }
+    // Walls and floors: plain ray against their meshes; a model in front of them wins.
+    if (current?.structures?.length) {
+      const limit = Math.min(panelDist ?? 5, best ? best.d : 5);
+      structRay.set(origin, dir);
+      structRay.far = limit;
+      for (const st of current.structures) {
+        const house = houses.get(st.roomId);
+        const mesh = structMesh(st);
+        if (!house?.root.visible || !mesh) continue;
+        const hit = structRay.intersectObject(mesh, false)[0];
+        if (hit && hit.distance <= limit && (!best || hit.distance < best.d)) {
+          best = { id: `s:${st.id}`, d: hit.distance };
+          hoverPoint.set(id, hit.point.clone());
+        }
+      }
+    }
     if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
     if (best) {
       hovered.set(id, best.id);
@@ -1085,6 +1205,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
   function pressModel(id: string) {
     const target = hovered.get(id) ?? null;
+    if (target?.startsWith('s:')) {
+      structHit = hoverPoint.get(id)?.clone() ?? null;
+      return selectStruct(target.slice(2)); // a wall / floor: selects, no dragging yet
+    }
+    selectStruct(null);
     selectModel(target);
     // Holding the pinch drags the model (see updateGrab); a quick pinch only selects it.
     if (target) grab = { pointer: id, modelId: target, phase: 'pending', seen: true, t0: null, last: null, offset: new Vector3(), decay: true, two: null };
@@ -1138,7 +1263,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   host.root.add(objButton.mesh);
   host.add(objButton);
   function openObjectMenu() {
-    if (!selectedModel()) return;
+    if (!selectedModel() && !selectedStruct()) return;
     objectOpen = true;
     confirmDelete = false;
     colorPage = false;
@@ -1147,8 +1272,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
   function placeObjectButton(head: Head) {
     const m = selectedModel();
+    const st = selectedStruct();
     const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
-    const top = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
+    let top: Vector3 | null = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
+    // A wall's top is out of reach: the button floats where it was pinched, a little towards you and up, within arm's reach.
+    if (st && structHit && houses.get(st.roomId)?.root.visible) {
+      const toHead = new Vector3(head.pos.x - structHit.x, 0, head.pos.z - structHit.z).normalize();
+      top = structHit.clone().addScaledVector(toHead, 0.12);
+      top.y -= 0.05; // the button sits 0.17 above this point
+      const far = top.distanceTo(head.pos);
+      if (far > 2.4) {
+        const away = top.clone().sub(head.pos);
+        top.copy(head.pos).addScaledVector(away, 2.4 / far);
+      }
+    }
     objButton.mesh.visible = !!top && !grab && !rig.visible;
     if (!top) return;
     objButton.mesh.position.copy(top).y += 0.17;
@@ -1188,6 +1325,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       m.materialFinish = { ...m.materialFinish, [k]: { ...m.materialFinish?.[k], [key]: v } };
     }
     applyModelChange(m);
+  }
+  function applyStructChange(st: Structure) {
+    houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
+    markUnsaved();
+    refreshView();
+  }
+  // Tint of a wall / floor (null: back to the default colour). With a texture it multiplies the texture.
+  function setStructColor(st: Structure, hex: string | null) {
+    if (hex) st.color = hex;
+    else delete st.color;
+    applyStructChange(st);
   }
   function applyModelChange(m: RoomModel) {
     houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));
@@ -1692,6 +1840,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       pinchR = right;
     },
     selected: () => selectedId,
+    selectedStruct: () => selectedStructId,
     say,
     // Test hook.
     debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),

@@ -19,6 +19,14 @@ export interface ObjectView {
   matPage: number;
   hsv: Hsv; // the colour in the picker
   finish: { roughness: number; metalness: number }; // of the target, as shown now
+  // Set when the selection is a wall or a floor instead of a model.
+  structure?: {
+    kind: 'wall' | 'floor';
+    height: number;
+    thickness: number;
+    texture: string | null;
+    textures: { id: string | null; name: string; color: string }[]; // the catalogue, "none" first
+  };
 }
 
 export const OBJECT_COLORS = ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa', '#eceff1', '#424242'];
@@ -80,6 +88,9 @@ export interface MenuActions {
   objMatPage(delta: number): void;
   objPick(h: number | null, s: number | null, v: number | null): void;
   objFinish(key: 'roughness' | 'metalness', value: number): void;
+  objHeight(): void;
+  objThickness(): void;
+  objTexture(id: string | null): void;
   objDelete(): void;
   objDeleteYes(): void;
   objDeleteNo(): void;
@@ -135,16 +146,19 @@ const ptTone = (name: string) => name.length;
 // Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or presets.
 function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.name, M + 70), closeButton(a));
-  const items: { name: string; color: string | null; t: 'all' | number }[] = [
-    { name: 'Tutti i materiali', color: o.color, t: 'all' },
-    ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
-  ];
+  const st = o.structure;
+  const items: { name: string; color: string | null; t: 'all' | number; tex?: string | null }[] = st
+    ? st.textures.map((t) => ({ name: t.name, color: t.color, t: 'all' as const, tex: t.id }))
+    : [
+        { name: 'Tutti i materiali', color: o.color, t: 'all' },
+        ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
+      ];
   const pages = Math.max(1, Math.ceil(items.length / ROWS));
   const page = Math.min(o.matPage, pages - 1);
   // left: what to change
   out.push(surface(M, 104, 352, 322));
   items.slice(page * ROWS, (page + 1) * ROWS).forEach((it, i) =>
-    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: o.target === it.t, onClick: () => a.objColorTarget(it.t) }),
+    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: st ? st.texture === it.tex : o.target === it.t, onClick: () => (st ? a.objTexture(it.tex ?? null) : a.objColorTarget(it.t)) }),
   );
   if (pages > 1) {
     out.push({ kind: 'iconbtn', icon: 'left', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
@@ -158,13 +172,14 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   out.push({ kind: 'chip', rect: { x: 684, y: 132, w: 124, h: 124 }, text: '', fill: hsvToHex(h, s, v) });
   out.push(text(hsvToHex(h, s, v).toUpperCase(), 684, 268, 124, 34, 22, theme().text2, { align: 'center', bold: true }));
   out.push({ kind: 'slider', rect: { x: 424, y: 362, w: 384, h: 32 }, text: '', hsv: o.hsv, onPoint: (fx) => a.objPick(null, null, fx) });
-  out.push(text('Verso il centro: più chiaro · barra: più scuro', 424, 396, 390, 24, 17, theme().dim));
+  out.push(text(st ? 'Tinta: si moltiplica alla texture · verso il centro più chiaro' : 'Verso il centro: più chiaro · barra: più scuro', 424, 396, 390, 24, 17, theme().dim));
   // presets
   const n = OBJECT_COLORS.length + 1;
   const gap = 8;
   const pw = (W - (n - 1) * gap) / n;
   out.push({ rect: { x: M, y: 438, w: pw, h: 50 }, text: 'Orig.', size: 20, onClick: () => a.objColor(null) });
   OBJECT_COLORS.forEach((c, i) => out.push({ rect: { x: M + (i + 1) * (pw + gap), y: 438, w: pw, h: 50 }, text: '●', size: 38, color: c, onClick: () => a.objColor(c) }));
+  if (st) return out;
   // finish
   out.push(surface(M, 500, W, 108));
   const bar = (key: 'roughness' | 'metalness', name: string, y: number) => {
@@ -179,8 +194,26 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
 
 function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: string): Widget[] {
   if (o.colorPage) return colorPage(o, out, a);
-  out.push(backButton(a.objClose), title('Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
+  out.push(backButton(a.objClose), title(o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
   const half = (W - 16) / 2;
+  if (o.structure) {
+    const st = o.structure;
+    if (st.kind === 'wall') out.push({ kind: 'card', icon: 'scale', rect: { x: M, y: 112, w: half, h: 104 }, text: `${st.height.toFixed(2)} m`, sub: 'Altezza', size: 34, onClick: a.objHeight });
+    out.push({ kind: 'card', icon: 'scale', rect: { x: st.kind === 'wall' ? M + half + 16 : M, y: 112, w: half, h: 104 }, text: `${(st.thickness * 100).toFixed(0)} cm`, sub: 'Spessore', size: 34, onClick: a.objThickness });
+    if (o.size) out.push({ kind: 'chip', rect: { x: M, y: 230, w: 440, h: 40 }, text: o.size, size: 19, fill: theme().glass });
+    const tex = st.textures.find((t) => t.id === st.texture);
+    out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Texture e colore', sub: tex?.id ? `Texture: ${tex.name}` : o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colore predefinito', swatch: o.color ?? tex?.color ?? undefined, onClick: a.objOpenColor });
+    if (o.confirmDelete) {
+      out.push(surface(M, 404, W, 176));
+      out.push(text(`Eliminare "${o.name}"?`, M + 28, 420, W - 56, 44, 30, theme().bad, { bold: true }));
+      out.push(text('Sparisce dal progetto; per tenerla ricordati di non salvare.', M + 28, 464, W - 56, 30, 20, theme().dim));
+      const bw = (W - 28 * 2 - 14) / 2;
+      out.push({ kind: 'pill', rect: { x: M + 28, y: 508, w: bw, h: 56 }, text: 'Annulla', size: 24, onClick: a.objDeleteNo });
+      out.push({ kind: 'pill', icon: 'trash', primary: true, rect: { x: M + 28 + bw + 14, y: 508, w: bw, h: 56 }, text: 'Sì, elimina', size: 24, onClick: a.objDeleteYes });
+    } else out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 404, w: W, h: 64 }, text: `Elimina ${st.kind === 'wall' ? 'parete' : 'pavimento'}`, size: 26, color: theme().bad, onClick: a.objDelete });
+    if (message) out.push(...toast(message));
+    return out;
+  }
   out.push({ kind: 'card', icon: 'rotate', rect: { x: M, y: 112, w: half, h: 104 }, text: `${o.yawDeg}°`, sub: 'Rotazione', size: 34, onClick: a.objRotation });
   out.push({ kind: 'card', icon: 'scale', rect: { x: M + half + 16, y: 112, w: half, h: 104 }, text: `×${o.scale.toFixed(2)}`, sub: 'Scala', size: 34, onClick: a.objScale });
   if (o.size) out.push({ kind: 'chip', rect: { x: M, y: 230, w: 440, h: 40 }, text: `Dimensioni reali  ${o.size}`, size: 19, fill: theme().glass });

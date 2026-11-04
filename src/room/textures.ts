@@ -355,3 +355,21 @@ export function textureMaps(id: string): TextureMaps | null {
   return m;
 }
 export const textureCanvas = (id: string) => textureMaps(id)?.color ?? null;
+
+// Average colour of a texture ('#rrggbb'): a swatch for lists.
+const averages = new Map<string, string>();
+export function textureAverage(id: string): string {
+  let a = averages.get(id);
+  if (!a) {
+    const c = textureCanvas(id);
+    if (!c) return '#888888';
+    const t = document.createElement('canvas');
+    t.width = t.height = 1;
+    const ctx = t.getContext('2d')!;
+    ctx.drawImage(c, 0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    a = `#${[d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+    averages.set(id, a);
+  }
+  return a;
+}
