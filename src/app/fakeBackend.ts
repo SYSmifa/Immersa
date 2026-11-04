@@ -71,11 +71,11 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     { id: 'r2', name: 'Cucina', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
   const projects: Project[] = [
-    { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
-    { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), models: [model('Macchina', 1, 1)] },
-    { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [] },
+    { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
+    { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), structures: [], models: [model('Macchina', 1, 1)] },
+    { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [], structures: [] },
     // A whole house: models in two rooms, each in its own room's frame.
-    { id: 'p4', roomIds: ['r1', 'r2'], name: 'Casa', updatedAt: now(), models: [model('Divano', 0.5, -0.5, 'r1'), model('Frigo', 0.3, 0.2, 'r2')] },
+    { id: 'p4', roomIds: ['r1', 'r2'], name: 'Casa', updatedAt: now(), structures: [], models: [model('Divano', 0.5, -0.5, 'r1'), model('Frigo', 0.3, 0.2, 'r2')] },
   ];
   return {
     rooms,
@@ -106,8 +106,8 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       // like the database: projects stay, with a stale room id
     },
     listProjects: async () => projects.map((p) => ({ ...p })),
-    async createProject(name, roomIds, models) {
-      const p = { id: `p${projects.length + 1}`, roomIds, name, updatedAt: now(), models };
+    async createProject(name, roomIds, models, structures = []) {
+      const p = { id: `p${projects.length + 1}`, roomIds, name, updatedAt: now(), models, structures };
       projects.push(p);
       return p;
     },

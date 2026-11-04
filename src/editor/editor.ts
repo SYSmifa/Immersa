@@ -1,9 +1,13 @@
 import {
   Box3,
+  BoxGeometry,
   Camera,
   GridHelper,
   Group,
+  Mesh,
+  MeshBasicMaterial,
   Object3D,
+  Plane,
   Raycaster,
   Scene,
   Vector2,
@@ -18,10 +22,11 @@ import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { createModelLayer } from '../room/modelLayer';
-import type { Project, Room } from '../room/types';
+import { createStructureLayer, placeStructure } from '../room/structures';
+import type { Project, Room, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { createLogin } from '../ui/login';
-import { createEditorUi } from './editorUi';
+import { createEditorUi, type BuildKind, type Tool } from './editorUi';
 
 interface Deps {
   renderer: WebGLRenderer;
@@ -58,6 +63,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let shellVisible = true;
   const modelsGroup = new Group();
   scene.add(planesGroup, modelsGroup);
+  const structuresGroup = new Group();
+  scene.add(structuresGroup);
+  const structLayer = createStructureLayer(structuresGroup);
+  let tool: Tool = 'translate';
+  let buildKind: BuildKind = 'wall';
+  let selectedStructure: string | null = null;
+  let drag: { start: Vector3; mesh: Mesh } | null = null;
+  const WALL_HEIGHT = 2.5;
+  const WALL_THICKNESS = 0.1;
+  const FLOOR_THICKNESS = 0.05;
   const layer = createModelLayer(modelsGroup, (t) => ui.setStatus(`Errore modello: ${t}`));
 
   const transform = new TransformControls(camera, renderer.domElement);
@@ -69,6 +84,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   const projectRoomsList = () => (project?.roomIds ?? []).map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
   const models = () => project?.models.filter((m) => m.roomId === room?.id) ?? [];
+  const structures = () => project?.structures.filter((s) => s.roomId === room?.id) ?? [];
+  const floorY = () => (room ? floorCentre(room.scan.planes)[1] : 0);
+  const findStructure = (id: string | null) => structures().find((s) => s.id === id) ?? null;
   const find = (id: string | null) => models().find((m) => m.id === id) ?? null;
 
   function refresh() {
@@ -87,10 +105,29 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setSelection({ scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, size: dim ? [dim.x, dim.y, dim.z] : null });
   }
 
+  function refreshStructure() {
+    const s = findStructure(selectedStructure);
+    structLayer.sync(structures());
+    for (const [id, m] of structLayer.meshes) (m.material as MeshBasicMaterial & { emissive?: { set(c: number): void } }).emissive?.set(id === selectedStructure ? 0x0a6b5f : 0x000000);
+    if (!s) return ui.setStructure(null);
+    const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
+    ui.setStructure({ kind: s.kind, height: s.height, length: s.kind === 'wall' ? len : Math.abs((s.b[0] - s.a[0]) * (s.b[1] - s.a[1])) });
+  }
+
+  function selectStructure(id: string | null) {
+    selectedStructure = id;
+    if (id) select(null);
+    refreshStructure();
+  }
+
   function select(id: string | null) {
+    if (id && selectedStructure) {
+      selectedStructure = null;
+      refreshStructure();
+    }
     selectedId = id;
     const holder = id ? layer.holders.get(id) : null;
-    if (holder) transform.attach(holder);
+    if (holder && (tool === 'translate' || tool === 'rotate')) transform.attach(holder);
     else transform.detach();
     refresh();
   }
@@ -137,6 +174,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     shell = null;
     select(null);
     layer.sync(models());
+    selectedStructure = null;
+    refreshStructure();
     refreshLists();
     refresh();
     if (!r) {
@@ -170,6 +209,50 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     } catch (e) {
       ui.setStatus(`Errore: ${errText(e)}`);
     }
+  }
+
+  async function save() {
+    if (!project) return;
+    ui.setStatus('Salvo...');
+    try {
+      await backend.saveProject(project.id, { models: project.models, roomIds: project.roomIds, structures: project.structures });
+      markDirty(false);
+      ui.setStatus(`Progetto "${project.name}" salvato`);
+    } catch (e) {
+      ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
+    }
+  }
+
+  function setTool(next: Tool) {
+    tool = next;
+    // The gizmo only in Move / Rotate; yaw only makes sense for a model standing on the floor.
+    if (tool === 'translate' || tool === 'rotate') {
+      transform.setMode(tool);
+      transform.showX = tool === 'translate';
+      transform.showZ = tool === 'translate';
+    }
+    select(selectedId);
+    if (tool !== 'translate' && tool !== 'rotate') transform.detach();
+    ui.setTool(tool, buildKind);
+    if (tool === 'build') {
+      select(null);
+      selectStructure(null);
+    }
+  }
+
+  function deleteModel() {
+    if (!project || !selectedId) return;
+    project.models = project.models.filter((m) => m.id !== selectedId);
+    layer.sync(models());
+    select(null);
+    markDirty();
+  }
+
+  function deleteStructure() {
+    if (!project || !selectedStructure) return;
+    project.structures = project.structures.filter((x) => x.id !== selectedStructure);
+    selectStructure(null);
+    markDirty();
   }
 
   const ui = createEditorUi({
@@ -219,6 +302,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const id = room.id;
       project.roomIds = project.roomIds.filter((x) => x !== id);
       project.models = project.models.filter((m) => m.roomId !== id);
+      project.structures = project.structures.filter((x) => x.roomId !== id);
       markDirty();
       showRoom(projectRoomsList()[0] ?? null);
     },
@@ -242,12 +326,19 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       }
     },
     onSelect: select,
-    onMode(mode) {
-      transform.setMode(mode);
-      // Only yaw makes sense for a model standing on the floor.
-      transform.showX = mode === 'translate';
-      transform.showZ = mode === 'translate';
+    onTool: setTool,
+    onBuildKind(kind) {
+      buildKind = kind;
+      ui.setTool(tool, buildKind);
     },
+    onStructureHeight(value) {
+      const st = findStructure(selectedStructure);
+      if (!st || st.kind !== 'wall') return;
+      st.height = value;
+      markDirty();
+      refreshStructure();
+    },
+    onDeleteStructure: deleteStructure,
     onScale(value) {
       const m = find(selectedId);
       if (!m) return;
@@ -256,24 +347,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       markDirty();
       refresh();
     },
-    onDeleteModel() {
-      if (!project || !selectedId) return;
-      project.models = project.models.filter((m) => m.id !== selectedId);
-      layer.sync(models());
-      select(null);
-      markDirty();
-    },
-    async onSave() {
-      if (!project) return;
-      ui.setStatus('Salvo...');
-      try {
-        await backend.saveProject(project.id, { models: project.models, roomIds: project.roomIds });
-        markDirty(false);
-        ui.setStatus(`Progetto "${project.name}" salvato`);
-      } catch (e) {
-        ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
-      }
-    },
+    onDeleteModel: deleteModel,
+    onSave: save,
     onRenameRoom: (id) =>
       run(async () => {
         const r = rooms.find((x) => x.id === id);
@@ -295,7 +370,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         for (const p of users) {
           p.roomIds = p.roomIds.filter((x) => x !== id);
           p.models = p.models.filter((m) => m.roomId !== id);
-          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models });
+          p.structures = p.structures.filter((x) => x.roomId !== id);
+          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models, structures: p.structures });
         }
         showRoom(room === r ? (projectRoomsList()[0] ?? null) : room);
         ui.setStatus('Stanza eliminata.');
@@ -305,25 +381,112 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (dirty) e.preventDefault();
   });
 
-  // Click a model in the 3D view to select it (ignoring drags and gizmo clicks).
+  // 3D view: click selects a model or a wall / floor; in Build mode a drag on the floor creates one.
   const ray = new Raycaster();
   let down: { x: number; y: number } | null = null;
+  const ndcOf = (e: PointerEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    return new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  };
+  // Point of the room's floor plane under the mouse, snapped to 5 cm.
+  const floorPoint = (e: PointerEvent) => {
+    ray.setFromCamera(ndcOf(e), camera);
+    const hit = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -floorY()), new Vector3());
+    return hit ? hit.set(Math.round(hit.x * 20) / 20, floorY(), Math.round(hit.z * 20) / 20) : null;
+  };
+  const draftOf = (a: Vector3, b: Vector3, shift: boolean): Pick<Structure, 'kind' | 'a' | 'b' | 'y' | 'height' | 'thickness'> => {
+    let bx = b.x;
+    let bz = b.z;
+    // Shift keeps a wall straight along the axis it is mostly dragged on.
+    if (shift && buildKind === 'wall') Math.abs(bx - a.x) >= Math.abs(bz - a.z) ? (bz = a.z) : (bx = a.x);
+    return {
+      kind: buildKind,
+      a: [a.x, a.z],
+      b: [bx, bz],
+      y: floorY(),
+      height: WALL_HEIGHT,
+      thickness: buildKind === 'wall' ? WALL_THICKNESS : FLOOR_THICKNESS,
+    };
+  };
   renderer.domElement.addEventListener('pointerdown', (e) => {
     down = { x: e.clientX, y: e.clientY };
+    if (tool !== 'build' || !room || e.button !== 0) return;
+    const start = floorPoint(e);
+    if (!start) return;
+    controls.enabled = false; // the drag draws, it does not orbit
+    const mesh = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.55 }));
+    mesh.visible = false;
+    structuresGroup.add(mesh);
+    drag = { start, mesh };
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const p = floorPoint(e);
+    if (!p) return;
+    const d = draftOf(drag.start, p, e.shiftKey);
+    placeStructure(drag.mesh, d);
+    drag.mesh.visible = true;
+    const len = Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]);
+    ui.setStatus(buildKind === 'wall' ? `Parete: ${len.toFixed(2)} m` : `Pavimento: ${Math.abs(d.b[0] - d.a[0]).toFixed(2)} × ${Math.abs(d.b[1] - d.a[1]).toFixed(2)} m`);
   });
   renderer.domElement.addEventListener('pointerup', (e) => {
+    if (drag) {
+      const { start, mesh } = drag;
+      drag = null;
+      controls.enabled = true;
+      structuresGroup.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as MeshBasicMaterial).dispose();
+      const p = floorPoint(e);
+      if (p && project && room) {
+        const d = draftOf(start, p, e.shiftKey);
+        const big = buildKind === 'wall' ? Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]) >= 0.1 : Math.abs(d.b[0] - d.a[0]) >= 0.1 && Math.abs(d.b[1] - d.a[1]) >= 0.1;
+        if (big) {
+          const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          project.structures.push({ id, roomId: room.id, ...d });
+          selectStructure(id);
+          markDirty();
+          ui.setStatus(`${buildKind === 'wall' ? 'Parete' : 'Pavimento'} creato. Ricorda di salvare.`);
+        } else ui.setStatus('Troppo piccolo: trascina più a lungo.');
+      }
+      return;
+    }
+    if (tool === 'build') return;
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
     if (Date.now() - lastDrag < 300 || transform.axis) return;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndc = new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
+    ray.setFromCamera(ndcOf(e), camera);
     const hit = ray.intersectObjects([...layer.holders.values()], true)[0];
     let o: Object3D | null = hit?.object ?? null;
     while (o && !o.userData.modelId) o = o.parent;
-    select(o ? (o.userData.modelId as string) : null);
+    if (o) return select(o.userData.modelId as string);
+    const sHit = ray.intersectObjects([...structLayer.meshes.values()], false)[0];
+    select(null);
+    selectStructure(sHit ? (sHit.object.userData.structureId as string) : null);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA') return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      void save();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedStructure) deleteStructure();
+      else if (selectedId) deleteModel();
+    } else if (e.key === 'Escape') {
+      select(null);
+      selectStructure(null);
+      if (tool === 'build') setTool('select');
+    } else if (!e.ctrlKey && !e.metaKey) {
+      const map: Record<string, Tool> = { q: 'select', w: 'translate', e: 'rotate', b: 'build' };
+      const next = map[e.key.toLowerCase()];
+      if (next && room) setTool(next);
+    }
   });
   setInterval(() => selectedId && refresh(), 1000); // late-loading models change the size readout
 
+  ui.setTool(tool, buildKind);
   ui.setStatus('Carico i progetti...');
   try {
     if (!(await backend.email())) return ui.setStatus('Accedi (in alto a destra) con lo stesso account del visore.');

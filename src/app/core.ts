@@ -3,6 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
+import { createStructureLayer, type StructureLayer } from '../room/structures';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
@@ -183,6 +184,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   interface House {
     root: Group;
     layer: ModelLayer;
+    structs: StructureLayer; // walls and floors built in the PC editor
     occluder: Group; // the room's walls, floor and ceiling as depth-only surfaces
   }
   const occluderMaterial = createOccluderMaterial();
@@ -431,7 +433,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       scene.add(root);
       const occluder = buildOccluders(rooms.find((r) => r.id === roomId)?.scan.planes ?? [], occluderMaterial);
       root.add(occluder);
-      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), occluder };
+      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), structs: createStructureLayer(root), occluder };
       houses.set(roomId, h);
     }
     return h;
@@ -492,6 +494,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       h.root.visible = !gap && (!!a || foreign?.roomId === id);
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
       h.layer.sync(modelsOf(id));
+      h.structs.sync(current.structures?.filter((x) => x.roomId === id) ?? []);
     }
   }
 

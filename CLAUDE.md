@@ -20,7 +20,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - `src/ui3d/` UI 3D: `panel.ts`, `host.ts` (raggi→click), `keyboard.ts` (tastiera 3D), `menu.ts` (tab Load/Scan/Options/Account)
 - `src/room/` `types.ts` (Room=scansione, Project=stanze+modelli, modello ha `roomId`), `align.ts`, `recognize.ts`, `around.ts`, `occluders.ts`, `draw.ts`, `modelLayer.ts`, `capture.ts`
 - `src/cloud/` `backend.ts`, `repo.ts` (Supabase), `models.ts`, `auth.ts`; `supabase/schema.sql` da rieseguire nell'SQL Editor a ogni modifica
-- `src/editor/` editor PC (progetto → stanze → modelli per stanza: GLB, sposta/ruota/scala, salva). `public/models/` GLB di test (non in git). `docs/` APK e hosting
+- `src/editor/` editor PC in stile Aura (CSS in `editorUi.ts`: sidebar progetto/stanze/modelli, barra strumenti Seleziona/Sposta/Ruota/Costruisci, ispettore a destra, toast; tasti Q/W/E/B, Canc, Esc, Ctrl+S). Costruisci: Pavimento/Parete, si trascinano sul pavimento della stanza (griglia 5 cm, Maiusc = parete dritta); `Project.structures` (colonna jsonb, `room/structures.ts`) si vede anche nel visore; da rifinire (porte, spessori, colori). `public/models/` GLB di test (non in git). `docs/` APK e hosting
 
 ## Comandi
 - `npm run dev` HTTPS LAN; `npm run dev:usb` + `adb reverse tcp:5173 tcp:5173`; `npm run build` / `npm run typecheck`; `.env.local` (non in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`

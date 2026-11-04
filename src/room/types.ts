@@ -46,6 +46,20 @@ export interface Room {
   scan: RoomScan;
 }
 
+// A wall or a floor slab drawn in the PC editor (build mode), in its room's frame, on the room's floor level `y`.
+// wall: from point a to point b (x, z), `height` m tall and `thickness` m thick. floor: the rectangle with corners a and b.
+export interface Structure {
+  id: string;
+  roomId: string;
+  kind: 'wall' | 'floor';
+  a: [number, number];
+  b: [number, number];
+  y: number;
+  height: number; // walls only
+  thickness: number;
+  color?: string;
+}
+
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.
 export interface Project {
   id: string;
@@ -53,4 +67,5 @@ export interface Project {
   updatedAt: string;
   roomIds: string[];
   models: RoomModel[];
+  structures: Structure[]; // walls and floors built in the editor
 }

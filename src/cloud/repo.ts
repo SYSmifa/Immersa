@@ -1,4 +1,4 @@
-import type { Project, Room, RoomModel, RoomScan } from '../room/types';
+import type { Project, Room, RoomModel, RoomScan, Structure } from '../room/types';
 import type { Backend } from './backend';
 import { authenticate } from './auth';
 import { currentUserEmail, supabase } from './supabase';
@@ -15,11 +15,12 @@ interface ProjectRow {
   room_ids: string[] | null;
   name: string;
   models: RoomModel[];
+  structures: Structure[] | null;
   updated_at: string;
 }
 
 const ROOM_COLS = 'id,name,data,updated_at';
-const PROJECT_COLS = 'id,room_id,room_ids,name,models,updated_at';
+const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,updated_at';
 
 const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, updatedAt: r.updated_at, scan: r.data });
 const toProject = (r: ProjectRow): Project => {
@@ -31,6 +32,7 @@ const toProject = (r: ProjectRow): Project => {
     roomIds,
     // Projects saved before multi-room had no roomId on their models.
     models: (r.models ?? []).map((m) => ({ ...m, roomId: m.roomId ?? roomIds[0] ?? '' })),
+    structures: r.structures ?? [],
   };
 };
 
@@ -77,10 +79,10 @@ export function createSupabaseBackend(): Backend {
       check(error);
       return (data as ProjectRow[]).map(toProject);
     },
-    async createProject(name, roomIds, models) {
+    async createProject(name, roomIds, models, structures = []) {
       const { data, error } = await client()
         .from('projects')
-        .insert({ name, room_id: roomIds[0] ?? null, room_ids: roomIds, models })
+        .insert({ name, room_id: roomIds[0] ?? null, room_ids: roomIds, models, structures })
         .select(PROJECT_COLS)
         .single();
       check(error);
@@ -90,6 +92,7 @@ export function createSupabaseBackend(): Backend {
       const row: Record<string, unknown> = { updated_at: now() };
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.models !== undefined) row.models = patch.models;
+      if (patch.structures !== undefined) row.structures = patch.structures;
       if (patch.roomIds !== undefined) {
         row.room_ids = patch.roomIds;
         row.room_id = patch.roomIds[0] ?? null;

@@ -9,13 +9,15 @@ export async function createLogin() {
 
   const box = document.createElement('div');
   box.style.cssText =
-    'position:fixed;top:8px;right:8px;padding:8px 10px;background:#000a;color:#fff;' +
-    'font:13px sans-serif;z-index:10;display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:60vw';
+    'position:fixed;bottom:12px;left:12px;width:310px;padding:10px 14px;border-radius:18px;color:#cfd6e4;' +
+    'background:linear-gradient(160deg,#0b0d12,#1d222d);box-shadow:0 6px 24px #0007;font:13px Sen,system-ui,sans-serif;' +
+    'z-index:12;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
   document.body.appendChild(box);
 
   const button = (label: string, onClick: () => void) => {
     const b = document.createElement('button');
     b.textContent = label;
+    b.style.cssText = 'border:0;border-radius:999px;padding:7px 14px;background:linear-gradient(135deg,#14b8a6,#2dd4bf);color:#04211d;font:700 13px Sen,system-ui,sans-serif;cursor:pointer';
     b.onclick = onClick;
     return b;
   };
@@ -40,6 +42,7 @@ export async function createLogin() {
   const password = document.createElement('input');
   password.type = 'password';
   password.placeholder = 'password';
+  for (const i of [email, password]) i.style.cssText = 'flex:1;min-width:0;padding:7px 10px;border-radius:10px;border:1px solid #3a4150;background:#0b0d12;color:#fff;font:13px Sen,system-ui,sans-serif';
   const status = document.createElement('span');
 
   const run = async (signUp: boolean) => {

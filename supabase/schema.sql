@@ -41,6 +41,9 @@ create policy "projects: owner only" on public.projects
   using (owner = (select auth.uid()))
   with check (owner = (select auth.uid()));
 
+-- Walls and floors built in the PC editor (JSON list of structures; safe to re-run).
+alter table public.projects add column if not exists structures jsonb not null default '[]'::jsonb;
+
 -- Migration to multi-room projects (safe to re-run).
 alter table public.projects add column if not exists room_ids jsonb not null default '[]'::jsonb;
 update public.projects set room_ids = jsonb_build_array(room_id::text) where room_ids = '[]'::jsonb and room_id is not null;
