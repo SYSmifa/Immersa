@@ -521,11 +521,18 @@ export class Panel {
     const { x, y, w: ww, h } = w.rect;
     const T = theme();
     const on = w.active;
-    shadow(c, 24, 9, T.shadow);
+    // Under the laser a card is clearly different: tinted, with an outline and a glow.
+    shadow(c, hover ? 30 : 24, hover ? 12 : 9, hover ? T.accentGlow : T.shadow);
     c.fillStyle = on ? gradient(c, x, y, ww, hover ? T.accentHover : T.accent) : w.disabled ? 'rgba(255,255,255,0.6)' : down ? T.surfaceDown : hover ? T.surfaceHover : T.surface;
     roundRect(c, x, y, ww, h, 28);
     c.fill();
     noShadow(c);
+    if (hover) {
+      c.strokeStyle = on ? '#ffffff' : T.accentText;
+      c.lineWidth = 4;
+      roundRect(c, x + 2, y + 2, ww - 4, h - 4, 26);
+      c.stroke();
+    }
     const ink = on ? '#ffffff' : T.text;
     // left visual
     const tile = Math.min(h - 24, 64);

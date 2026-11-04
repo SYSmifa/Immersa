@@ -1110,8 +1110,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   hud.mesh.visible = false;
   host.root.add(hud.mesh);
   // Floating "Oggetto" button above the selected model: pointed at with the laser and pinched, it opens the model's menu.
-  const objButton = new Panel(0.09, 0.09, 1000, 'clear');
-  objButton.set([{ kind: 'iconbtn', icon: 'menu', primary: true, rect: { x: 12, y: 12, w: objButton.pxW - 24, h: objButton.pxH - 24 }, text: '', onClick: () => openObjectMenu() }]);
+  const objButton = new Panel(0.135, 0.135, 1000, 'clear'); // 50 % bigger than the first version (0.09)
+  objButton.set([{ kind: 'iconbtn', icon: 'menu', primary: true, rect: { x: 18, y: 18, w: objButton.pxW - 36, h: objButton.pxH - 36 }, text: '', onClick: () => openObjectMenu() }]);
   objButton.mesh.visible = false;
   host.root.add(objButton.mesh);
   host.add(objButton);
@@ -1129,7 +1129,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const top = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
     objButton.mesh.visible = !!top && !grab && !rig.visible;
     if (!top) return;
-    objButton.mesh.position.copy(top).y += 0.14;
+    objButton.mesh.position.copy(top).y += 0.17;
     objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
   }
   // Sets the colour of the chosen target (null: back to the file's own). "All" replaces every per-material colour.
