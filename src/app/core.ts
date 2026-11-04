@@ -1073,9 +1073,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const REACH = 8; // m, farthest floor point a ray may drag to
   const GLIDE = 0.25; // s, the model slides from where it was under the laser to the laser tip, so it never jumps
   const SMOOTH = 14; // 1/s, low-pass on scale and turn against hand tracking noise
-  const SCALE_START = 0.16; // change of the hands' distance (log ratio, about 17 %) before scaling starts
-  const TURN_START = 0.3; // rad (about 17 degrees) before turning starts
-  const CROSS = 3; // the other gesture needs this many times its threshold
+  const SCALE_START = 0.2; // change of the hands' distance (log ratio, about 22 %) before scaling starts
+  const TURN_START = 0.4; // rad (about 23 degrees) before turning starts
+  const CROSS = 2.2; // to go from one gesture to the other the new one must travel this many times its threshold
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 10; // relative to the scale when the two-hand gesture starts
   interface Grab {
@@ -1087,7 +1087,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     last: Vector3 | null; // last landing point (kept while the ray points at nothing)
     offset: Vector3; // base minus landing point, horizontal: fades out so the base ends up at the laser tip
     decay: boolean;
-    two: { dist0: number; prevAng: number; acc: number; yaw0: number; scale0: number; yaw: number; scale: number; scaleFrom: number; turnFrom: number } | null;
+    two: {
+      // Turning and scaling take turns: one is active, the other is frozen where it was. `ref*` is where the active one
+      // started (it is renewed at every switch), `dead` the distance it must travel before it follows the hands.
+      refDist: number;
+      refAcc: number;
+      refYaw: number;
+      refScale: number;
+      yaw0: number;
+      scale0: number;
+      prevAng: number;
+      acc: number;
+      yaw: number;
+      scale: number;
+      mode: 'none' | 'turn' | 'scale';
+      dead: number;
+    } | null;
   }
   let grab: Grab | null = null;
   // Readout above the model during the two-hand gesture: the angle and size now, and what they were before.
@@ -1328,7 +1343,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const R = pinchR;
     if (g.phase !== 'two' && leftHeld && L && R && L.distanceTo(R) > 0.05) {
       g.phase = 'two';
-      g.two = { dist0: L.distanceTo(R), prevAng: angleOf(L, R), acc: 0, yaw0: m.yaw, scale0: m.scale, yaw: m.yaw, scale: m.scale, scaleFrom: 0, turnFrom: 0 };
+      g.two = { refDist: L.distanceTo(R), refAcc: 0, refYaw: m.yaw, refScale: m.scale, yaw0: m.yaw, scale0: m.scale, prevAng: angleOf(L, R), acc: 0, yaw: m.yaw, scale: m.scale, mode: 'none', dead: 0 };
       markUnsaved();
     } else if (g.phase === 'two' && !(leftHeld && L && R)) {
       g.phase = 'move'; // one hand again: carry on from where the model is, without a jump
@@ -1345,24 +1360,39 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       t.acc += wrap(ang - t.prevAng);
       t.prevAng = ang;
       const k = 1 - Math.exp(-dt * SMOOTH);
-      // Turning the hands changes their distance a little and the other way round: one gesture engages first, the other
-      // only if it is clearly intended (CROSS times its threshold). Past its threshold a gesture follows from zero.
-      const ratio = Math.log(L.distanceTo(R) / t.dist0);
-      const sNeed = SCALE_START * (t.turnFrom ? CROSS : 1);
-      const tNeed = TURN_START * (t.scaleFrom ? CROSS : 1);
-      if (!t.scaleFrom && Math.abs(ratio) > sNeed) t.scaleFrom = sNeed;
-      if (!t.turnFrom && Math.abs(t.acc) > tNeed) t.turnFrom = tNeed;
+      // Turning the hands changes their distance a little and the other way round, so only one gesture works at a time:
+      // the first to pass its threshold, and the other stays frozen until it is clearly wanted (CROSS times its threshold).
+      const dist = L.distanceTo(R);
+      let ratio = Math.log(dist / t.refDist);
+      let turn = t.acc - t.refAcc;
+      if (t.mode === 'none') {
+        const rs = Math.abs(ratio) / SCALE_START;
+        const rt = Math.abs(turn) / TURN_START;
+        if (rs > 1 || rt > 1) {
+          t.mode = rt >= rs ? 'turn' : 'scale';
+          t.dead = t.mode === 'turn' ? TURN_START : SCALE_START;
+        }
+      } else if ((t.mode === 'turn' && Math.abs(ratio) > SCALE_START * CROSS) || (t.mode === 'scale' && Math.abs(turn) > TURN_START * CROSS)) {
+        t.mode = t.mode === 'turn' ? 'scale' : 'turn';
+        t.dead = 0; // clearly meant: it follows from here
+        t.refDist = dist;
+        t.refAcc = t.acc;
+        t.refYaw = t.yaw;
+        t.refScale = t.scale;
+        ratio = 0;
+        turn = 0;
+      }
       const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
-      const wantScale = t.scaleFrom ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.scale0 * Math.exp(past(ratio, t.scaleFrom)))) : t.scale0;
-      const wantYaw = t.turnFrom ? t.yaw0 + past(t.acc, t.turnFrom) : t.yaw0;
-      const snapped = view.snap ? snapTwo(m, t.yaw0, wantYaw, wantScale, t.turnFrom > 0, t.scaleFrom > 0) : { yaw: wantYaw, scale: wantScale, note: '' };
+      const wantYaw = t.mode === 'turn' ? t.refYaw + past(turn, t.dead) : t.refYaw;
+      const wantScale = t.mode === 'scale' ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.refScale * Math.exp(past(ratio, t.dead)))) : t.refScale;
+      const snapped = view.snap ? snapTwo(m, t.yaw0, wantYaw, wantScale, t.mode === 'turn', t.mode === 'scale') : { yaw: wantYaw, scale: wantScale, note: '' };
       t.yaw += (snapped.yaw - t.yaw) * k;
       t.scale += (snapped.scale - t.scale) * k;
       snapNote = snapped.note;
       m.yaw = t.yaw;
       m.scale = t.scale;
       house.layer.sync(modelsOf(m.roomId)); // position untouched: the model turns and grows on the spot
-      showHud(m, holder, t.yaw0, t.scale0, t.turnFrom > 0, t.scaleFrom > 0);
+      showHud(m, holder, t.yaw0, t.scale0, t.mode === 'turn', t.mode === 'scale');
       return;
     }
     const hit = dragTarget(m, house, ray.origin, ray.dir) ?? g.last;

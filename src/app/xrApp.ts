@@ -3,8 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
-import { Panel } from '../ui3d/panel';
-import { handAnchor, pinchPoint } from '../xr/pinch';
+import { pinchPoint } from '../xr/pinch';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -52,13 +51,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     },
   });
 
-  // Small menu button floating above the left wrist / controller.
-  const wrist = new Panel(0.07, 0.07, 1000, 'surface');
-  wrist.set([{ rect: { x: 6, y: 6, w: 58, h: 58 }, kind: 'iconbtn', icon: 'menu', primary: true, text: '', onClick: () => core.menu.toggle() }]);
-  wrist.mesh.visible = false;
-  core.host.root.add(wrist.mesh);
-  core.host.add(wrist);
-  for (const p of [...core.layerPanels(), wrist]) layers.register(p);
+  for (const p of core.layerPanels()) layers.register(p);
 
   // Laser from the right hand (hand tracking or controller).
   const laser = createLaser();
@@ -151,7 +144,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     });
     session.addEventListener('end', () => {
       bound = null;
-      wrist.mesh.visible = false;
     });
   }
 
@@ -220,7 +212,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
       const seen = new Set<string>();
       let laserOn = false;
-      let anchor: Vector3 | null = null;
       for (const src of frame.session.inputSources) {
         const id = idOf(src);
         seen.add(id);
@@ -247,8 +238,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           core.host.setRay(id, null);
         }
         if (src.handedness !== dominant && src.handedness !== 'none') {
-          anchor = handAnchor(frame, src, ref);
-          // The other controller's face buttons (X / Y, or A / B) also toggle the menu.
+          // The other controller's face buttons (X / Y, or A / B) toggle the menu.
           const pressed = !!(src.gamepad?.buttons[4]?.pressed || src.gamepad?.buttons[5]?.pressed);
           if (pressed && !leftToggleHeld) core.menu.toggle();
           leftToggleHeld = pressed;
@@ -262,11 +252,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       activeIds = seen;
 
       const h = head();
-      wrist.mesh.visible = !!anchor;
-      if (anchor) {
-        wrist.mesh.position.copy(anchor).y += 0.08;
-        wrist.mesh.lookAt(h.pos);
-      }
       core.tick(now, h, dt);
       layers.update(frame, ref); // after the panels were placed for this frame
     },
