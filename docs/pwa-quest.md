@@ -36,3 +36,10 @@ La chiave `android.keystore` (e la sua password) va conservata: senza, niente ag
 ## Debug
 - Crash: `adb logcat -b crash -d`; avvio: `adb logcat -d | Select-String -Pattern "immersa|WebXR|chromium|CustomTab"`.
 - La pagina scrive `[immersa] ...` (supporto XR, errori di avvio) nella console.
+
+## Guardian (confini) nascosto: esperimento
+
+Il Guardian è del sistema, non della pagina. Per le app in passthrough Meta prevede il flag di manifest
+`com.oculus.feature.CONTEXTUAL_BOUNDARYLESS_APP`. `docs/enable-boundaryless.ps1` lo aggiunge al manifest
+dell'APK (`Documents\immersa-apk`, con backup `.bak`), poi ricompila, firma e installa. Esito da verificare sul visore: se il
+Guardian compare ancora, riprovare con `-Required true`; se l'app non parte più, rimettere il `.bak` e ricompilare.
