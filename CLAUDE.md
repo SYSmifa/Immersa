@@ -46,4 +46,4 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 - Migliorare l'interfaccia grafica (menu 3D, tastiera, launcher, editor)
 - Hand tracking e interazione con gli oggetti sul visore (feature `hand-tracking` e permesso già attivi; fatti: selezione, trascinamento, scala/rotazione a due mani; da rifinire dopo i test)
 - Migliorare l'app Windows (editor PC in `src/editor/`)
-- Idee: dominio per il sito vetrina, conversione STEP→GLB, salvare le prove Playwright nel repo, allineamento manuale a 2 punti, `?model=`, foveation, LOD, app nativa (Unity) solo se il web non basta
+- Idee: texture PBR vere per pareti/pavimenti da ambientCG (https://ambientcg.com, es. Marble020; di solito CC0, verificare la licenza di ogni set; servono colore, normal, AO, roughness a 1K, da comprimere per il Quest) al posto di quelle procedurali di `room/textures.ts`; dominio per il sito vetrina, conversione STEP→GLB, salvare le prove Playwright nel repo, allineamento manuale a 2 punti, `?model=`, foveation, LOD, app nativa (Unity) solo se il web non basta
