@@ -73,6 +73,15 @@ export const handPreferred = (): 'left' | 'right' => {
     return 'right';
   }
 };
+// Events kept across app restarts (a standby ends the session and restarts the app): what happened, in order.
+const LOG_KEY = 'immersa.log';
+const readLog = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_KEY) ?? '[]') as string[];
+  } catch {
+    return [];
+  }
+};
 const FPS_KEY = 'immersa.fps';
 export const fpsPreferred = () => {
   try {
@@ -195,6 +204,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     projectName: null,
     fits: [],
     events: [],
+    log: readLog(),
     projects: null,
     currentProjectId: null,
     object: null,
@@ -1456,6 +1466,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     events.push(`${hms} ${text}`);
     console.log(`[immersa] ${text}`);
     if (events.length > 8) events.shift();
+    view.log = [...view.log, `${hms} ${text}`].slice(-30);
+    try {
+      localStorage.setItem(LOG_KEY, JSON.stringify(view.log));
+    } catch {
+      /* storage can be unavailable */
+    }
     refreshView();
   }
 

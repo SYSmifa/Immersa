@@ -39,6 +39,7 @@ export interface MenuView {
   captureAvailable: boolean; // the page may start a scan itself
   projectName: string | null; // the open project
   events: string[]; // recent session events (standby, resume, resets)
+  log: string[]; // the same events kept across app restarts (shown in Account)
   fits: string[]; // how well each room's saved planes match the live scan (diagnostics)
   projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
   currentProjectId: string | null;
@@ -321,8 +322,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(surface(M, top, W, 380));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
     out.push({ kind: 'pill', rect: { x: M + 28, y: top + 128, w: W - 56, h: 60 }, text: 'Esci', size: 25, color: T.bad, onClick: a.signOut });
-    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}`, M + 28, top + 214, W - 56, 28, 19, T.dim));
-    out.push(text(v.startup ? `Avvio: ${v.startup}` : 'Avvio: -', M + 28, top + 246, W - 56, 60, 17, T.dim, { wrap: true }));
+    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 198, W - 56, 24, 16, T.dim));
+    // The last events, kept across app restarts: what the session did around a standby.
+    v.log.slice(-7).forEach((line, i) => out.push(text(line, M + 28, top + 230 + i * 20, W - 56, 20, 14, T.sub)));
   }
 
   if (v.message) out.push(...toast(v.message));

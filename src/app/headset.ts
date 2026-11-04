@@ -27,6 +27,7 @@ export async function runHeadsetApp() {
   // Ending the session closes the installed app. Ask Android to open it again (experiment: if the browser refuses, the app
   // just closes and is opened from the library); the last project comes back by itself.
   const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), () => {
+    app.core.logEvent(isInstalledApp() ? 'riavvio: intent:// + nuova sessione' : 'riavvio: nuova sessione (non è l\'app installata)');
     if (isInstalledApp()) {
       try {
         location.href = `intent://${location.host}/#Intent;scheme=https;package=${APP_PACKAGE};end`;
