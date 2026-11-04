@@ -128,7 +128,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
   // Start-up screen: the cube drawing itself with the Immersa logo in front, nothing behind it (the room shows through).
-  const splashPanel = new Panel(2.22, 1.38, 470, 'clear'); // three times the original size (0.74 × 0.46 m), same pixel budget
+  const splashPanel = new Panel(0.74, 0.46, 1200, 'clear');
   splashPanel.animated = true;
   splashPanel.mesh.visible = false;
   host.root.add(splashPanel.mesh);
@@ -1479,7 +1479,7 @@ export function createAppCore({ scene, backend, signOut, onLayers }: Options) {
           if (splash.endAt !== null) showSplash(splash.since, 1 - gone);
           if (!splash.placed) {
             splash.placed = true; // once, where you are looking when it appears
-            splashPanel.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 2.0, head.pos.y - 0.02, head.pos.z + Math.cos(yawOf(head.fwd)) * 2.0);
+            splashPanel.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 1.0, head.pos.y - 0.02, head.pos.z + Math.cos(yawOf(head.fwd)) * 1.0);
             splashPanel.mesh.rotation.set(0, Math.atan2(head.pos.x - splashPanel.mesh.position.x, head.pos.z - splashPanel.mesh.position.z), 0);
           }
           splashPanel.draw();
