@@ -82,6 +82,14 @@ const readLog = (): string[] => {
     return [];
   }
 };
+const AUTO_RESTART_KEY = 'immersa.autoRestart';
+export const autoRestartPreferred = () => {
+  try {
+    return localStorage.getItem(AUTO_RESTART_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 const FPS_KEY = 'immersa.fps';
 export const fpsPreferred = () => {
   try {
@@ -215,6 +223,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     layers: layersPreferred(),
     fps: fpsPreferred(),
     dominant: handPreferred(),
+    autoRestart: autoRestartPreferred(),
     showOccluders: false,
     message: '',
   };
@@ -959,6 +968,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       onHand?.(view.dominant);
       refreshView();
     },
+    toggleAutoRestart() {
+      view.autoRestart = !view.autoRestart;
+      try {
+        localStorage.setItem(AUTO_RESTART_KEY, view.autoRestart ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      refreshView();
+    },
     toggleFps() {
       view.fps = !view.fps;
       try {
@@ -1536,12 +1554,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
     // The planes are gone (after a standby): say so on the floating card, and after a while what to do.
-    showSearching(hint: boolean) {
+    showSearching(mode: 'search' | 'hint' | 'restart') {
       closeMenu();
       searching = true;
-      setLoadingText('Cerco la stanza', hint ? 'Sei in un\'altra stanza? Chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
+      setLoadingText(mode === 'restart' ? 'Riavvio di Immersa' : 'Cerco la stanza', mode === 'hint' ? 'Sei in un\'altra stanza? Chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
       loading.mesh.visible = true;
     },
+    autoRestart: () => view.autoRestart,
     hideSearching() {
       searching = false;
       loading.mesh.visible = false;

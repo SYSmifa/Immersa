@@ -48,6 +48,7 @@ export interface MenuView {
   outline: boolean;
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
+  autoRestart: boolean; // the app relaunches itself when the planes are gone after a standby
   dominant: 'left' | 'right'; // the hand that points with the laser
   snap: boolean; // magnetic snap of rotation and scale (two-hand gesture)
   showOccluders: boolean;
@@ -68,6 +69,7 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
+  toggleAutoRestart(): void;
   toggleHand(): void;
   toggleOccluders(): void;
   closeProject(): void;
@@ -314,6 +316,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(3, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
     out.push(toggle(4, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + half + 14, y: top + 164, w: half, h: 72 }, text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
+    out.push({ kind: 'card', icon: 'check', rect: { x: M + half + 14, y: top + 246, w: half, h: 72 }, text: 'Riavvio automatico', size: 22, sub: 'Dopo uno standby', badge: v.autoRestart ? 'Sì' : 'No', badgeOn: v.autoRestart, onClick: a.toggleAutoRestart });
     out.push({ kind: 'card', icon: 'close', rect: { x: M, y: top + 246, w: half, h: 72 }, text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(surface(M, top + 330, W, 50));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 336, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
