@@ -39,7 +39,9 @@ La chiave `android.keystore` (e la sua password) va conservata: senza, niente ag
 
 ## Guardian (confini) nascosto: esperimento
 
-Il Guardian è del sistema, non della pagina. Per le app in passthrough Meta prevede il flag di manifest
-`com.oculus.feature.CONTEXTUAL_BOUNDARYLESS_APP`. `docs/enable-boundaryless.ps1` lo aggiunge al manifest
-dell'APK (`Documents\immersa-apk`, con backup `.bak`), poi ricompila, firma e installa. Esito (4 nov 2026): flag presente nell'APK (`aapt2 dump badging` mostra `uses-feature-not-required`) e installato, ma dopo lo standby
-la richiesta dei confini compare ancora. Se l'app non parte più, rimettere il `.bak` e ricompilare.
+Il Guardian è del sistema, non della pagina. Meta documenta le app "boundaryless" (guide Unity/Unreal): nel manifest va
+`<uses-feature android:name="com.oculus.feature.BOUNDARYLESS_APP" android:required="true"/>`; vale per app 6DOF senza
+contenuti immersivi (VR), in esecuzione dall'APK sul visore. `docs/enable-boundaryless.ps1 -Project <cartella APK>` lo aggiunge
+al manifest (salva l'originale in `.bak`), poi ricompila, firma e installa.
+Esiti: il vecchio flag `CONTEXTUAL_BOUNDARYLESS_APP` era presente e installato ma la richiesta dei confini dopo lo standby
+compariva lo stesso (4 nov 2026); ora lo script lo sostituisce con `BOUNDARYLESS_APP`. Se l'app non parte più, rimettere il `.bak`.
