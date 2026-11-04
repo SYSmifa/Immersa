@@ -1211,27 +1211,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const rays = new Map<string, { origin: Vector3; dir: Vector3 }>();
 
   // 'right' is the main (dominant) hand, 'left' the other one: xrApp maps the real hands onto these two.
-  // A quick pinch of the other hand opens / closes the menu, unless the main hand is pinching (then it is the second hand
-  // of the turn / scale gesture) or the pinch was a press on a panel.
-  const TAP_MS = 700;
+  // The other hand never presses on panels. Its pinch opens / closes the menu at once (a press, not a hold), unless the
+  // main hand is already pinching: then it is the second hand of the turn / scale gesture.
   let mainHeld = false;
-  let offArmedAt: number | null = null;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
     if (hand === 'left') {
       leftHeld = !consumedByUi;
-      offArmedAt = !consumedByUi && !mainHeld && !grab ? performance.now() : null;
+      if (leftHeld && !mainHeld && !grab) (rig.visible ? closeMenu : openMenu)();
     } else {
       mainHeld = true;
-      offArmedAt = null;
       if (!consumedByUi) pressModel(id);
     }
   }
   function pinchUp(hand: 'left' | 'right', id: string) {
-    if (hand === 'left') {
-      leftHeld = false;
-      if (offArmedAt !== null && performance.now() - offArmedAt < TAP_MS) (rig.visible ? closeMenu : openMenu)();
-      offArmedAt = null;
-    } else {
+    if (hand === 'left') leftHeld = false;
+    else {
       mainHeld = false;
       if (grab?.pointer === id) endGrab();
     }
@@ -1464,7 +1458,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     houses: () => houses, // test hook
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
-    // Every panel that should be shown as a WebXR layer (the wrist button is added by xrApp).
+    // Every panel that should be shown as a WebXR layer.
     layerPanels: () => [menu, keyboard.panel, listLoader, loading, splashPanel, hud, objButton],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },

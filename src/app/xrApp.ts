@@ -9,7 +9,7 @@ import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Connects the app core to a WebXR session: rays from hands/controllers, plane
-// scan, pinch events, the wrist menu button, and the system room-scan request.
+// scan, pinch events and the system room-scan request.
 // The session had planes and now reports none (the headset lost its scene data, e.g. after a standby, whatever its
 // length): after this long without any the app restarts. The headset reports the planes of every stored room, so
 // "none at all" is never normal.
@@ -105,10 +105,11 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;
       const id = idOf(e.inputSource);
-      const consumed = core.host.press(id);
       const hand = e.inputSource.handedness;
       if (hand === 'left' || hand === 'right') {
         const role = hand === dominant ? 'right' : 'left'; // core: 'right' = main hand, 'left' = the other
+        // Only the main hand presses on panels; the other one never clicks (its pinch opens / closes the menu).
+        const consumed = role === 'right' ? core.host.press(id) : false;
         if (role === 'right') rightPinching = true;
         core.pinchDown(role, id, consumed);
       }
@@ -123,7 +124,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         core.pinchUp(role, idOf(src));
       }
     });
-    session.addEventListener('squeezestart', () => core.menu.toggle());
     // Standby / resume: only logged here (the plane check in tick() decides about the restart).
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
@@ -232,7 +232,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             if (end) layers.showReticle(end.pos, head().pos, end.radius);
             laserOn = true;
           } else {
-            core.host.setRay(id, origin, dir);
+            core.host.setRay(id, null); // the other hand does not point at panels
           }
         } else {
           core.host.setRay(id, null);
