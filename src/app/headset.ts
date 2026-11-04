@@ -1,12 +1,11 @@
 import { createSupabaseBackend } from '../cloud/repo';
 import { createStats } from '../ui/stats';
 import { createStage } from '../scene/stage';
-import { createEnterAr, isInstalledApp } from './enterAr';
+import { createEnterAr } from './enterAr';
 import { createLauncher } from './launcher';
 import { fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
 
-const APP_PACKAGE = 'app.immersa.quest'; // the installed app (see docs/pwa-quest.md)
 const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking', 'layers'];
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
@@ -24,19 +23,7 @@ export async function runHeadsetApp() {
   const stats = createStats(camera); // fps readout, shown only when Options → "Pannello fps" is on
   stats.setEnabled(fpsPreferred());
   const enter = createEnterAr(renderer, features);
-  // Ending the session closes the installed app. Ask Android to open it again (experiment: if the browser refuses, the app
-  // just closes and is opened from the library); the last project comes back by itself.
-  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), () => {
-    app.core.logEvent(isInstalledApp() ? 'riavvio: intent:// + nuova sessione' : 'riavvio: nuova sessione (non è l\'app installata)');
-    if (isInstalledApp()) {
-      try {
-        location.href = `intent://${location.host}/#Intent;scheme=https;package=${APP_PACKAGE};end`;
-      } catch {
-        /* not allowed */
-      }
-    }
-    setTimeout(() => void enter.restart(), 100);
-  });
+  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on));
   const launcher = await createLauncher(enter);
   renderer.xr.addEventListener('sessionend', () => launcher.show());
   void enter.autoStart(); // the installed app's launch is the gesture; in a plain tab the button stays

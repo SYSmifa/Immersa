@@ -14,10 +14,9 @@ import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head
 // length): after this long without any the app restarts. The headset reports the planes of every stored room, so
 // "none at all" is never normal.
 const NO_PLANES_MS = 1500;
-// Coming back after at least this long the app restarts at once, whether or not the planes are gone. The system applies the
-// "boundaryless" manifest flag when the app is launched; after a standby it may bring its own (stationary) boundary back
-// under the running app, and walking out of it hides the models. A fresh launch has no boundary again.
-const RESTART_AWAY_MS = 10000;
+// Still no planes after this long: the card says what to do (the app does NOT restart itself: a relaunch from inside the app is
+// not treated like one from the Library and the headset then shows its own boundary again).
+const LOST_ROOM_MS = 25000;
 const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
 // How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
@@ -29,7 +28,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onResume: () => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   let laserHidden = false; // the dominant hand is turned palm up / towards the face (the system's own gesture): no laser
@@ -86,7 +85,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   const wakeChecks: number[] = [];
   let zeroSince = 0; // when the planes disappeared (0: they are there)
   let planesHidden = false; // rooms and models are hidden while the planes are gone
-  let restarting = false;
+  let waiting: number | null = null; // since when the planes are gone and the app is waiting for them
+  let hinted = false;
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
@@ -94,7 +94,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     bound = session;
     zeroSince = 0;
     planesHidden = false;
-    restarting = false;
+    waiting = null;
+    hinted = false;
     wakeStart = 0;
     seenPlanes = false;
     const s = session as any;
@@ -146,13 +147,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
           core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s`);
         }
-        if (away >= RESTART_AWAY_MS && !restarting && !core.isScanning()) {
-          restarting = true;
-          core.logEvent('ritorno lungo: riapro l\'app (confini)');
-          core.prepareResume();
-          core.showRestarting();
-          setTimeout(onResume, 600); // long enough to read the message
-        }
       }
     });
     session.addEventListener('end', () => {
@@ -191,19 +185,29 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
           seenPlanes = true;
           zeroSince = 0;
           planesHidden = false; // the core shows the rooms again once it has found them
-        } else if (seenPlanes && !restarting && frame.session.visibilityState === 'visible' && !core.isScanning()) {
+          if (waiting !== null) {
+            core.logEvent(`piani tornati dopo ${Math.round((now - waiting) / 1000)} s`);
+            waiting = null;
+            hinted = false;
+            core.hideSearching();
+          }
+        } else if (seenPlanes && frame.session.visibilityState === 'visible' && !core.isScanning()) {
           zeroSince ||= now;
           if (!planesHidden && now - zeroSince > 500) {
             planesHidden = true;
             core.planesGap(true); // a wireframe in the wrong place is worse than none
           }
-          if (now - zeroSince > NO_PLANES_MS) {
-            // The session stays open but is blind (ending it closes the installed app): start over.
-            restarting = true;
-            core.logEvent('nessun piano: riapro l\'app');
+          if (waiting === null && now - zeroSince > NO_PLANES_MS) {
+            // The session is blind. Ending it would close the installed app, and the relaunch from inside is not a
+            // launch from the Library: wait for the planes, and keep the open project for a manual relaunch.
+            waiting = now;
+            core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
-            core.showRestarting();
-            setTimeout(onResume, 600); // long enough to read the message
+            core.showSearching(false);
+          } else if (waiting !== null && !hinted && now - waiting > LOST_ROOM_MS) {
+            hinted = true;
+            core.logEvent('piani non tornati: chiudere e riaprire dalla Libreria');
+            core.showSearching(true);
           }
         } else if (!planes.length) {
           zeroSince = 0; // hidden or scanning: do not count this time

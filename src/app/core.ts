@@ -249,6 +249,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let scanning = false; // the system room scan is running (the session must not be restarted meanwhile)
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
+  let searching = false; // the "looking for the room" card is up
   let autoTab = true;
   let splash: { since: number; endAt: number | null; placed: boolean } | null = null; // the start-up screen with the logo
   let lastHead: Head | null = null;
@@ -1534,11 +1535,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
-    // The app is about to restart: say so (menu away, floating label) instead of just going black.
-    showRestarting() {
+    // The planes are gone (after a standby): say so on the floating card, and after a while what to do.
+    showSearching(hint: boolean) {
       closeMenu();
-      setLoadingText('Riavvio di Immersa');
+      searching = true;
+      setLoadingText('Cerco la stanza', hint ? 'Non la ritrovo: chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
       loading.mesh.visible = true;
+    },
+    hideSearching() {
+      searching = false;
+      loading.mesh.visible = false;
     },
     planesGap(on: boolean) {
       if (on) closeMenu(); // no glimpse of the menu while the rooms are gone (the app is about to restart)
@@ -1572,6 +1578,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       listLoader.mesh.visible = rig.visible && view.tab === 'load' && view.projects === null && !view.object && view.authKnown && !!view.email;
       if (listLoader.mesh.visible) listLoader.draw();
+      if (searching) loading.mesh.visible = true;
       if (loading.mesh.visible) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
