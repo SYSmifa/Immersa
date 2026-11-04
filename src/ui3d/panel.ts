@@ -42,6 +42,7 @@ export interface Widget {
   reserve?: number; // card: px kept free at the right end for another widget drawn over it
   tone?: number; // card without an icon: which gradient the tile takes
   swatch?: string; // a small colour dot at the right end of a button / row / card
+  swatchImage?: CanvasImageSource; // ... showing this picture instead of the flat colour (a texture preview)
   value?: number; // bar / loader: 0..1 (a loader without a value shows no progress bar)
   hsv?: Hsv; // wheel / slider: the colour shown (wheel: hue and saturation, slider: brightness)
   // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
@@ -110,6 +111,25 @@ function gradient(c: CanvasRenderingContext2D, x: number, y: number, w: number, 
   g.addColorStop(1, pair[1]);
   return g;
 }
+// The small round swatch of a row / card: a flat colour, or a picture (texture preview) clipped to the circle.
+function dot(c: CanvasRenderingContext2D, cx: number, cy: number, r: number, w: Widget) {
+  c.save();
+  c.beginPath();
+  c.arc(cx, cy, r, 0, Math.PI * 2);
+  c.clip();
+  if (w.swatchImage) c.drawImage(w.swatchImage, cx - r, cy - r, 2 * r, 2 * r);
+  else {
+    c.fillStyle = w.swatch ?? '#ffffff';
+    c.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  }
+  c.restore();
+  c.beginPath();
+  c.arc(cx, cy, r, 0, Math.PI * 2);
+  c.strokeStyle = 'rgba(15,26,51,0.25)';
+  c.lineWidth = 2;
+  c.stroke();
+}
+
 const hashOf = (text: string) => [...text].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
 
 // Round knob of a slider.
@@ -499,13 +519,7 @@ export class Panel {
       c.textAlign = 'left';
     }
     if (w.swatch) {
-      c.fillStyle = w.swatch;
-      c.beginPath();
-      c.arc(x + ww - 34, y + h / 2, 15, 0, Math.PI * 2);
-      c.fill();
-      c.strokeStyle = 'rgba(15,26,51,0.25)';
-      c.lineWidth = 2;
-      c.stroke();
+      dot(c, x + ww - 34, y + h / 2, 15, w);
       c.fillStyle = textColor;
     }
     if (w.sub) {
@@ -574,13 +588,7 @@ export class Panel {
       if (!w.disabled && w.onClick && !w.reserve) drawIcon(c, 'chevron', right - 8, cy, 22, on ? '#ffffff' : T.faint);
       right -= 34 + (w.reserve ?? 0);
       if (w.swatch) {
-        c.fillStyle = w.swatch;
-        c.beginPath();
-        c.arc(right - 12, cy, 15, 0, Math.PI * 2);
-        c.fill();
-        c.strokeStyle = 'rgba(15,26,51,0.25)';
-        c.lineWidth = 2;
-        c.stroke();
+        dot(c, right - 12, cy, 15, w);
         right -= 38;
       }
     }

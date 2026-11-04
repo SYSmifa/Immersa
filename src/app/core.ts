@@ -4,7 +4,7 @@ import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createStructureLayer, type StructureLayer } from '../room/structures';
-import { TEXTURES, textureAverage } from '../room/textures';
+import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
@@ -359,7 +359,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         height: st.height,
         thickness: st.thickness,
         texture: st.texture ?? null,
-        textures: [{ id: null, name: 'Nessuna', color: st.color ?? DEFAULT_TINT[st.kind] }, ...TEXTURES.map((t) => ({ id: t.id, name: t.name, color: textureAverage(t.id) }))],
+        textures: [{ id: null, name: 'Nessuna', color: st.color ?? DEFAULT_TINT[st.kind] }, ...TEXTURES.map((t) => ({ id: t.id, name: t.name, color: textureAverage(t.id), image: textureCanvas(t.id) ?? undefined }))],
       },
     };
   }
@@ -1124,13 +1124,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (id === selectedStructId) return;
     selectedStructId = id;
     if (id) selectedId = null;
-    else if (objectOpen) closeMenu();
+    if (objectOpen) closeMenu(); // another one (or nothing) pinched: the menu goes, the button shows on the new one
     const st = selectedStruct();
     say(st ? `Selezionato: ${structName(st)}` : 'Selezione annullata', 2500);
   }
   function selectModel(id: string | null) {
     if (id && selectedStructId) selectedStructId = null;
     if (id === selectedId) return;
+    if (id && objectOpen) closeMenu(); // another model pinched while a menu is open: it closes
     selectedId = id;
     if (!id && objectOpen) closeMenu(); // nothing selected any more: the object's menu goes away
     const m = id ? current?.models.find((x) => x.id === id) : null;

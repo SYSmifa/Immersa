@@ -25,7 +25,7 @@ export interface ObjectView {
     height: number;
     thickness: number;
     texture: string | null;
-    textures: { id: string | null; name: string; color: string }[]; // the catalogue, "none" first
+    textures: { id: string | null; name: string; color: string; image?: CanvasImageSource }[]; // the catalogue, "none" first
   };
 }
 
@@ -147,8 +147,8 @@ const ptTone = (name: string) => name.length;
 function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.name, M + 70), closeButton(a));
   const st = o.structure;
-  const items: { name: string; color: string | null; t: 'all' | number; tex?: string | null }[] = st
-    ? st.textures.map((t) => ({ name: t.name, color: t.color, t: 'all' as const, tex: t.id }))
+  const items: { name: string; color: string | null; t: 'all' | number; tex?: string | null; image?: CanvasImageSource }[] = st
+    ? st.textures.map((t) => ({ name: t.name, color: t.color, t: 'all' as const, tex: t.id, image: t.image }))
     : [
         { name: 'Tutti i materiali', color: o.color, t: 'all' },
         ...o.materials.map((m, i) => ({ name: m.name, color: m.color, t: i })),
@@ -158,7 +158,7 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   // left: what to change
   out.push(surface(M, 104, 352, 322));
   items.slice(page * ROWS, (page + 1) * ROWS).forEach((it, i) =>
-    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 56, w: 328, h: 50 }, text: it.name, size: 22, swatch: it.color ?? undefined, active: st ? st.texture === it.tex : o.target === it.t, onClick: () => (st ? a.objTexture(it.tex ?? null) : a.objColorTarget(it.t)) }),
+    out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 52, w: 328, h: 46 }, text: it.name, size: 22, swatch: it.color ?? undefined, swatchImage: it.image, active: st ? st.texture === it.tex : o.target === it.t, onClick: () => (st ? a.objTexture(it.tex ?? null) : a.objColorTarget(it.t)) }),
   );
   if (pages > 1) {
     out.push({ kind: 'iconbtn', icon: 'left', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
@@ -202,7 +202,7 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: strin
     out.push({ kind: 'card', icon: 'scale', rect: { x: st.kind === 'wall' ? M + half + 16 : M, y: 112, w: half, h: 104 }, text: `${(st.thickness * 100).toFixed(0)} cm`, sub: 'Spessore', size: 34, onClick: a.objThickness });
     if (o.size) out.push({ kind: 'chip', rect: { x: M, y: 230, w: 440, h: 40 }, text: o.size, size: 19, fill: theme().glass });
     const tex = st.textures.find((t) => t.id === st.texture);
-    out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Texture e colore', sub: tex?.id ? `Texture: ${tex.name}` : o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colore predefinito', swatch: o.color ?? tex?.color ?? undefined, onClick: a.objOpenColor });
+    out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Texture e colore', sub: tex?.id ? `Texture: ${tex.name}` : o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colore predefinito', swatch: o.color ?? tex?.color ?? undefined, swatchImage: !o.color ? tex?.image : undefined, onClick: a.objOpenColor });
     if (o.confirmDelete) {
       out.push(surface(M, 404, W, 176));
       out.push(text(`Eliminare "${o.name}"?`, M + 28, 420, W - 56, 44, 30, theme().bad, { bold: true }));
