@@ -867,7 +867,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     keepBuild = false;
     if (build && !drag) {
       build = null;
-      refreshToolbar();
+      setSelection(sel); // the gizmo was hidden while building: bring it back on the last one made
     }
   };
   window.addEventListener('keyup', (e) => e.key === 'Shift' && endSeries());
