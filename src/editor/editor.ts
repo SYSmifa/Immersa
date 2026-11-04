@@ -5,6 +5,7 @@ import {
   Color,
   GridHelper,
   Group,
+  HalfFloatType,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
@@ -18,10 +19,12 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
@@ -113,11 +116,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   scene.background = new Color(0x15171c); // through the composer the clear colour would be encoded twice
 
   // Selection outline: a screen-space azure edge round the selected objects.
-  const composer = new EffectComposer(renderer);
+  // The composer renders off-screen, where the canvas' own antialiasing does not apply: give it 4x MSAA targets, and finish
+  // with SMAA so the outline (a screen-space edge) is smooth too.
+  const pr = renderer.getPixelRatio();
+  const composer = new EffectComposer(
+    renderer,
+    new WebGLRenderTarget(window.innerWidth * pr, window.innerHeight * pr, { type: HalfFloatType, samples: 4 }),
+  );
   composer.addPass(new RenderPass(scene, camera));
   const outlinePass = new SelectionOutlinePass(scene, camera);
   composer.addPass(outlinePass);
   composer.addPass(new OutputPass());
+  composer.addPass(new SMAAPass());
   window.addEventListener('resize', () => composer.setSize(window.innerWidth, window.innerHeight));
   renderer.setAnimationLoop(() => {
     if (ortho) {
