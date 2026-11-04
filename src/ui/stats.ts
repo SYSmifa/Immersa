@@ -20,15 +20,15 @@ export function createStats(camera: PerspectiveCamera) {
   canvas.height = 192;
   const ctx = canvas.getContext('2d')!;
   const texture = new CanvasTexture(canvas);
+  const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false });
   const panel = new Mesh(
     new PlaneGeometry(0.4, 0.15),
-    new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false }),
+    material,
   );
   panel.renderOrder = 999;
   panel.position.set(-0.3, -0.2, -0.9);
   camera.add(panel);
 
-  let enabled = true;
   let info = '';
   let frames = 0;
   let last = performance.now();
@@ -47,13 +47,15 @@ export function createStats(camera: PerspectiveCamera) {
       info = text;
     },
     setEnabled(on: boolean) {
-      enabled = on;
       dom.style.display = on ? '' : 'none';
+      // Switched off it is still drawn, but invisible: in the headset a build without this draw showed a blue shell on the
+      // models (cause not found yet), so the readout is kept in the scene from the start.
+      material.opacity = on ? 1 : 0.002;
     },
     // Call once per rendered frame; refreshes twice per second.
     // The 3D panel is only for the headset; on the PC the DOM readout is enough.
     tick(inXr = true) {
-      panel.visible = inXr && enabled;
+      panel.visible = inXr;
       frames++;
       const now = performance.now();
       const dt = now - last;
