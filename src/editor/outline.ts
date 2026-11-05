@@ -2,10 +2,10 @@ import {
   Camera,
   Color,
   DoubleSide,
-  FloatType,
   NearestFilter,
   Object3D,
   RGBAFormat,
+  UnsignedByteType,
   Scene,
   ShaderMaterial,
   WebGLRenderer,
@@ -18,6 +18,8 @@ import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
 // Crisp opaque outline round every selected object, each with its own silhouette: an object lying on another selected
 // one (a sofa on a floor) keeps its own outline. The selection is drawn flat into a mask (one id per object, nothing
 // else, so the gizmo is never outlined); the edge is the ring of pixels whose neighbour belongs to something else.
+// The mask is drawn at SS times the screen resolution and the outline's coverage is counted per screen pixel: smooth edges.
+const SS = 2;
 const idMaterial = (id: number) =>
   new ShaderMaterial({
     uniforms: { id: { value: id } },
@@ -30,28 +32,35 @@ const compose = new ShaderMaterial({
   uniforms: {
     tDiffuse: { value: null },
     tMask: { value: null },
-    texel: { value: [1, 1] },
+    texel: { value: [1, 1] }, // of the (supersampled) mask
     reach: { value: 2 },
+    ss: { value: SS },
     edge: { value: new Color(0x8fdcff) },
   },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform sampler2D tMask; uniform vec2 texel; uniform float reach; uniform vec3 edge;
+    uniform sampler2D tDiffuse; uniform sampler2D tMask; uniform vec2 texel; uniform float reach; uniform float ss; uniform vec3 edge;
     varying vec2 vUv;
     void main(){
       vec4 base = texture2D(tDiffuse, vUv);
-      float c = texture2D(tMask, vUv).r;
-      if (c > 0.0) {
-        for (int i = 0; i < 8; i++) {
-          float a = 0.7853982 * float(i);
-          for (int k = 1; k <= 3; k++) {
-            if (float(k) > reach) break;
-            float n = texture2D(tMask, vUv + vec2(cos(a), sin(a)) * texel * float(k)).r;
-            if (abs(n - c) > 0.001) { gl_FragColor = vec4(edge, 1.0); return; }
+      if (reach <= 0.0) { gl_FragColor = base; return; }
+      float hits = 0.0;
+      // the screen pixel covers 2 x 2 mask texels: each one is an outline texel if it is inside an object and something else is near
+      for (int sy = 0; sy < 2; sy++) {
+        for (int sx = 0; sx < 2; sx++) {
+          vec2 uv = vUv + (vec2(float(sx), float(sy)) - 0.5) * texel;
+          float c = texture2D(tMask, uv).r;
+          if (c <= 0.0) continue;
+          bool near = false;
+          for (int i = 0; i < 8; i++) {
+            float a = 0.7853982 * float(i);
+            vec2 d = vec2(cos(a), sin(a)) * texel;
+            if (abs(texture2D(tMask, uv + d * reach * ss * 0.5).r - c) > 0.001 || abs(texture2D(tMask, uv + d * reach * ss).r - c) > 0.001) { near = true; break; }
           }
+          if (near) hits += 1.0;
         }
       }
-      gl_FragColor = base;
+      gl_FragColor = mix(base, vec4(edge, 1.0), hits / 4.0);
     }`,
   depthTest: false,
   depthWrite: false,
@@ -60,7 +69,7 @@ const compose = new ShaderMaterial({
 export class SelectionOutlinePass extends Pass {
   selected: Object3D[] = [];
   ignore: Object3D[] = []; // never in the mask (the gizmo: it shows and hides its own handles every frame, so hide its root)
-  private mask = new WebGLRenderTarget(1, 1, { type: FloatType, format: RGBAFormat, minFilter: NearestFilter, magFilter: NearestFilter });
+  private mask = new WebGLRenderTarget(1, 1, { type: UnsignedByteType, format: RGBAFormat, minFilter: NearestFilter, magFilter: NearestFilter });
   private quad = new FullScreenQuad(compose);
   private ids: ShaderMaterial[] = [];
 
@@ -75,8 +84,8 @@ export class SelectionOutlinePass extends Pass {
   }
 
   setSize(width: number, height: number) {
-    this.mask.setSize(width, height);
-    compose.uniforms.texel.value = [1 / width, 1 / height];
+    this.mask.setSize(width * SS, height * SS);
+    compose.uniforms.texel.value = [1 / (width * SS), 1 / (height * SS)];
   }
 
   render(renderer: WebGLRenderer, writeBuffer: WebGLRenderTarget, readBuffer: WebGLRenderTarget) {
