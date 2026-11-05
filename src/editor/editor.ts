@@ -584,29 +584,62 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   // Each shell plane gets its own materials (they are shared otherwise) and its normal + a point to tell the sides apart.
   interface Fade {
     obj: Object3D & { material: MeshBasicMaterial | MeshBasicMaterial[] };
-    n: Vector3;
+    inward: Vector3; // the side of this plane that faces the inside of the room
     p: Vector3;
     base: number;
     a: number;
   }
   let fades: Fade[] = [];
-  let roomCentre = new Vector3();
-  function prepareFade(shell: Group, centre: [number, number, number]) {
-    roomCentre = new Vector3(...centre);
+  function prepareFade(shell: Group, centre: [number, number, number], planes: Room['scan']['planes']) {
+    // The floor polygons (x, z) tell which side of a wall is the inside, also for odd shaped rooms where "towards the centre" is wrong.
+    const floors: [number, number][][] = [];
+    for (const f of planes) {
+      if (f.label !== 'floor' || !f.poly || !f.quat) continue;
+      const q = new Quaternion(...f.quat);
+      const poly: [number, number][] = [];
+      for (let i = 0; i < f.poly.length; i += 2) {
+        const v = new Vector3(f.poly[i], 0, f.poly[i + 1]).applyQuaternion(q);
+        poly.push([f.pos[0] + v.x, f.pos[2] + v.z]);
+      }
+      floors.push(poly);
+    }
+    const inside = (x: number, z: number) =>
+      floors.some((poly) => {
+        let c = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const [xi, zi] = poly[i];
+          const [xj, zj] = poly[j];
+          if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c;
+        }
+        return c;
+      });
+    const mid = new Vector3(...centre);
     fades = [];
     for (const o of shell.children as (Object3D & { material?: MeshBasicMaterial })[]) {
       if (!o.material) continue;
       const q = new Quaternion();
       const p = new Vector3();
       o.matrix.decompose(p, q, new Vector3());
+      const n = new Vector3(0, 1, 0).applyQuaternion(q);
+      const h = new Vector3(n.x, 0, n.z);
+      let inward = n.clone();
+      if (h.length() > 0.3) {
+        h.normalize();
+        // Is there floor just in front of the plane, or just behind it?
+        const hits = (sign: number) => [0.3, 0.6, 1].some((d) => inside(p.x + sign * h.x * d, p.z + sign * h.z * d));
+        const front = hits(1);
+        const back = hits(-1);
+        if (front !== back) inward = h.multiplyScalar(front ? 1 : -1);
+        else if (n.dot(mid.clone().sub(p)) < 0) inward.negate(); // no floor to tell: towards the room's centre
+      } else if (n.dot(mid.clone().sub(p)) < 0) inward.negate();
       o.material = o.material.clone();
       o.material.transparent = true;
-      fades.push({ obj: o as Fade['obj'], n: new Vector3(0, 1, 0).applyQuaternion(q), p, base: o.material.opacity, a: 1 });
+      fades.push({ obj: o as Fade['obj'], inward, p, base: o.material.opacity, a: 1 });
     }
   }
   function updateFade() {
     for (const f of fades) {
-      const outside = f.n.dot(camera.position.clone().sub(f.p)) * f.n.dot(roomCentre.clone().sub(f.p)) < 0;
+      const outside = f.inward.dot(camera.position.clone().sub(f.p)) < 0; // the camera is on the outer side of this plane
       f.a += ((outside ? 0 : 1) - f.a) * 0.2;
       (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
       f.obj.visible = f.a > 0.02;
@@ -631,7 +664,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     planesGroup.visible = !hiddenRooms.has(r.id);
     const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false, 0, true);
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true, 0, true);
-    prepareFade(plan.shell, floorCentre(r.scan.planes));
+    prepareFade(plan.shell, floorCentre(r.scan.planes), r.scan.planes);
     const spot = floorCentre(r.scan.planes);
     gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
