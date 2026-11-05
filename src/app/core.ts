@@ -4,6 +4,7 @@ import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createStructureLayer, type StructureLayer } from '../room/structures';
+import { adoptOrphans } from '../room/free';
 import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
@@ -897,6 +898,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function openProject(p: Project) {
     closeCurrent();
     unsaved = false;
+    adoptOrphans(p, rooms); // models of a room that no longer exists go to the free space
     current = p;
     // Align every room of the project now (the headset reports them all), so it opens in the right places.
     for (const id of p.roomIds) {

@@ -32,6 +32,7 @@ import { uploadModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
+import { adoptOrphans } from '../room/free';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
@@ -1173,6 +1174,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   } catch (e) {
     return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);
   }
+  for (const p of projects) adoptOrphans(p, rooms); // models of a room that no longer exists stay reachable
   refreshLists();
   ui.setStatus(
     !rooms.length
