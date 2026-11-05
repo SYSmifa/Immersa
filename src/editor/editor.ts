@@ -139,6 +139,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       persp.far = d * 2.5;
       persp.updateProjectionMatrix();
     }
+    updateFade();
     composer.render();
   });
 
@@ -579,6 +580,39 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     refreshToolbar();
   }
 
+  // The wall between the camera and the inside of the room fades out, so you can look into the room from any side.
+  // Each shell plane gets its own materials (they are shared otherwise) and its normal + a point to tell the sides apart.
+  interface Fade {
+    obj: Object3D & { material: MeshBasicMaterial | MeshBasicMaterial[] };
+    n: Vector3;
+    p: Vector3;
+    base: number;
+    a: number;
+  }
+  let fades: Fade[] = [];
+  let roomCentre = new Vector3();
+  function prepareFade(shell: Group, centre: [number, number, number]) {
+    roomCentre = new Vector3(...centre);
+    fades = [];
+    for (const o of shell.children as (Object3D & { material?: MeshBasicMaterial })[]) {
+      if (!o.material) continue;
+      const q = new Quaternion();
+      const p = new Vector3();
+      o.matrix.decompose(p, q, new Vector3());
+      o.material = o.material.clone();
+      o.material.transparent = true;
+      fades.push({ obj: o as Fade['obj'], n: new Vector3(0, 1, 0).applyQuaternion(q), p, base: o.material.opacity, a: 1 });
+    }
+  }
+  function updateFade() {
+    for (const f of fades) {
+      const outside = f.n.dot(camera.position.clone().sub(f.p)) * f.n.dot(roomCentre.clone().sub(f.p)) < 0;
+      f.a += ((outside ? 0 : 1) - f.a) * 0.2;
+      (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
+      f.obj.visible = f.a > 0.02;
+    }
+  }
+
   // ---- rooms and projects ----
   function showRoom(r: Room | null) {
     room = r;
@@ -595,8 +629,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return;
     }
     planesGroup.visible = !hiddenRooms.has(r.id);
-    const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false);
-    const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true);
+    const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false, 0, true);
+    const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true, 0, true);
+    prepareFade(plan.shell, floorCentre(r.scan.planes));
     const spot = floorCentre(r.scan.planes);
     gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);

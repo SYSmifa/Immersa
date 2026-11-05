@@ -463,7 +463,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
   save.onclick = h.onSave;
-  tools.append(bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bOrtho, sep(), bGrid, bVertex, bLocal, sep(), bUndo, bRedo, save);
+  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, sep(), bUndo, bRedo, save);
   const hint = el('div', '', 'ed-hint');
   top.append(tools, hint);
 
