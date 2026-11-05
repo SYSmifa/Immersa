@@ -70,6 +70,7 @@ function restyleGizmo(t: TransformControls) {
   t.getHelper().traverse((o) => {
     const m = (o as Mesh).material as (MeshBasicMaterial & { _color?: Color; _opacity?: number }) | undefined;
     if (!m || !m.color) return;
+    if (o.name === 'AXIS') m.visible = false; // the endless line along the dragged axis only confuses
     const hex = axis[o.name] ?? plane[o.name] ?? (o.name === 'XYZ' || o.name === 'E' || o.name === 'XYZE' ? 0xe8edf5 : null);
     if (hex === null) return;
     m.color.set(hex);

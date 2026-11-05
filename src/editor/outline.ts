@@ -32,7 +32,7 @@ const compose = new ShaderMaterial({
     tMask: { value: null },
     texel: { value: [1, 1] },
     reach: { value: 2 },
-    edge: { value: new Color(0x2f9bff) },
+    edge: { value: new Color(0x8fdcff) },
   },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `
@@ -67,7 +67,7 @@ export class SelectionOutlinePass extends Pass {
   constructor(
     private scene: Scene,
     private camera: Camera,
-    colour = 0x2f9bff,
+    colour = 0x8fdcff,
     private thickness = 2,
   ) {
     super();
