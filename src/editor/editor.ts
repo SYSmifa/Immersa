@@ -37,7 +37,7 @@ import { adoptOrphans } from '../room/free';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
-import { bakeXf, createStructureLayer, floorPoints, placeStructure, structMeasure, structPoints } from '../room/structures';
+import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -518,7 +518,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       };
     }
     if (sel.length === 0) return null;
-    if (sel.length > 1) return { kind: 'multi', count: sel.length };
+    // Several walls, or several floors (not a mix): one set of parameters for all of them, shown with the first one's values.
+    const group = selStructs();
+    const sameKind = group.length > 1 && group.length === sel.length && group.every((x) => x.kind === group[0].kind);
+    if (sel.length > 1 && !sameKind) return { kind: 'multi', count: sel.length };
     const m = selModels()[0];
     if (m) {
       const holder = layer.holders.get(m.id);
@@ -539,9 +542,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     const s = selStructs()[0];
     if (!s) return null;
+    const total = group.reduce((t, x) => t + (x.kind === 'wall' ? Math.hypot(x.b[0] - x.a[0], x.b[1] - x.a[1]) : polygonArea(floorPoints(x))), 0);
     return {
       kind: 'structure',
-      key: `s:${s.id}`,
+      key: `s:${group.map((x) => x.id).join(',')}`,
+      count: group.length,
       type: s.kind,
       height: s.height,
       thickness: s.thickness,
@@ -549,7 +554,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       texture: s.texture ?? null,
       align: s.kind === 'wall' ? (s.align ?? 'center') : undefined,
       finish: { roughness: s.finish?.roughness ?? (s.texture ? 1 : 0.9), metalness: s.finish?.metalness ?? 0 },
-      measure: structMeasure(s),
+      measure: group.length > 1 ? (s.kind === 'wall' ? `Lunghezza totale ${total.toFixed(2)} m` : `Superficie totale ${total.toFixed(2)} m²`) : structMeasure(s),
     };
   }
 

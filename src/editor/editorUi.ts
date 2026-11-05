@@ -102,7 +102,7 @@ export type Details =
       finish: { roughness: number; metalness: number };
       moved: boolean; // not where / as it is in the file
     }
-  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
+  | { kind: 'structure'; key: string; count?: number; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -759,7 +759,8 @@ export function createEditorUi(h: EditorHandlers) {
       rows.push(el('div', 'Il muro sta sulla linea disegnata, a:', 'ed-meta'), seg);
     }
     details.replaceChildren(
-      el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
+      el('div', d.count && d.count > 1 ? `${d.count} ${d.type === 'wall' ? 'pareti' : 'pavimenti'}` : d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
+      ...(d.count && d.count > 1 ? [el('div', 'Le modifiche valgono per tutti quelli selezionati', 'ed-sub')] : []),
       card(...rows, el('div', d.measure, 'ed-meta')),
       el('div', 'Texture', 'ed-h'),
       card(textureGrid(d.texture, (id) => h.onStructure({ texture: id }, true))),
