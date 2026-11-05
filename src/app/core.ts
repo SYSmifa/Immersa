@@ -524,6 +524,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   function closeCurrent() {
     current = null;
+    freeFrame = null;
     grab = null;
     wallAngles.clear();
     foreign = null;
@@ -550,12 +551,29 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return new Matrix4().makeTranslation((h?.x ?? 0) - pivot[0], floorY - pivot[1], (h?.z ?? 0) - pivot[2]);
   }
 
+  // A project without a room (or models placed without one: roomId ''): its "free space" is a frame set where you stand when
+  // the project opens, 1.5 m in front of you on the floor, turned like your head. The models appear there.
+  let freeFrame: Matrix4 | null = null;
+  function makeFreeFrame(): Matrix4 {
+    const h = lastHead;
+    if (!h) return new Matrix4();
+    const f = new Vector3(h.fwd.x, 0, h.fwd.z);
+    if (f.length() < 0.2) f.set(0, 0, -1);
+    f.normalize();
+    // Floor: the highest floor the headset reports below your head, else about a head's height down.
+    const below = rawLive.filter((q) => q.label === 'floor' && q.pos[1] < h.pos.y - 0.3).map((q) => q.pos[1]);
+    const y = below.length ? Math.max(...below) : h.pos.y - 1.5;
+    return new Matrix4().makeRotationY(yawOf(h.fwd)).setPosition(h.pos.x + f.x * 1.5, y, h.pos.z + f.z * 1.5);
+  }
+  const needsFreeSpace = (p: Project) => p.roomIds.length === 0 || p.models.some((m) => m.roomId === '') || (p.structures ?? []).some((x) => x.roomId === '');
+
   // Bring the scene in line with the open project and the alignments found so far.
   function syncHouses() {
     if (!current) return;
     const ids = current.roomIds.filter((id) => rooms.some((r) => r.id === id));
+    const free = needsFreeSpace(current);
     for (const id of [...houses.keys()]) {
-      if (!ids.includes(id)) {
+      if (!ids.includes(id) && !(free && id === '')) {
         houses.get(id)!.layer.sync([]);
         scene.remove(houses.get(id)!.root);
         houses.delete(id);
@@ -578,6 +596,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
       h.layer.sync(modelsOf(id));
       h.structs.sync(current.structures?.filter((x) => x.roomId === id) ?? []);
+    }
+    if (free) {
+      freeFrame ??= makeFreeFrame();
+      const h = houseFor('');
+      h.root.matrix.copy(freeFrame);
+      h.root.visible = !gap;
+      h.occluder.visible = false;
+      h.layer.sync(modelsOf(''));
+      h.structs.sync(current.structures?.filter((x) => x.roomId === '') ?? []);
     }
   }
 
@@ -879,6 +906,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (fit) aligns.set(id, fit);
     }
     foreignMode = !p.roomIds.some((id) => aligns.has(id));
+    freeFrame = needsFreeSpace(p) ? makeFreeFrame() : null;
     lastProject.save(p.id, p.models.map((x) => x.path));
     mark('progetto');
     syncHouses();

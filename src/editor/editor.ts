@@ -164,8 +164,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   });
 
   const projectRoomsList = () => (project?.roomIds ?? []).map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
-  const models = () => project?.models.filter((m) => m.roomId === room?.id) ?? [];
-  const structures = () => project?.structures.filter((s) => s.roomId === room?.id) ?? [];
+  // A project without rooms has a free space (roomId ''): the grid at the world origin, models placed anywhere in it.
+  const spaceId = () => room?.id ?? '';
+  const models = () => project?.models.filter((m) => m.roomId === spaceId()) ?? [];
+  const structures = () => project?.structures.filter((s) => s.roomId === spaceId()) ?? [];
   const findModel = (id: string) => models().find((m) => m.id === id) ?? null;
   const findStructure = (id: string) => structures().find((s) => s.id === id) ?? null;
   const floorY = () => (room ? floorCentre(room.scan.planes)[1] : 0);
@@ -658,7 +660,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     setSelection([]);
     refreshLists();
     if (!r) {
-      ui.setStatus(project ? 'Questo progetto non ha stanze: aggiungine una.' : 'Apri un progetto, o creane uno nuovo.');
+      if (!project) return ui.setStatus('Apri un progetto, o creane uno nuovo.');
+      // No room: just the grid, and models can be loaded (they appear in front of you in the headset).
+      gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344));
+      controls.target.set(0, 0.5, 0);
+      camera.position.set(0, 4, 5);
+      controls.update();
+      ui.setStatus('Progetto senza stanza: carica un modello, lo ritroverai davanti a te nel visore. Puoi aggiungere una stanza quando vuoi.');
       return;
     }
     planesGroup.visible = !hiddenRooms.has(r.id);
@@ -730,7 +738,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         projects.unshift(p);
         showProject(p);
         ui.setView('project');
-        ui.setStatus(`Progetto "${name}" creato${p.roomIds.length ? '' : ': aggiungi le sue stanze'}`);
+        ui.setStatus(`Progetto "${name}" creato${p.roomIds.length ? '' : ' senza stanza: carica un modello'}`);
       }),
     onCloseProject() {
       if (!confirmLeave()) return;
@@ -783,12 +791,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       refreshLists();
     },
     async onUpload(file) {
-      if (!room || !project) return ui.setStatus('Scegli un progetto e una sua stanza prima di caricare un modello');
+      if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
       ui.setStatus(`Carico ${file.name}...`);
       try {
         const { path, name } = await upload(file);
         const id = newId();
-        project.models.push({ id, roomId: room.id, name, path, pos: floorCentre(room.scan.planes), yaw: 0, scale: 1 });
+        // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
+        const free = models().length;
+        project.models.push({ id, roomId: spaceId(), name, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
         layer.sync(models());
         setSelection([`m:${id}`]);
         markDirty();
@@ -1011,7 +1021,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   renderer.domElement.addEventListener('pointerdown', (e) => {
     down = { x: e.clientX, y: e.clientY };
-    if (!build || !room || e.button !== 0) return;
+    if (!build || !project || e.button !== 0) return;
     const p = floorPoint(e);
     if (!p) return;
     controls.enabled = false; // the drag draws, it does not orbit
@@ -1038,13 +1048,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const from = drag.start;
       dropPreview();
       const p = floorPoint(e);
-      if (p && project && room) {
+      if (p && project) {
         const d = draftOf(from, p, kind);
         const dx = Math.abs(d.b[0] - d.a[0]);
         const dz = Math.abs(d.b[1] - d.a[1]);
         if (kind === 'wall' ? Math.hypot(dx, dz) >= 0.1 : dx >= 0.1 && dz >= 0.1) {
           const id = newId();
-          project.structures.push({ id, roomId: room.id, ...d });
+          project.structures.push({ id, roomId: spaceId(), ...d });
           // Back to selection after each one; Shift held keeps the tool for the next.
           // Shift held: keep the tool for the next one; letting go of Shift leaves it (see the keyup below).
           keepBuild = e.shiftKey;
@@ -1118,7 +1128,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       build = null;
       if (partSel) setPart(partSel.modelId, null); // leave the component, keep the model
       else setSelection([]);
-    } else if (!mod && room) {
+    } else if (!mod && project) {
       const next = ({ w: 'translate', e: 'rotate', r: 'scale' } as Record<string, Gizmo>)[k];
       if (next) {
         gizmo = next;

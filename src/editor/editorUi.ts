@@ -368,8 +368,8 @@ export function createEditorUi(h: EditorHandlers) {
       back('Indietro', goHome),
       el('div', 'Nuovo progetto', 'ed-h'),
       card(name),
-      title('Stanze del progetto'),
-      card(...(checks.length ? checks : [el('div', 'Nessuna stanza salvata: scansionala dal visore (tab Scan).', 'ed-meta')])),
+      title('Stanze del progetto (facoltative)'),
+      card(...(checks.length ? checks : [el('div', 'Nessuna stanza salvata: scansionala dal visore (tab Scan).', 'ed-meta')]), el('div', 'Senza stanza hai solo la griglia: i modelli li ritrovi davanti a te nel visore.', 'ed-meta')),
       create,
     );
     name.focus();
@@ -417,12 +417,12 @@ export function createEditorUi(h: EditorHandlers) {
     add.disabled = !addableItems.length;
     const remove = pill('Togli la stanza dal progetto', h.onRemoveRoom, 'bad');
     remove.disabled = !hasRoom;
-    fileInput.disabled = !hasRoom;
+    fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
     body.replaceChildren(
       back('Chiudi progetto', h.onCloseProject),
       card(name, row(pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       title('Stanze del progetto'),
-      ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: aggiungine una.', 'ed-meta')]),
+      ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),
       title('Aggiungi un modello (.glb)'),
       fileInput,
