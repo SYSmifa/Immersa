@@ -167,7 +167,7 @@ const CSS = `
 .ed-back{align-self:flex-start;background:#ffffff14;color:#fff}
 .ed-back:hover:not(:disabled){background:#ffffff26}
 .ed-h{font-weight:700;font-size:16px;padding:0 4px}
-.ed-top{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.ed-top{position:fixed;top:12px;left:340px;right:324px;z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 .ed-top>*{pointer-events:auto}
 .ed-tools{display:flex;gap:2px;align-items:center;padding:6px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
 .ed-ib{width:40px;height:40px;border:0;border-radius:50%;background:transparent;color:#cfd6e4;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
