@@ -919,7 +919,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       setLoadingText('Carico il progetto', `Modelli 0 / ${p.models.length}`, 0);
       loading.mesh.visible = true;
     }
-    say(foreign ? `Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, foreign ? 9000 : 7000);
+    if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
+    else say(foreign ? `Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, foreign ? 9000 : 7000);
   }
 
   const actions: MenuActions = {

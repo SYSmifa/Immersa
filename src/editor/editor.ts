@@ -665,6 +665,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (!project) return ui.setStatus('Apri un progetto, o creane uno nuovo.');
       // No room: just the grid, and models can be loaded (they appear in front of you in the headset).
       gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344));
+      frameWhenLoaded = true;
       controls.target.set(0, 0.5, 0);
       camera.position.set(0, 4, 5);
       controls.update();
@@ -705,8 +706,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let manualLoad: { title: string; sub?: string } | null = null;
   let batchTotal = 0;
   let lastPending = 0;
+  // Free space (no room): the camera goes where the models are, whatever their size (a file in centimetres is a hundred times
+  // bigger than it should be and would otherwise be out of sight).
+  let frameWhenLoaded = false;
+  function frameSpace() {
+    const box = new Box3();
+    for (const h of layer.holders.values()) box.union(new Box3().setFromObject(h));
+    for (const m of structLayer.meshes.values()) box.union(new Box3().setFromObject(m));
+    if (box.isEmpty()) return;
+    const centre = box.getCenter(new Vector3());
+    const span = Math.max(2, box.getSize(new Vector3()).length());
+    if (ortho) setOrtho(false);
+    controls.target.copy(centre);
+    camera.position.set(centre.x, centre.y + span * 0.6, centre.z + span * 1.0);
+    controls.update();
+  }
   function refreshLoading() {
     const pending = modelsPending();
+    if (frameWhenLoaded && pending === 0 && !room && [...layer.holders.values()].every((h) => h.children.length)) {
+      frameWhenLoaded = false;
+      frameSpace();
+    }
     if (pending > lastPending) batchTotal += pending - lastPending;
     lastPending = pending;
     if (pending === 0) batchTotal = 0;
@@ -825,6 +845,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const id = newId();
         // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
         const free = models().length;
+        if (!room) frameWhenLoaded = true;
         project.models.push({ id, roomId: spaceId(), name, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
         layer.sync(models());
         setSelection([`m:${id}`]);
@@ -1155,6 +1176,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       build = null;
       if (partSel) setPart(partSel.modelId, null); // leave the component, keep the model
       else setSelection([]);
+    } else if (!mod && k === 'f' && project) {
+      frameSpace(); // F: bring everything into view
     } else if (!mod && project) {
       const next = ({ w: 'translate', e: 'rotate', r: 'scale' } as Record<string, Gizmo>)[k];
       if (next) {
