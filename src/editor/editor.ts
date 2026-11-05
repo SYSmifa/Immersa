@@ -69,6 +69,10 @@ function restyleGizmo(t: TransformControls) {
   const axis = { X: 0xf2545b, Y: 0x2dd4bf, Z: 0x4c8dff } as Record<string, number>;
   const plane = { XY: axis.Z, YZ: axis.X, XZ: axis.Y } as Record<string, number>;
   t.size = 0.8;
+  // The centre handle that grabs the three axes at once is gone: it sat on top of the corner handles of walls and floors.
+  const centres: Object3D[] = [];
+  t.getHelper().traverse((o) => o.name === 'XYZ' && centres.push(o));
+  for (const o of centres) o.parent?.remove(o);
   t.getHelper().traverse((o) => {
     const m = (o as Mesh).material as (MeshBasicMaterial & { _color?: Color; _opacity?: number }) | undefined;
     if (!m || !m.color) return;
@@ -1137,6 +1141,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const handleGeo = new SphereGeometry(1, 16, 12);
   const vertexMat = new MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true });
   const midMat = new MeshBasicMaterial({ color: 0x2ec4ff, depthTest: false, transparent: true, opacity: 0.85 });
+  // Colours by state: white / azure at rest, the other one when the pointer is over it, yellow while it is dragged.
+  const hoverVertexMat = new MeshBasicMaterial({ color: 0x2ec4ff, depthTest: false, transparent: true });
+  const hoverMidMat = new MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true });
+  const activeMat = new MeshBasicMaterial({ color: 0xfacc15, depthTest: false, transparent: true });
+  let hoverHandle: Mesh | null = null;
   interface Handle {
     mesh: Mesh;
     kind: 'vertex' | 'mid';
@@ -1175,9 +1184,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     // The same size on screen at any distance and for the orthographic view too.
     const k = Math.tan(MathUtils.degToRad(persp.fov / 2));
     want.forEach((w, i) => {
-      const m = handles[i].mesh;
+      const h = handles[i];
+      const m = h.mesh;
+      const active = !!handleDrag && handleDrag.index === h.index && h.kind === 'vertex';
+      const hover = hoverHandle === m && !handleDrag;
+      m.material = active ? activeMat : hover ? (h.kind === 'vertex' ? hoverVertexMat : hoverMidMat) : h.kind === 'vertex' ? vertexMat : midMat;
       m.position.set(w.x, w.y, w.z);
-      m.scale.setScalar(camera.position.distanceTo(m.position) * k * (w.kind === 'vertex' ? 0.017 : 0.011));
+      m.scale.setScalar(camera.position.distanceTo(m.position) * k * (w.kind === 'vertex' ? 0.017 : 0.011) * (active || hover ? 1.3 : 1));
     });
   }
   const setCorner = (s: Structure, index: number, x: number, z: number) => {
@@ -1192,14 +1205,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       s.b = pts[2] ?? pts[pts.length - 1];
     }
   };
+  // In the capture phase and stopping the event: where a handle and the gizmo overlap, the handle wins.
   renderer.domElement.addEventListener('pointerdown', (e) => {
-    if (build || partSel || e.button !== 0 || transform.axis) return; // the gizmo has priority where they overlap
+    if (build || partSel || e.button !== 0) return;
     const s = handleTarget();
     if (!s || !handles.length) return;
     ray.setFromCamera(ndcOf(e), camera);
     const hit = ray.intersectObjects(handles.map((h) => h.mesh), false)[0];
     const h = hit && handles.find((x) => x.mesh === hit.object);
     if (!h) return;
+    e.stopImmediatePropagation(); // neither the gizmo nor the orbit start
     let index = h.index;
     if (s.kind === 'floor') {
       const pts = floorPoints(s).map(([px, pz]) => [px, pz] as [number, number]);
@@ -1226,6 +1241,17 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     handleDrag = { id: s.id, index };
     controls.enabled = false;
     renderer.domElement.setPointerCapture(e.pointerId);
+  }, true);
+  // Hover: the handle under the pointer lights up.
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (handleDrag || drag) return;
+    let over: Mesh | null = null;
+    if (handles.length && !build && !partSel && e.buttons === 0) {
+      ray.setFromCamera(ndcOf(e), camera);
+      over = (ray.intersectObjects(handles.map((x) => x.mesh), false)[0]?.object as Mesh | undefined) ?? null;
+    }
+    hoverHandle = over;
+    renderer.domElement.style.cursor = over ? 'pointer' : '';
   });
   renderer.domElement.addEventListener('pointermove', (e) => {
     if (!handleDrag || handleDrag.index < 0) return;
