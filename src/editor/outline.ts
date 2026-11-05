@@ -35,7 +35,7 @@ const compose = new ShaderMaterial({
     texel: { value: [1, 1] }, // of the (supersampled) mask
     reach: { value: 2 },
     ss: { value: SS },
-    edge: { value: new Color(0x8fdcff) },
+    edge: { value: new Color(0x2ec4ff) },
   },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `
@@ -76,8 +76,8 @@ export class SelectionOutlinePass extends Pass {
   constructor(
     private scene: Scene,
     private camera: Camera,
-    colour = 0x8fdcff,
-    private thickness = 2,
+    colour = 0x2ec4ff,
+    private thickness = 3,
   ) {
     super();
     (compose.uniforms.edge.value as Color).set(colour);
