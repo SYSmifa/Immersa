@@ -361,7 +361,9 @@ export function createEditorUi(h: EditorHandlers) {
       const ids = checks.map((l) => l.firstChild as HTMLInputElement).filter((c) => c.checked).map((c) => c.value);
       h.onCreateProject(n, ids);
     }, 'acc');
-    name.onkeydown = (e) => e.key === 'Enter' && create.click();
+    name.onkeydown = (e) => {
+      if (e.key === 'Enter') create.click(); // (returning false from this handler would cancel every other key)
+    };
     body.replaceChildren(
       back('Indietro', goHome),
       el('div', 'Nuovo progetto', 'ed-h'),
