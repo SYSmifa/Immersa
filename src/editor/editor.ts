@@ -32,7 +32,7 @@ import { uploadModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
-import { createModelLayer } from '../room/modelLayer';
+import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
 import { createStructureLayer, placeStructure } from '../room/structures';
@@ -700,11 +700,36 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
   }
 
+  // The loading card: for what we wait on ourselves (manual), else for models still being downloaded and read.
+  let manualLoad: { title: string; sub?: string } | null = null;
+  let batchTotal = 0;
+  let lastPending = 0;
+  function refreshLoading() {
+    const pending = modelsPending();
+    if (pending > lastPending) batchTotal += pending - lastPending;
+    lastPending = pending;
+    if (pending === 0) batchTotal = 0;
+    if (manualLoad) return ui.setLoading(manualLoad);
+    if (pending > 0) ui.setLoading({ title: 'Carico i modelli', sub: `Modelli ${batchTotal - pending} / ${batchTotal}`, value: (batchTotal - pending) / batchTotal });
+    else ui.setLoading(null);
+  }
+  async function withLoading<T>(title: string, sub: string | undefined, what: () => Promise<T>): Promise<T> {
+    manualLoad = { title, sub };
+    refreshLoading();
+    try {
+      return await what();
+    } finally {
+      manualLoad = null;
+      refreshLoading();
+    }
+  }
+  setInterval(refreshLoading, 120);
+
   async function save() {
     if (!project) return;
     ui.setStatus('Salvo...');
     try {
-      await backend.saveProject(project.id, { models: project.models, roomIds: project.roomIds, structures: project.structures });
+      await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures }));
       markDirty(false);
       ui.setStatus(`Progetto "${project.name}" salvato`);
     } catch (e) {
@@ -795,7 +820,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
       ui.setStatus(`Carico ${file.name}...`);
       try {
-        const { path, name } = await upload(file);
+        const { path, name } = await withLoading('Carico il modello', file.name, () => upload(file));
         const id = newId();
         // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
         const free = models().length;
@@ -1144,7 +1169,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   refreshToolbar();
   try {
     if (!(await backend.email())) return ui.setStatus('Accedi (in basso a sinistra) con lo stesso account del visore.');
-    [rooms, projects] = await Promise.all([backend.listRooms(), backend.listProjects()]);
+    [rooms, projects] = await withLoading('Carico i progetti', undefined, () => Promise.all([backend.listRooms(), backend.listProjects()]));
   } catch (e) {
     return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);
   }

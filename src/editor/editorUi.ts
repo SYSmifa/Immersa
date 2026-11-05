@@ -2,6 +2,7 @@ import '@fontsource/sen/latin-500.css';
 import '@fontsource/sen/latin-700.css';
 import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
+import { drawLoader } from '../ui3d/loader';
 import { AURA } from '../ui3d/theme';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
@@ -208,6 +209,13 @@ const CSS = `
 .ed-texbtn.none{background:repeating-conic-gradient(#d0d5dd 0 25%,#fff 0 50%) 50%/12px 12px}
 .ed-texbtn.on{border-color:var(--acc);box-shadow:0 0 0 2px #14b8a655}
 .ed-texbtn span{position:absolute;left:0;right:0;bottom:0;padding:2px 0;background:#000a;color:#fff;font-size:11px;font-weight:500}
+.ed-loading{position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);z-index:30;width:300px;padding:10px 18px 20px;border-radius:26px;text-align:center;
+  background:linear-gradient(160deg,#0b0d12e6,#1d222de6);box-shadow:0 14px 50px #000a;backdrop-filter:blur(6px);pointer-events:none;display:none;flex-direction:column;align-items:center;gap:2px}
+.ed-loading canvas{width:170px;height:150px}
+.ed-loading b{font-size:17px}
+.ed-loading span{color:#aeb7c8;font-size:13px;min-height:1.2em}
+.ed-loading i{display:block;width:70%;height:8px;border-radius:4px;background:#ffffff29;margin-top:10px;overflow:hidden}
+.ed-loading i u{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .15s}
 .ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
@@ -477,7 +485,30 @@ export function createEditorUi(h: EditorHandlers) {
   right.append(outline, details);
 
   const toast = el('div', '', 'ed-toast');
-  root.append(side, top, right, toast);
+
+  // The headset's loading card (animated wireframe cube, title, line, bar), for anything that takes a while.
+  const loading = el('div', '', 'ed-loading');
+  const cube = el('canvas');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cube.width = 170 * dpr;
+  cube.height = 150 * dpr;
+  const cctx = cube.getContext('2d')!;
+  const lTitle = el('b');
+  const lSub = el('span');
+  const lBar = el('i');
+  const lFill = el('u');
+  lBar.append(lFill);
+  loading.append(cube, lTitle, lSub, lBar);
+  let loadingOn = false;
+  let loadingTimer = 0;
+  const spin = () => {
+    if (!loadingOn) return;
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cctx.clearRect(0, 0, 170, 150);
+    drawLoader(cctx, 85, 75, 140, performance.now() / 1000, 1);
+    requestAnimationFrame(spin);
+  };
+  root.append(side, top, right, toast, loading);
 
   function syncChrome() {
     const on = view === 'project' && hasProject;
@@ -741,6 +772,27 @@ export function createEditorUi(h: EditorHandlers) {
     footer,
     setStatus(text: string) {
       toast.textContent = text;
+    },
+    // Shows / updates the loading card (null hides it). It appears only if the wait lasts a moment, so quick things do not flash.
+    setLoading(info: { title: string; sub?: string; value?: number } | null) {
+      if (!info) {
+        window.clearTimeout(loadingTimer);
+        loadingTimer = 0;
+        loadingOn = false;
+        loading.style.display = 'none';
+        return;
+      }
+      lTitle.textContent = info.title;
+      lSub.textContent = info.sub ?? '';
+      lBar.style.display = info.value === undefined ? 'none' : 'block';
+      lFill.style.width = `${Math.round(Math.min(1, Math.max(0, info.value ?? 0)) * 100)}%`;
+      if (loadingOn || loadingTimer) return;
+      loadingTimer = window.setTimeout(() => {
+        loadingTimer = 0;
+        loadingOn = true;
+        loading.style.display = 'flex';
+        spin();
+      }, 250);
     },
     setView,
     getView: () => view,
