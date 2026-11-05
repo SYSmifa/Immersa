@@ -1,4 +1,5 @@
 import { BoxGeometry, CanvasTexture, ExtrudeGeometry, Mesh, MeshStandardMaterial, RepeatWrapping, Shape, SRGBColorSpace, Vector2, type Object3D } from 'three';
+import { finishEnv } from './selection';
 import { textureById, textureMaps } from './textures';
 import type { Structure } from './types';
 
@@ -12,6 +13,32 @@ export function floorPoints(s: Pick<Structure, 'a' | 'b' | 'pts'>): [number, num
   if (s.pts && s.pts.length >= 3) return s.pts;
   return [[s.a[0], s.a[1]], [s.b[0], s.a[1]], [s.b[0], s.b[1]], [s.a[0], s.b[1]]];
 }
+// The point a headset move / turn / scale is about: the middle of a wall's line, the centre of a floor's outline.
+export function structPivot(s: Structure): [number, number] {
+  if (s.kind === 'wall') return [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
+  const p = floorPoints(s);
+  return [p.reduce((t, q) => t + q[0], 0) / p.length, p.reduce((t, q) => t + q[1], 0) / p.length];
+}
+export const hasXf = (s: Structure) => !!s.xf && (!!s.xf.d || !!s.xf.yaw || (s.xf.scale !== undefined && s.xf.scale !== 1));
+// The structure as it is drawn: its own shape with the headset's move, turn and scale applied.
+export function effective(s: Structure): Structure {
+  if (!hasXf(s)) return s;
+  const [cx, cz] = structPivot(s);
+  const k = s.xf!.scale ?? 1;
+  const cs = Math.cos(s.xf!.yaw ?? 0);
+  const sn = Math.sin(s.xf!.yaw ?? 0);
+  const [dx, dz] = s.xf!.d ?? [0, 0];
+  const map = ([x, z]: [number, number]): [number, number] => [cx + ((x - cx) * cs + (z - cz) * sn) * k + dx, cz + (-(x - cx) * sn + (z - cz) * cs) * k + dz];
+  return { ...s, a: map(s.a), b: map(s.b), pts: s.kind === 'floor' ? floorPoints(s).map(map) : s.pts, height: s.height * k, thickness: s.thickness * k };
+}
+// Makes the headset's changes the shape itself (the PC editor works on the shape).
+export function bakeXf(s: Structure) {
+  if (!hasXf(s)) return void delete s.xf;
+  const e = effective(s);
+  Object.assign(s, { a: e.a, b: e.b, pts: e.pts, height: e.height, thickness: e.thickness });
+  delete s.xf;
+}
+
 // The points of a structure other things snap to: the ends of a wall's line, the corners of a floor.
 export const structPoints = (s: Structure): [number, number][] => (s.kind === 'wall' ? [s.a, s.b] : floorPoints(s));
 export function polygonArea(pts: [number, number][]): number {
@@ -130,7 +157,8 @@ export function createStructureLayer(parent: Object3D) {
           meshes.delete(id);
         }
       }
-      for (const s of list) {
+      for (const s0 of list) {
+        const s = effective(s0);
         let m = meshes.get(s.id);
         if (!m) {
           m = new Mesh(box, new MeshStandardMaterial({ roughness: 0.9, metalness: 0 }));
@@ -149,9 +177,17 @@ export function createStructureLayer(parent: Object3D) {
           mat.normalMap = tex?.normalMap ?? null;
           mat.aoMap = tex?.aoMap ?? null;
           mat.roughnessMap = tex?.roughnessMap ?? null;
-          mat.roughness = tex ? 1 : 0.9; // with a roughness map the map is the value
           mat.needsUpdate = true;
         }
+        // Finish: the slider values; with a roughness map the value multiplies the map (so 1 = the texture's own).
+        mat.roughness = s.finish?.roughness ?? (tex ? 1 : 0.9);
+        mat.metalness = s.finish?.metalness ?? 0;
+        const shiny = mat.metalness > 0.05 ? finishEnv() : null; // metal needs something to reflect
+        if (mat.envMap !== shiny) {
+          mat.envMap = shiny;
+          mat.needsUpdate = true;
+        }
+        mat.envMapIntensity = 0.1 + 0.7 * mat.metalness;
         if (s.kind === 'floor') {
           // Always a polygon slab at the room's origin (the outline is in room coordinates).
           const pts = floorPoints(s);

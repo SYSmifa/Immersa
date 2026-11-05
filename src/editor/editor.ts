@@ -37,7 +37,7 @@ import { adoptOrphans } from '../room/free';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
-import { createStructureLayer, floorPoints, placeStructure, structMeasure, structPoints } from '../room/structures';
+import { bakeXf, createStructureLayer, floorPoints, placeStructure, structMeasure, structPoints } from '../room/structures';
 import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -548,6 +548,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       color: s.color ?? null,
       texture: s.texture ?? null,
       align: s.kind === 'wall' ? (s.align ?? 'center') : undefined,
+      finish: { roughness: s.finish?.roughness ?? (s.texture ? 1 : 0.9), metalness: s.finish?.metalness ?? 0 },
       measure: structMeasure(s),
     };
   }
@@ -976,6 +977,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       for (const s of selStructs()) {
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
         if (edit.align && s.kind === 'wall') s.align = edit.align;
+        if (edit.roughness !== undefined || edit.metalness !== undefined) {
+          s.finish = { ...s.finish, ...(edit.roughness !== undefined && { roughness: edit.roughness }), ...(edit.metalness !== undefined && { metalness: edit.metalness }) };
+        }
         if (edit.thickness !== undefined && edit.thickness > 0) s.thickness = edit.thickness;
         if (edit.color) s.color = edit.color;
         if (edit.texture !== undefined) {
@@ -1344,7 +1348,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   } catch (e) {
     return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);
   }
-  for (const p of projects) adoptOrphans(p, rooms); // models of a room that no longer exists stay reachable
+  for (const p of projects) {
+    adoptOrphans(p, rooms); // models of a room that no longer exists stay reachable
+    for (const s of p.structures ?? []) bakeXf(s); // what was moved / turned / scaled in the headset is now the shape
+  }
   refreshLists();
   ui.setStatus(
     !rooms.length

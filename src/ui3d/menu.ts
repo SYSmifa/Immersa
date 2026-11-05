@@ -27,6 +27,7 @@ export interface ObjectView {
     height: number;
     thickness: number;
     texture: string | null;
+    moved: boolean; // shifted / turned / scaled in the headset
     textures: { id: string | null; name: string; color: string; image?: CanvasImageSource }[]; // the catalogue, "none" first
   };
 }
@@ -183,7 +184,6 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   const pw = (W - (n - 1) * gap) / n;
   out.push({ rect: { x: M, y: 438, w: pw, h: 50 }, text: 'Orig.', size: 20, onClick: () => a.objColor(null) });
   OBJECT_COLORS.forEach((c, i) => out.push({ rect: { x: M + (i + 1) * (pw + gap), y: 438, w: pw, h: 50 }, text: '●', size: 38, color: c, onClick: () => a.objColor(c) }));
-  if (st) return out;
   // finish
   out.push(surface(M, 500, W, 108));
   const bar = (key: 'roughness' | 'metalness', name: string, y: number) => {
@@ -224,7 +224,11 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: strin
       const bw = (W - 28 * 2 - 14) / 2;
       out.push({ kind: 'pill', rect: { x: M + 28, y: 508, w: bw, h: 56 }, text: 'Annulla', size: 24, onClick: a.objDeleteNo });
       out.push({ kind: 'pill', icon: 'trash', primary: true, rect: { x: M + 28 + bw + 14, y: 508, w: bw, h: 56 }, text: 'Sì, elimina', size: 24, onClick: a.objDeleteYes });
-    } else out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 404, w: W, h: 64 }, text: `Elimina ${st.kind === 'wall' ? 'parete' : 'pavimento'}`, size: 26, color: theme().bad, onClick: a.objDelete });
+    } else {
+      const bw = (W - 14) / 2;
+      out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: bw, h: 64 }, text: "Riposiziona", size: 24, disabled: !st.moved, onClick: a.objReset });
+      out.push({ kind: 'pill', icon: 'trash', rect: { x: M + bw + 14, y: 404, w: bw, h: 64 }, text: `Elimina`, size: 24, color: theme().bad, onClick: a.objDelete });
+    }
     if (message) out.push(...toast(message));
     return out;
   }

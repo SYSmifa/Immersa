@@ -75,6 +75,10 @@ export interface Structure {
   align?: 'left' | 'center' | 'right';
   // floor: the corners (x, z) of its outline, any number >= 3; undefined = the rectangle with corners a and b
   pts?: [number, number][];
+  finish?: { roughness?: number; metalness?: number }; // 0..1
+  // Moved / turned / scaled in the headset, about the centre of its footprint (see room/structures.ts `effective`); the
+  // PC editor takes it in as the new shape when it opens the project.
+  xf?: { d?: [number, number]; yaw?: number; scale?: number };
 }
 
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.

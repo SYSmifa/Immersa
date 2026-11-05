@@ -237,3 +237,9 @@ export function lightMetals(root: Object3D) {
     }
   });
 }
+
+// The shared soft environment (made on first use), for materials that are given metalness.
+export function finishEnv(): Texture | null {
+  env ??= envSource?.() ?? null;
+  return env;
+}

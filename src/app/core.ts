@@ -3,7 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
-import { createStructureLayer, structMeasure, type StructureLayer } from '../room/structures';
+import { createStructureLayer, effective, hasXf, structMeasure, type StructureLayer } from '../room/structures';
 import { adoptOrphans } from '../room/free';
 import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
@@ -365,7 +365,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       name: structName(st),
       yawDeg: 0,
       scale: 1,
-      size: structMeasure(st),
+      size: structMeasure(effective(st)),
       color: st.color ?? null,
       confirmDelete,
       colorPage,
@@ -373,12 +373,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       target: 'all',
       matPage,
       hsv: pick,
-      finish: { roughness: 0.5, metalness: 0 },
+      finish: { roughness: st.finish?.roughness ?? (st.texture ? 1 : 0.9), metalness: st.finish?.metalness ?? 0 },
       structure: {
         kind: st.kind,
         height: st.height,
         thickness: st.thickness,
         texture: st.texture ?? null,
+        moved: hasXf(st),
         textures: [{ id: null, name: 'Nessuna', color: st.color ?? DEFAULT_TINT[st.kind] }, ...TEXTURES.map((t) => ({ id: t.id, name: t.name, color: textureAverage(t.id), image: textureCanvas(t.id) ?? undefined }))],
       },
     };
@@ -1082,6 +1083,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       refreshView();
     },
     objFinish(key: 'roughness' | 'metalness', value: number) {
+      const sel = selectedStruct();
+      if (sel && !selectedPart) {
+        sel.finish = { ...sel.finish, [key]: value };
+        return applyStructChange(sel);
+      }
       if (selectedPart) {
         const e = partEditOf(true)!;
         e.finish = { ...e.finish, [key]: value };
@@ -1138,6 +1144,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       applyStructChange(st);
     },
     objReset() {
+      const sel = selectedStruct();
+      if (sel && !selectedPart) {
+        delete sel.xf; // back to the shape it has in the project
+        applyStructChange(sel);
+        return say('Riposizionato dov\'era', 3000);
+      }
       const m = partModelOf();
       const e = partEditOf();
       if (!m?.parts || !e || !selectedPart) return;
@@ -1325,6 +1337,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       partGrab.seen = true;
       return { length: grabLaser, target: 'model' };
     }
+    if (structGrab && structGrab.pointer === id) {
+      structGrab.seen = true;
+      return { length: grabLaser, target: 'model' };
+    }
     if (grab && grab.pointer === id) {
       grab.seen = true;
       if (grab.phase !== 'pending') return { length: grabLaser, target: 'model' }; // the laser ends on the model's base
@@ -1369,7 +1385,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const target = hovered.get(id) ?? null;
     if (target?.startsWith('s:')) {
       structHit = hoverPoint.get(id)?.clone() ?? null;
-      return selectStruct(target.slice(2)); // a wall / floor: selects, no dragging yet
+      selectStruct(target.slice(2));
+      const st = selectedStruct();
+      if (st) startStructGrab(id, st); // held: it is dragged like a model (a second hand turns and scales it)
+      return;
     }
     selectStruct(null);
     // Double pinch on a model: the component under the ray. One pinch on the chosen component: drag it.
@@ -1478,11 +1497,127 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         top.copy(head.pos).addScaledVector(away, 2.4 / far);
       }
     }
-    objButton.mesh.visible = !!top && !grab && !partGrab && !rig.visible;
+    objButton.mesh.visible = !!top && !grab && !partGrab && !structGrab && !rig.visible;
     if (!top) return;
     objButton.mesh.position.copy(top).y += 0.17;
     objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
   }
+  // ---- dragging a wall / floor: it slides on the horizontal plane through where it was pinched; with the other hand's pinch it
+  // turns and scales about the middle of its footprint (the same gesture and thresholds as a model). Kept as `xf`, so one
+  // button puts it back where it was. ----
+  interface StructGrab {
+    pointer: string;
+    id: string;
+    phase: 'pending' | 'move' | 'two';
+    seen: boolean;
+    y: number;
+    l0: Vector3; // where the ray met the plane, in the room's frame
+    d0: [number, number];
+    p0: Vector3; // the same, in the world, and where the button was: the button goes along with the move
+    hit0: Vector3 | null;
+    two: { refDist: number; refAcc: number; refYaw: number; refScale: number; yaw0: number; scale0: number; prevAng: number; acc: number; yaw: number; scale: number; mode: 'none' | 'turn' | 'scale'; dead: number } | null;
+  }
+  let structGrab: StructGrab | null = null;
+  function startStructGrab(pointer: string, st: Structure) {
+    const house = houses.get(st.roomId);
+    if (!house || !house.root.visible) return;
+    const y = structHit?.y ?? st.y;
+    const p = planePoint(pointer, y);
+    if (!p) return;
+    house.root.updateWorldMatrix(true, false);
+    structGrab = { pointer, id: st.id, phase: 'pending', seen: true, y, l0: house.root.worldToLocal(p.clone()), d0: [...(st.xf?.d ?? [0, 0])] as [number, number], p0: p.clone(), hit0: structHit?.clone() ?? null, two: null };
+  }
+  function endStructGrab() {
+    hud.mesh.visible = false;
+    hudText = '';
+    if (structGrab && structGrab.phase !== 'pending') say('Modificato (non salvato)', 2500);
+    structGrab = null;
+  }
+  function updateStructGrab(dt: number) {
+    const g = structGrab;
+    if (!g) return;
+    const st = current?.structures?.find((x) => x.id === g.id);
+    const house = st && houses.get(st.roomId);
+    const mesh = st && structMesh(st);
+    if (!st || !house || !mesh || !house.root.visible || !g.seen) return endStructGrab();
+    g.seen = false;
+    const L = pinchL;
+    const R = pinchR;
+    const xf = (st.xf ??= {});
+    house.root.updateWorldMatrix(true, false);
+    const anchor = () => {
+      const p = planePoint(g.pointer, g.y);
+      if (p) {
+        g.l0 = house.root.worldToLocal(p.clone());
+        g.d0 = [...(xf.d ?? [0, 0])] as [number, number];
+        g.p0 = p.clone();
+        g.hit0 = structHit?.clone() ?? null;
+      }
+    };
+    if (g.phase !== 'two' && leftHeld && L && R && L.distanceTo(R) > 0.05) {
+      g.phase = 'two';
+      g.two = { refDist: L.distanceTo(R), refAcc: 0, refYaw: xf.yaw ?? 0, refScale: xf.scale ?? 1, yaw0: xf.yaw ?? 0, scale0: xf.scale ?? 1, prevAng: angleOf(L, R), acc: 0, yaw: xf.yaw ?? 0, scale: xf.scale ?? 1, mode: 'none', dead: 0 };
+      markUnsaved();
+    } else if (g.phase === 'two' && !(leftHeld && L && R)) {
+      g.phase = 'move'; // one hand again: carry on from where it is, without a jump
+      g.two = null;
+      hud.mesh.visible = false;
+      anchor();
+    }
+    if (g.phase === 'two' && g.two && L && R) {
+      const t = g.two;
+      const ang = angleOf(L, R);
+      t.acc += wrap(ang - t.prevAng);
+      t.prevAng = ang;
+      const k = 1 - Math.exp(-dt * SMOOTH);
+      const dist = L.distanceTo(R);
+      let ratio = Math.log(dist / t.refDist);
+      let turn = t.acc - t.refAcc;
+      if (t.mode === 'none') {
+        const rs = Math.abs(ratio) / SCALE_START;
+        const rt = Math.abs(turn) / TURN_START;
+        if (rs > 1 || rt > 1) {
+          t.mode = rt >= rs ? 'turn' : 'scale';
+          t.dead = t.mode === 'turn' ? TURN_START : SCALE_START;
+        }
+      } else if ((t.mode === 'turn' && Math.abs(ratio) > SCALE_START * CROSS) || (t.mode === 'scale' && Math.abs(turn) > TURN_START * CROSS)) {
+        t.mode = t.mode === 'turn' ? 'scale' : 'turn';
+        t.dead = 0;
+        t.refDist = dist;
+        t.refAcc = t.acc;
+        t.refYaw = t.yaw;
+        t.refScale = t.scale;
+        ratio = 0;
+        turn = 0;
+      }
+      const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
+      const wantYaw = t.mode === 'turn' ? t.refYaw + past(turn, t.dead) : t.refYaw;
+      const wantScale = t.mode === 'scale' ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.refScale * Math.exp(past(ratio, t.dead)))) : t.refScale;
+      const snapped = view.snap ? snapTwo({ roomId: st.roomId } as RoomModel, t.yaw0, wantYaw, wantScale, t.mode === 'turn', t.mode === 'scale') : { yaw: wantYaw, scale: wantScale, note: '' };
+      t.yaw += (snapped.yaw - t.yaw) * k;
+      t.scale += (snapped.scale - t.scale) * k;
+      snapNote = snapped.note;
+      xf.yaw = t.yaw;
+      xf.scale = t.scale;
+      houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
+      showHud({ yaw: t.yaw, scale: t.scale } as RoomModel, mesh as unknown as Group, t.yaw0, t.scale0, t.mode === 'turn', t.mode === 'scale', structMeasure(effective(st)));
+      return;
+    }
+    const p = planePoint(g.pointer, g.y);
+    if (!p) return;
+    const l = house.root.worldToLocal(p.clone());
+    if (g.phase === 'pending') {
+      if (Math.hypot(l.x - g.l0.x, l.z - g.l0.z) < DEADZONE) return;
+      g.phase = 'move';
+      markUnsaved();
+    }
+    xf.d = [g.d0[0] + l.x - g.l0.x, g.d0[1] + l.z - g.l0.z];
+    if (g.hit0) structHit = g.hit0.clone().add(p.clone().sub(g.p0));
+    houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
+    const ray = rays.get(g.pointer);
+    if (ray) grabLaser = Math.max(0.1, p.clone().sub(ray.origin).dot(ray.dir));
+  }
+
   // ---- dragging the chosen component: it slides on the horizontal plane through its pivot ----
   let partGrab: { pointer: string; y: number; l0: Vector3; d0: [number, number, number]; seen: boolean } | null = null;
   function planePoint(pointer: string, y: number): Vector3 | null {
@@ -1591,10 +1726,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let snapNote = '';
   // Two separate cards while turning / scaling: rotation and scale, each with its icon, the value now and the value before.
   // The one that is being changed is lit.
-  function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number, turning: boolean, scaling: boolean) {
+  function showHud(m: RoomModel, holder: Group, yaw0: number, scale0: number, turning: boolean, scaling: boolean, sizeText?: string) {
     const deg = (r: number) => ((Math.round((r * 180) / Math.PI) % 360) + 360) % 360;
     const dim = modelSize(holder);
-    const size = dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '';
+    const size = sizeText ?? (dim ? `${(dim.x * m.scale).toFixed(2)} × ${(dim.y * m.scale).toFixed(2)} × ${(dim.z * m.scale).toFixed(2)} m` : '');
     const rot = `${deg(m.yaw)}°`;
     const rotSub = `era ${deg(yaw0)}°${snapNote.includes('r') ? '  ⟂' : ''}`;
     const sca = `×${m.scale.toFixed(2)}`;
@@ -1640,6 +1775,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       mainHeld = false;
       if (grab?.pointer === id) endGrab();
       if (partGrab?.pointer === id) endPartGrab();
+      if (structGrab?.pointer === id) endStructGrab();
     }
   }
   // Magnetic snaps, only for the gesture that is engaged. Rotation: first the room's walls (the model's sides parallel
@@ -2031,6 +2167,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       followHead(head, dt);
       updateGrab(dt);
       updatePartGrab();
+      updateStructGrab(dt);
       placeObjectButton(head);
       syncOutline();
       host.update();
@@ -2085,6 +2222,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
     selectedPart: () => selectedPart,
+    openObject: () => openObjectMenu(), // test hook
     say,
     // Test hook.
     debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),

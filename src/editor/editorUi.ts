@@ -25,6 +25,8 @@ export interface StructureEdit {
   color?: string | null;
   texture?: string | null; // null = plain colour
   align?: 'left' | 'center' | 'right'; // walls: which side of the drawn line they stand on
+  roughness?: number;
+  metalness?: number;
 }
 
 export interface EditorHandlers {
@@ -100,7 +102,7 @@ export type Details =
       finish: { roughness: number; metalness: number };
       moved: boolean; // not where / as it is in the file
     }
-  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; measure: string };
+  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -762,7 +764,11 @@ export function createEditorUi(h: EditorHandlers) {
       el('div', 'Texture', 'ed-h'),
       card(textureGrid(d.texture, (id) => h.onStructure({ texture: id }, true))),
       el('div', d.texture ? 'Tinta' : 'Colore', 'ed-h'),
-      card(picker(d.color ?? (d.texture ? '#ffffff' : d.type === 'wall' ? '#e9ecf2' : '#c7cdd9'), (c, commit) => h.onStructure({ color: c }, commit))),
+      card(
+        picker(d.color ?? (d.texture ? '#ffffff' : d.type === 'wall' ? '#e9ecf2' : '#c7cdd9'), (c, commit) => h.onStructure({ color: c }, commit)),
+        finishRow('Rugosità', d.finish.roughness, (v, c) => h.onStructure({ roughness: v }, c)),
+        finishRow('Metallico', d.finish.metalness, (v, c) => h.onStructure({ metalness: v }, c)),
+      ),
       card(del),
     );
   }
