@@ -1,4 +1,4 @@
-import { BoxGeometry, CanvasTexture, Mesh, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace, type Object3D } from 'three';
+import { BoxGeometry, CanvasTexture, ExtrudeGeometry, Mesh, MeshStandardMaterial, RepeatWrapping, Shape, SRGBColorSpace, Vector2, type Object3D } from 'three';
 import { textureById, textureMaps } from './textures';
 import type { Structure } from './types';
 
@@ -7,15 +7,54 @@ export const WALL_COLOR = '#e9ecf2';
 export const FLOOR_COLOR = '#c7cdd9';
 const box = new BoxGeometry(1, 1, 1);
 
-// Puts a unit box where the structure is.
-export function placeStructure(mesh: Mesh, s: Pick<Structure, 'kind' | 'a' | 'b' | 'y' | 'height' | 'thickness'>) {
+// The outline of a floor: its own corners, or the rectangle a-b of the first floors.
+export function floorPoints(s: Pick<Structure, 'a' | 'b' | 'pts'>): [number, number][] {
+  if (s.pts && s.pts.length >= 3) return s.pts;
+  return [[s.a[0], s.a[1]], [s.b[0], s.a[1]], [s.b[0], s.b[1]], [s.a[0], s.b[1]]];
+}
+// The points of a structure other things snap to: the ends of a wall's line, the corners of a floor.
+export const structPoints = (s: Structure): [number, number][] => (s.kind === 'wall' ? [s.a, s.b] : floorPoints(s));
+export function polygonArea(pts: [number, number][]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, z1] = pts[i];
+    const [x2, z2] = pts[(i + 1) % pts.length];
+    a += x1 * z2 - x2 * z1;
+  }
+  return Math.abs(a) / 2;
+}
+// "Lunga 2.50 m" / "3.00 × 2.00 m · 6.00 m²", for the details of a wall or a floor.
+export function structMeasure(s: Structure): string {
+  if (s.kind === 'wall') return `Lunga ${Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]).toFixed(2)} m`;
+  const p = floorPoints(s);
+  const xs = p.map((q) => q[0]);
+  const zs = p.map((q) => q[1]);
+  return `${(Math.max(...xs) - Math.min(...xs)).toFixed(2)} × ${(Math.max(...zs) - Math.min(...zs)).toFixed(2)} m · ${polygonArea(p).toFixed(2)} m²`;
+}
+
+// A floor slab as a mesh of real size in the room's frame: UVs count metres (divided by the texture's size) and follow the
+// room, so the textures of neighbouring floors line up.
+function floorSlab(pts: [number, number][], thickness: number, tile: number) {
+  const g = new ExtrudeGeometry(new Shape(pts.map(([x, z]) => new Vector2(x, z))), { depth: thickness, bevelEnabled: false });
+  g.rotateX(Math.PI / 2); // shape (x, y) -> (x, z); the extrusion goes down: lift it so the top is at `thickness`
+  g.translate(0, thickness, 0);
+  const uv = g.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / tile, uv.getY(i) / tile);
+  return g;
+}
+
+// Puts a unit box where the wall is (floors: the rectangle a-b, used for the preview while drawing).
+export function placeStructure(mesh: Mesh, s: Pick<Structure, 'kind' | 'a' | 'b' | 'y' | 'height' | 'thickness' | 'align'>) {
   const dx = s.b[0] - s.a[0];
   const dz = s.b[1] - s.a[1];
   const mx = (s.a[0] + s.b[0]) / 2;
   const mz = (s.a[1] + s.b[1]) / 2;
   if (s.kind === 'wall') {
-    mesh.scale.set(Math.max(0.01, Math.hypot(dx, dz)), s.height, s.thickness);
-    mesh.position.set(mx, s.y + s.height / 2, mz);
+    const len = Math.max(0.01, Math.hypot(dx, dz));
+    // The wall stands on one side of the line: 'left' = to the left when looking from a to b (seen from above, x right, z down).
+    const off = s.align === 'left' ? s.thickness / 2 : s.align === 'right' ? -s.thickness / 2 : 0;
+    mesh.scale.set(len, s.height, s.thickness);
+    mesh.position.set(mx + (dz / len) * off, s.y + s.height / 2, mz - (dx / len) * off);
     mesh.rotation.set(0, -Math.atan2(dz, dx), 0);
   } else {
     mesh.scale.set(Math.max(0.01, Math.abs(dx)), s.thickness, Math.max(0.01, Math.abs(dz)));
@@ -112,6 +151,20 @@ export function createStructureLayer(parent: Object3D) {
           mat.roughnessMap = tex?.roughnessMap ?? null;
           mat.roughness = tex ? 1 : 0.9; // with a roughness map the map is the value
           mat.needsUpdate = true;
+        }
+        if (s.kind === 'floor') {
+          // Always a polygon slab at the room's origin (the outline is in room coordinates).
+          const pts = floorPoints(s);
+          const key = `f|${JSON.stringify(pts)}|${s.thickness}|${def?.id ?? ''}`;
+          if (m.userData.key !== key) {
+            if (m.geometry !== box) m.geometry.dispose();
+            m.geometry = floorSlab(pts, s.thickness, def?.size ?? 1);
+            m.userData.key = key;
+          }
+          m.position.set(0, s.y, 0);
+          m.rotation.set(0, 0, 0);
+          m.scale.set(1, 1, 1);
+          continue;
         }
         placeStructure(m, s);
         if (tex && def) {

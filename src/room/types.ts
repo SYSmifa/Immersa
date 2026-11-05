@@ -71,6 +71,10 @@ export interface Structure {
   thickness: number;
   color?: string; // tint (plain colour when there is no texture)
   texture?: string; // id in the texture catalogue (room/textures.ts)
+  // wall: which side of the line a -> b the wall stands on ('left' = the line is its right face; undefined = centred, as the first walls were)
+  align?: 'left' | 'center' | 'right';
+  // floor: the corners (x, z) of its outline, any number >= 3; undefined = the rectangle with corners a and b
+  pts?: [number, number][];
 }
 
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.

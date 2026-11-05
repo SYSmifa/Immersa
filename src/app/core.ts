@@ -3,7 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
-import { createStructureLayer, type StructureLayer } from '../room/structures';
+import { createStructureLayer, structMeasure, type StructureLayer } from '../room/structures';
 import { adoptOrphans } from '../room/free';
 import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
@@ -361,13 +361,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     };
   }
   function structureView(st: Structure): ObjectView {
-    const dx = Math.abs(st.b[0] - st.a[0]);
-    const dz = Math.abs(st.b[1] - st.a[1]);
     return {
       name: structName(st),
       yawDeg: 0,
       scale: 1,
-      size: st.kind === 'wall' ? `Lunga ${Math.hypot(dx, dz).toFixed(2)} m` : `${dx.toFixed(2)} × ${dz.toFixed(2)} m · ${(dx * dz).toFixed(2)} m²`,
+      size: structMeasure(st),
       color: st.color ?? null,
       confirmDelete,
       colorPage,

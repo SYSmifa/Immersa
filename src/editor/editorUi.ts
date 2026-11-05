@@ -24,6 +24,7 @@ export interface StructureEdit {
   thickness?: number;
   color?: string | null;
   texture?: string | null; // null = plain colour
+  align?: 'left' | 'center' | 'right'; // walls: which side of the drawn line they stand on
 }
 
 export interface EditorHandlers {
@@ -99,7 +100,7 @@ export type Details =
       finish: { roughness: number; metalness: number };
       moved: boolean; // not where / as it is in the file
     }
-  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; measure: string };
+  | { kind: 'structure'; key: string; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; measure: string };
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -748,6 +749,13 @@ export function createEditorUi(h: EditorHandlers) {
     const rows: HTMLElement[] = [];
     if (d.type === 'wall') rows.push(row(el('span', 'Altezza (m)'), numberField(d.height, '0.1', '0.05', (v, c) => h.onStructure({ height: v }, c))));
     rows.push(row(el('span', 'Spessore (m)'), numberField(d.thickness, '0.01', '0.01', (v, c) => h.onStructure({ thickness: v }, c))));
+    if (d.type === 'wall' && d.align) {
+      const seg = row();
+      for (const [v, label] of [['left', 'Sinistra'], ['center', 'Centro'], ['right', 'Destra']] as ['left' | 'center' | 'right', string][]) {
+        seg.append(pill(label, () => h.onStructure({ align: v }, true), v === d.align ? 'acc' : ''));
+      }
+      rows.push(el('div', 'Il muro sta sulla linea disegnata, a:', 'ed-meta'), seg);
+    }
     details.replaceChildren(
       el('div', d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
       card(...rows, el('div', d.measure, 'ed-meta')),

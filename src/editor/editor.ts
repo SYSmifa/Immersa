@@ -16,6 +16,7 @@ import {
   Quaternion,
   Raycaster,
   Scene,
+  SphereGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -36,7 +37,7 @@ import { adoptOrphans } from '../room/free';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
-import { createStructureLayer, placeStructure } from '../room/structures';
+import { createStructureLayer, floorPoints, placeStructure, structMeasure, structPoints } from '../room/structures';
 import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -142,6 +143,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       persp.updateProjectionMatrix();
     }
     updateFade();
+    syncHandles();
     composer.render();
   });
 
@@ -178,7 +180,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const objectOf = (key: string): Object3D | null => (key[0] === 'm' ? layer.holders.get(key.slice(2)) : structLayer.meshes.get(key.slice(2))) ?? null;
   const wallYaw = (s: Structure) => -Math.atan2(s.b[1] - s.a[1], s.b[0] - s.a[0]);
   // The pivot of a wall / floor is its first point: that is what snaps onto the grid and onto other vertices.
-  const anchorOf = (s: Structure): [number, number] => [s.a[0], s.a[1]];
+  const anchorOf = (s: Structure): [number, number] => (s.kind === 'floor' ? floorPoints(s)[0] : [s.a[0], s.a[1]]);
 
   // ---- history (undo / redo): snapshots of the project's models and structures ----
   let hist: string[] = [];
@@ -321,7 +323,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     c: Vector3;
     q: Quaternion;
     models: Map<string, { pos: [number, number, number]; yaw: number; scale: number }>;
-    structs: Map<string, { a: [number, number]; b: [number, number]; y: number }>;
+    structs: Map<string, { a: [number, number]; b: [number, number]; y: number; pts: [number, number][] | null }>;
   }
   let start: Start | null = null;
   let partStart: { c: Vector3; q: Quaternion; d: [number, number, number]; yaw: number; scale: number } | null = null;
@@ -336,7 +338,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       c: pivot.position.clone(),
       q: pivot.quaternion.clone(),
       models: new Map(selModels().map((m) => [m.id, { pos: [...m.pos] as [number, number, number], yaw: m.yaw, scale: m.scale }])),
-      structs: new Map(selStructs().map((s) => [s.id, { a: [...s.a] as [number, number], b: [...s.b] as [number, number], y: s.y }])),
+      structs: new Map(selStructs().map((s) => [s.id, { a: [...s.a] as [number, number], b: [...s.b] as [number, number], y: s.y, pts: s.kind === 'floor' ? floorPoints(s).map(([x, z]) => [x, z] as [number, number]) : null }])),
     };
   }
 
@@ -346,9 +348,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     let bd = VERTEX_RANGE;
     for (const s of structures()) {
       if (exclude.has(s.id)) continue;
-      const pts: [number, number][] = [s.a, s.b];
-      if (s.kind === 'floor') pts.push([s.a[0], s.b[1]], [s.b[0], s.a[1]]);
-      for (const p of pts) {
+      for (const p of structPoints(s)) {
         const d = Math.hypot(p[0] - x, p[1] - z);
         if (d < bd) {
           bd = d;
@@ -406,8 +406,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (!best || d < best.d) best = { dx: v[0] - (x + dx0), dz: v[1] - (z + dz0), d };
       };
       for (const s of start.structs.values()) {
-        probe(...s.a);
-        probe(...s.b);
+        for (const q of s.pts ?? [s.a, s.b]) probe(...q);
       }
       for (const m of start.models.values()) probe(m.pos[0], m.pos[2]);
       if (best) {
@@ -441,6 +440,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (!s0) continue;
       s.a = rot(...s0.a);
       s.b = rot(...s0.b);
+      if (s0.pts) s.pts = s0.pts.map(([x, z]) => rot(x, z));
       s.y = s0.y + dp.y;
     }
     layer.sync(models());
@@ -535,8 +535,6 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     const s = selStructs()[0];
     if (!s) return null;
-    const dx = Math.abs(s.b[0] - s.a[0]);
-    const dz = Math.abs(s.b[1] - s.a[1]);
     return {
       kind: 'structure',
       key: `s:${s.id}`,
@@ -545,7 +543,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       thickness: s.thickness,
       color: s.color ?? null,
       texture: s.texture ?? null,
-      measure: s.kind === 'wall' ? `Lunga ${Math.hypot(dx, dz).toFixed(2)} m` : `${dx.toFixed(2)} × ${dz.toFixed(2)} m · ${(dx * dz).toFixed(2)} m²`,
+      align: s.kind === 'wall' ? (s.align ?? 'center') : undefined,
+      measure: structMeasure(s),
     };
   }
 
@@ -972,6 +971,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onStructure(edit: StructureEdit, doCommit) {
       for (const s of selStructs()) {
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
+        if (edit.align && s.kind === 'wall') s.align = edit.align;
         if (edit.thickness !== undefined && edit.thickness > 0) s.thickness = edit.thickness;
         if (edit.color) s.color = edit.color;
         if (edit.texture !== undefined) {
@@ -1038,25 +1038,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   };
   // Point of the room's floor plane under the mouse, snapped to the grid / to the vertices of other structures.
-  const floorPoint = (e: PointerEvent) => {
+  const floorPoint = (e: PointerEvent, exclude = new Set<string>()) => {
     ray.setFromCamera(ndcOf(e), camera);
     const hit = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -floorY()), new Vector3());
     if (!hit) return null;
     let x = snapGrid ? Math.round(hit.x / GRID_STEP) * GRID_STEP : hit.x;
     let z = snapGrid ? Math.round(hit.z / GRID_STEP) * GRID_STEP : hit.z;
     if (snapVertex) {
-      const v = snapToVertex(hit.x, hit.z, new Set());
+      const v = snapToVertex(hit.x, hit.z, exclude);
       if (v) [x, z] = v;
     }
     return new Vector3(x, floorY(), z);
   };
-  const draftOf = (a: Vector3, b: Vector3, kind: BuildKind): Pick<Structure, 'kind' | 'a' | 'b' | 'y' | 'height' | 'thickness'> => ({
+  const draftOf = (a: Vector3, b: Vector3, kind: BuildKind): Pick<Structure, 'kind' | 'a' | 'b' | 'y' | 'height' | 'thickness' | 'align' | 'pts'> => ({
     kind,
     a: [a.x, a.z],
     b: [b.x, b.z],
     y: floorY(),
     height: WALL_HEIGHT,
     thickness: kind === 'wall' ? WALL_THICKNESS : FLOOR_THICKNESS,
+    // A wall stands on the left of the line you draw (so drawing along a floor's edge puts its face on the edge); a floor starts as a rectangle.
+    ...(kind === 'wall' ? { align: 'left' as const } : { pts: [[a.x, a.z], [b.x, a.z], [b.x, b.z], [a.x, b.z]] as [number, number][] }),
   });
   const dropPreview = () => {
     if (!drag) return;
@@ -1091,6 +1093,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setStatus(build === 'wall' ? `Parete: ${Math.hypot(dx, dz).toFixed(2)} m` : `Pavimento: ${dx.toFixed(2)} × ${dz.toFixed(2)} m`);
   });
   renderer.domElement.addEventListener('pointerup', (e) => {
+    if (handleDrag) return; // the end of a corner drag is handled below
     if (drag && build) {
       const kind = build;
       const from = drag.start;
@@ -1126,6 +1129,124 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     let o: Object3D | null = hit?.object ?? null;
     while (o && !o.userData.modelId && !o.userData.structureId) o = o.parent;
     pick(o ? (o.userData.modelId ? `m:${o.userData.modelId}` : `s:${o.userData.structureId}`) : null, e.shiftKey || e.ctrlKey || e.metaKey);
+  });
+
+  // ---- handles on the corners of the selected wall (its two ends) or floor (every corner; the small ones on the edges add a corner) ----
+  const handleGroup = new Group();
+  scene.add(handleGroup);
+  const handleGeo = new SphereGeometry(1, 16, 12);
+  const vertexMat = new MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true });
+  const midMat = new MeshBasicMaterial({ color: 0x2ec4ff, depthTest: false, transparent: true, opacity: 0.85 });
+  interface Handle {
+    mesh: Mesh;
+    kind: 'vertex' | 'mid';
+    index: number;
+  }
+  let handles: Handle[] = [];
+  let handleSig = '';
+  let handleDrag: { id: string; index: number } | null = null;
+  const handleTarget = () => (!build && !partSel && sel.length === 1 && sel[0][0] === 's' ? findStructure(sel[0].slice(2)) : null);
+  function syncHandles() {
+    const s = handleTarget();
+    const want: { kind: 'vertex' | 'mid'; index: number; x: number; y: number; z: number }[] = [];
+    if (s) {
+      const y = s.y + (s.kind === 'wall' ? 0.03 : s.thickness + 0.02);
+      if (s.kind === 'wall') want.push({ kind: 'vertex', index: 0, x: s.a[0], y, z: s.a[1] }, { kind: 'vertex', index: 1, x: s.b[0], y, z: s.b[1] });
+      else {
+        const pts = floorPoints(s);
+        pts.forEach((p, index) => want.push({ kind: 'vertex', index, x: p[0], y, z: p[1] }));
+        pts.forEach((p, index) => {
+          const q = pts[(index + 1) % pts.length];
+          want.push({ kind: 'mid', index, x: (p[0] + q[0]) / 2, y, z: (p[1] + q[1]) / 2 });
+        });
+      }
+    }
+    const sig = want.map((w) => w.kind[0]).join('');
+    if (sig !== handleSig) {
+      handleGroup.clear();
+      handles = want.map((w) => {
+        const mesh = new Mesh(handleGeo, w.kind === 'vertex' ? vertexMat : midMat);
+        mesh.renderOrder = 999;
+        handleGroup.add(mesh);
+        return { mesh, kind: w.kind, index: w.index };
+      });
+      handleSig = sig;
+    }
+    // The same size on screen at any distance and for the orthographic view too.
+    const k = Math.tan(MathUtils.degToRad(persp.fov / 2));
+    want.forEach((w, i) => {
+      const m = handles[i].mesh;
+      m.position.set(w.x, w.y, w.z);
+      m.scale.setScalar(camera.position.distanceTo(m.position) * k * (w.kind === 'vertex' ? 0.017 : 0.011));
+    });
+  }
+  const setCorner = (s: Structure, index: number, x: number, z: number) => {
+    if (s.kind === 'wall') {
+      if (index === 0) s.a = [x, z];
+      else s.b = [x, z];
+    } else {
+      const pts = floorPoints(s).map(([px, pz]) => [px, pz] as [number, number]);
+      pts[index] = [x, z];
+      s.pts = pts;
+      s.a = pts[0];
+      s.b = pts[2] ?? pts[pts.length - 1];
+    }
+  };
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (build || partSel || e.button !== 0 || transform.axis) return; // the gizmo has priority where they overlap
+    const s = handleTarget();
+    if (!s || !handles.length) return;
+    ray.setFromCamera(ndcOf(e), camera);
+    const hit = ray.intersectObjects(handles.map((h) => h.mesh), false)[0];
+    const h = hit && handles.find((x) => x.mesh === hit.object);
+    if (!h) return;
+    let index = h.index;
+    if (s.kind === 'floor') {
+      const pts = floorPoints(s).map(([px, pz]) => [px, pz] as [number, number]);
+      if (h.kind === 'mid') {
+        // A new corner in the middle of the edge, dragged at once.
+        pts.splice(index + 1, 0, [hit!.object.position.x, hit!.object.position.z]);
+        index += 1;
+      } else if (e.altKey) {
+        if (pts.length > 3) {
+          pts.splice(index, 1); // Alt + click on a corner removes it
+          s.pts = pts;
+          s.a = pts[0];
+          s.b = pts[2] ?? pts[pts.length - 1];
+          handleDrag = { id: s.id, index: -1 };
+          refreshPivot();
+          return;
+        }
+        return ui.setStatus('Un pavimento ha almeno tre spigoli.');
+      }
+      s.pts = pts;
+      s.a = pts[0];
+      s.b = pts[2] ?? pts[pts.length - 1];
+    } else if (e.altKey) return;
+    handleDrag = { id: s.id, index };
+    controls.enabled = false;
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!handleDrag || handleDrag.index < 0) return;
+    const s = findStructure(handleDrag.id);
+    const p = s && floorPoint(e, new Set([s.id])); // snaps to the grid and to the corners of the others
+    if (!s || !p) return;
+    setCorner(s, handleDrag.index, p.x, p.z);
+    structLayer.sync(structures());
+    refreshPivot();
+    markDirty();
+    ui.setDetails(detailsInfo());
+  });
+  renderer.domElement.addEventListener('pointerup', () => {
+    if (!handleDrag) return;
+    handleDrag = null;
+    controls.enabled = true;
+    lastDrag = Date.now();
+    structLayer.sync(structures());
+    markDirty();
+    commit();
+    refreshAll();
   });
 
   // Releasing Shift (or leaving the window) ends a Shift-held series of walls / floors.
