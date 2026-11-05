@@ -747,11 +747,25 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   const identity = (n: number): Alignment => ({ yaw: 0, tx: 0, ty: 0, tz: 0, resid: 0, matched: n, total: n });
 
+  // Room names are unique (compared without caps or spaces at the ends): a name already in use asks for another one.
+  const nameTaken = (name: string, exceptId?: string) => rooms.some((r) => r.id !== exceptId && r.name.trim().toLowerCase() === name.trim().toLowerCase());
+  async function askRoomName(title: string, initial: string, exceptId?: string): Promise<string | null> {
+    let text = initial;
+    let t = title;
+    for (;;) {
+      const name = (await ask(t, text))?.trim();
+      if (!name) return null;
+      if (!nameTaken(name, exceptId)) return name;
+      text = name;
+      t = `"${name}" esiste già: scegli un altro nome`;
+    }
+  }
+
   async function saveRoom() {
     const planes = live; // the scan as it is now, even if the list changes while typing
     const boxes = liveBoxes;
     if (planes.length < MIN_PLANES) return say('Nessuna scansione da salvare');
-    const name = await ask('Nome della stanza');
+    const name = await askRoomName('Nome della stanza', '');
     if (!name) return;
     say('Salvo la stanza...');
     try {
@@ -767,7 +781,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   async function renameRoom() {
     if (!recognised) return;
     const room = recognised.room;
-    const name = await ask('Nome della stanza', room.name);
+    const name = await askRoomName('Nome della stanza', room.name, room.id);
     if (!name || name === room.name) return;
     try {
       await backend.renameRoom(room.id, name);

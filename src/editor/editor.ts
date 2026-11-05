@@ -735,6 +735,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const r = rooms.find((x) => x.id === id);
         const name = r && prompt('Nome della stanza', r.name)?.trim();
         if (!r || !name || name === r.name) return;
+        if (rooms.some((x) => x.id !== id && x.name.trim().toLowerCase() === name.toLowerCase())) return ui.setStatus(`Esiste già una stanza chiamata "${name}": scegli un altro nome.`);
         await backend.renameRoom(id, name);
         r.name = name;
         refreshLists();

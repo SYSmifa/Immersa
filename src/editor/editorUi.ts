@@ -197,7 +197,10 @@ const CSS = `
 .ed-sw{width:18px;height:18px;border-radius:6px;border:1px solid #0003;flex:none}
 .ed-sub{color:#667085;font-size:12px;font-weight:500;padding:2px 2px 0}
 .ed-fin{display:grid;grid-template-columns:76px 1fr 34px;gap:8px;align-items:center;font-size:13px;color:#344054;font-weight:500}
-.ed-fin input{width:100%;accent-color:var(--acc)}
+.ed-fin input{width:100%;height:14px;-webkit-appearance:none;appearance:none;border-radius:999px;outline:none;cursor:pointer;
+  background:linear-gradient(90deg,var(--acc),var(--acc2)) 0/var(--v,50%) 100% no-repeat,#e3e8f0;box-shadow:inset 0 1px 2px #0002}
+.ed-fin input::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--acc);box-shadow:0 2px 6px #0004}
+.ed-fin input::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--acc);box-shadow:0 2px 6px #0004}
 .ed-fin span:last-child{color:#667085;font-size:12px}
 .ed-tex{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .ed-texbtn{position:relative;height:58px;border-radius:12px;border:2px solid transparent;background-size:cover;background-position:center;cursor:pointer;overflow:hidden;padding:0;
@@ -220,7 +223,8 @@ const ICON = {
   persp: svg('<path d="M12 3l8 4v10l-8 4-8-4V7zM12 11v10M4 7l8 4 8-4"/>'),
   ortho: svg('<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 12h16M12 4v16"/>'),
   grid: svg('<path d="M4 4h16v16H4zM4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/>'),
-  magnet: svg('<path d="M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4"/>'),
+  // a square with a dot on each corner: snap to vertices
+  magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
   local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
@@ -589,8 +593,10 @@ export function createEditorUi(h: EditorHandlers) {
     r.max = '1';
     r.step = '0.01';
     r.value = String(value);
+    r.style.setProperty('--v', `${value * 100}%`); // the filled part of the track
     const num = el('span', value.toFixed(2));
     r.oninput = () => {
+      r.style.setProperty('--v', `${Number(r.value) * 100}%`);
       num.textContent = Number(r.value).toFixed(2);
       onInput(Number(r.value), false);
     };
