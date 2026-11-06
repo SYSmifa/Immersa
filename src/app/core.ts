@@ -1568,18 +1568,31 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
+  let lastFloorPress: { id: string; t: number } | null = null; // for the double pinch on a floor in the visit
   function pressModel(id: string) {
     if (warnOpen) return; // the warning must be answered first
     const target = hovered.get(id) ?? null;
-    if (visit && !target) {
-      const at = hoverPoint.get(id);
-      if (at) teleportTo(at); // empty ground: walk there
-      return;
-    }
-    if (visit && target?.startsWith('s:') && current?.structures.find((x) => x.id === target.slice(2))?.kind === 'floor') {
-      const at = hoverPoint.get(id);
-      if (at) teleportTo(at); // the floor is for walking, not for selecting
-      return;
+    if (visit) {
+      // In the visit the floor and the open ground are for walking: a pinch there deselects when something is selected and
+      // walks there when nothing is. A floor is chosen for editing with a double pinch (or pinched while it is the chosen one).
+      const floor = !!target?.startsWith('s:') && current?.structures.find((x) => x.id === target.slice(2))?.kind === 'floor';
+      if (!target || floor) {
+        const now = performance.now();
+        const double = floor && lastFloorPress?.id === target && now - lastFloorPress.t < 450;
+        lastFloorPress = floor ? { id: target!, t: now } : null;
+        const chosen = floor && target!.slice(2) === selectedStructId;
+        if (!double && !chosen) {
+          if (selectedId || selectedStructId || selectedPart) {
+            selectStruct(null);
+            selectedPart = null;
+            selectModel(null);
+          } else {
+            const at = hoverPoint.get(id);
+            if (at) teleportTo(at);
+          }
+          return;
+        }
+      }
     }
     if (target?.startsWith('s:')) {
       structHit = hoverPoint.get(id)?.clone() ?? null;
