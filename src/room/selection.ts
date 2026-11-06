@@ -1,4 +1,4 @@
-import { Box3, BufferGeometry, Color, Texture, DoubleSide, Material, Matrix4, Mesh, MeshBasicMaterial, Object3D, Ray, Raycaster, Vector3 } from 'three';
+import { Box3, BufferGeometry, Color, Texture, FrontSide, Material, Matrix4, Mesh, Object3D, Ray, Raycaster, ShaderMaterial, Vector3 } from 'three';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 
 // Triangle-accurate picking stays cheap with a bounding volume hierarchy per geometry (built once, shared by clones).
@@ -7,33 +7,71 @@ Mesh.prototype.raycast = acceleratedRaycast;
 const picker = new Raycaster();
 (picker as unknown as { firstHitOnly: boolean }).firstHitOnly = true;
 
-// The selected model is drawn with a semi-transparent light-blue material (no extra geometry, so no extra triangles);
-// the original materials come back when it is deselected.
+// The selected model is drawn in light blue, semi-transparent and shaded by how much each surface faces you. Drawn naively
+// (blending every layer of a closed object, both sides) a sofa made of many pieces looks like a hundred separate models and
+// costs a lot of overdraw, so: a depth-only copy of each mesh first (a child sharing the geometry), then the blue pass only
+// where it is the front-most surface, front faces only: one blended layer per pixel. The original materials come back when
+// it is deselected and the helper copies are removed.
 export const SELECT_COLOR = 0x35b8ff;
-const selectedMaterial = new MeshBasicMaterial({ color: SELECT_COLOR, transparent: true, opacity: 0.55, side: DoubleSide });
+const selectedMaterial = new ShaderMaterial({
+  uniforms: { color: { value: new Color(SELECT_COLOR) }, opacity: { value: 0.6 } },
+  vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform vec3 color; uniform float opacity; varying vec3 vN;
+    void main(){ float f = abs(normalize(vN).z); gl_FragColor = vec4(color * mix(0.55, 1.0, f), opacity);
+    #include <colorspace_fragment>
+    }`,
+  transparent: true,
+  depthWrite: false,
+  side: FrontSide,
+});
+const depthOnly = new ShaderMaterial({
+  vertexShader: 'void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }',
+  colorWrite: false,
+  depthWrite: true,
+  side: FrontSide,
+  polygonOffset: true, // a little farther, so the blue pass is always in front of it
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
+});
 const ORIGINAL = 'originalMaterial';
+const HELPER = 'selectionHelper';
+const isReal = (m: Mesh) => m.isMesh && !m.userData[HELPER];
 
 // Returns false while the model has no geometry yet.
 export function applySelectionLook(holder: Object3D): boolean {
   let any = false;
+  const meshes: Mesh[] = [];
   holder.traverse((o) => {
     const m = o as Mesh;
-    if (!m.isMesh) return;
-    any = true;
-    if (!m.userData[ORIGINAL]) m.userData[ORIGINAL] = m.material;
-    m.material = selectedMaterial;
+    if (isReal(m)) meshes.push(m);
   });
+  for (const m of meshes) {
+    any = true;
+    if (!m.userData[ORIGINAL]) {
+      m.userData[ORIGINAL] = m.material;
+      const helper = new Mesh(m.geometry, depthOnly);
+      helper.userData[HELPER] = true;
+      helper.raycast = () => undefined; // never picked
+      helper.frustumCulled = m.frustumCulled;
+      m.add(helper);
+    }
+    m.material = selectedMaterial;
+  }
   return any;
 }
 
 export function clearSelectionLook(holder: Object3D) {
+  const helpers: Object3D[] = [];
   holder.traverse((o) => {
     const m = o as Mesh;
-    if (m.isMesh && m.userData[ORIGINAL]) {
+    if (m.userData?.[HELPER]) helpers.push(o);
+    else if (m.isMesh && m.userData[ORIGINAL]) {
       m.material = m.userData[ORIGINAL] as Material | Material[];
       delete m.userData[ORIGINAL];
     }
   });
+  for (const h of helpers) h.parent?.remove(h);
 }
 
 // Picking: the model's bounding box (in its own frame) rejects most rays at once; only a ray that enters the box is
@@ -164,7 +202,7 @@ function materialsOf(holder: Object3D): Material[] {
     list = [];
     holder.traverse((o) => {
       const mesh = o as Mesh;
-      if (!mesh.isMesh) return;
+      if (!isReal(mesh)) return;
       const base = baseOf(mesh);
       for (const m of Array.isArray(base) ? base : [base]) if (!list!.includes(m)) list!.push(m);
     });
@@ -199,7 +237,7 @@ export function paintModel(holder: Object3D, look: Look) {
   };
   holder.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh) return;
+    if (!isReal(mesh)) return;
     const base = baseOf(mesh);
     const next = Array.isArray(base) ? base.map(paint) : paint(base);
     if (mesh.userData[ORIGINAL]) mesh.userData[ORIGINAL] = next; // selected: the azure look stays, this comes back after
@@ -212,7 +250,7 @@ export function paintPart(node: Object3D, part: { color?: string; finish?: Finis
   if (!part.color && part.finish?.roughness === undefined && part.finish?.metalness === undefined) return;
   node.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh) return;
+    if (!isReal(mesh)) return;
     const base = baseOf(mesh);
     const next = Array.isArray(base) ? base.map((m) => tinted(m, part.color, part.finish)) : tinted(base, part.color, part.finish);
     if (mesh.userData[ORIGINAL]) mesh.userData[ORIGINAL] = next;
