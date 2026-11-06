@@ -1009,7 +1009,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         r.name = name;
         refreshLists();
       }),
-    onOpenModels: () => void run(() => loadLibrary()),
+    onOpenModels: () =>
+      void run(async () => {
+        ui.setLibrary(null);
+        await prune(); // clean first, so the list is already tidy
+        await loadLibrary();
+      }),
     onDeleteModel: (path) =>
       run(async () => {
         if (!confirm('Eliminare questo modello dal cloud? Non si può annullare.')) return;
@@ -1537,6 +1542,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     for (const s of p.structures ?? []) bakeXf(s); // what was moved / turned / scaled in the headset is now the shape
   }
   refreshLists();
+  void prune(); // at every start: files nobody uses any more (older than a day) go
   ui.setStatus(
     !rooms.length
       ? 'Nessuna stanza salvata: scansionala e salvala dal visore (tab Scan).'
