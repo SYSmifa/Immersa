@@ -998,6 +998,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
   }
 
+  // Project names are unique (caps and spaces at the ends do not count): '' when free, else what to tell the user.
+  const projectNameError = (name: string, exceptId?: string) =>
+    projects.some((p) => p.id !== exceptId && p.name.trim().toLowerCase() === name.trim().toLowerCase()) ? `Esiste già un progetto "${name.trim()}": scegli un altro nome.` : '';
+
   // ---- the UI ----
   const ui = createEditorUi({
     onOpenProject(id) {
@@ -1005,6 +1009,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       showProject(projects.find((p) => p.id === id) ?? null);
       ui.setView('project');
     },
+    projectNameError,
     onCreateProject: (name, roomIds) =>
       run(async () => {
         if (!confirmLeave()) return;
@@ -1022,8 +1027,17 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onRenameProject: () =>
       run(async () => {
         if (!project) return;
-        const name = prompt('Nome del progetto', project.name)?.trim();
-        if (!name || name === project.name) return;
+        let text = project.name;
+        let title = 'Nome del progetto';
+        let name: string | undefined;
+        for (;;) {
+          name = prompt(title, text)?.trim();
+          if (!name || name === project.name) return;
+          const bad = projectNameError(name, project.id);
+          if (!bad) break;
+          text = name; // asks again, with the name typed so far
+          title = bad;
+        }
         await backend.saveProject(project.id, { name });
         project.name = name;
         refreshLists();

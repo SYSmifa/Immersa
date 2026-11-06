@@ -41,6 +41,7 @@ export interface StructureEdit {
 export interface EditorHandlers {
   onOpenProject(id: string): void;
   onCreateProject(name: string, roomIds: string[]): void;
+  projectNameError(name: string, exceptId?: string): string; // '' when the name is free (names are unique, caps and edge spaces ignored)
   onCloseProject(): void;
   onRenameProject(): void;
   onDeleteProject(): void;
@@ -391,6 +392,7 @@ export function createEditorUi(h: EditorHandlers) {
     const name = el('input');
     name.type = 'text';
     name.placeholder = 'Nome del progetto';
+    const nameError = el('div', '', 'ed-warn');
     const checks = roomItems.map((r) => {
       const c = el('input');
       c.type = 'checkbox';
@@ -402,6 +404,13 @@ export function createEditorUi(h: EditorHandlers) {
     const create = pill('Crea progetto', () => {
       const n = name.value.trim();
       if (!n) return name.focus();
+      const bad = h.projectNameError(n);
+      if (bad) {
+        nameError.textContent = bad;
+        name.focus();
+        name.select();
+        return;
+      }
       const ids = checks.map((l) => l.firstChild as HTMLInputElement).filter((c) => c.checked).map((c) => c.value);
       h.onCreateProject(n, ids);
     }, 'acc');
@@ -411,7 +420,7 @@ export function createEditorUi(h: EditorHandlers) {
     body.replaceChildren(
       back('Indietro', goHome),
       el('div', 'Nuovo progetto', 'ed-h'),
-      card(name),
+      card(name, nameError),
       title('Stanze del progetto (facoltative)'),
       card(...(checks.length ? checks : [el('div', 'Nessuna stanza salvata: scansionala dal visore (tab Scan).', 'ed-meta')]), el('div', 'Senza stanza hai solo la griglia: i modelli li ritrovi davanti a te nel visore.', 'ed-meta')),
       create,
