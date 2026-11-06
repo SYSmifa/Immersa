@@ -30,7 +30,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { listModels, pruneModels, removeModels, uploadModel, type StoredModel } from '../cloud/models';
+import { listModels, pruneModels, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
@@ -44,7 +44,7 @@ import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/type
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
-import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type StructureEdit } from './editorUi';
+import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type Option, type StructureEdit } from './editorUi';
 
 interface Deps {
   renderer: WebGLRenderer;
@@ -124,7 +124,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const modelsGroup = new Group();
   const structuresGroup = new Group();
   scene.add(planesGroup, gridGroup, modelsGroup, structuresGroup);
-  const layer = createModelLayer(modelsGroup, (t) => ui.setStatus(`Errore modello: ${t}`));
+  const broken = new Set<string>(); // models whose file could not be loaded
+  const layer = createModelLayer(modelsGroup, (t, m) => {
+    broken.add(m.id);
+    ui.setStatus(`Errore modello: ${t}. Selezionalo e sostituiscilo dal pannello a destra.`);
+    if (sel.includes(`m:${m.id}`)) ui.setDetails(detailsInfo());
+  });
   const structLayer = createStructureLayer(structuresGroup);
 
   scene.background = new Color(0x15171c); // through the composer the clear colour would be encoded twice
@@ -585,6 +590,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         key: `m:${m.id}`,
         name: m.name,
         source: m.source,
+        missing: broken.has(m.id) ? libOptions : undefined,
         color: m.color ?? null,
         finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
         scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, tiltDeg: [((m.tilt?.[0] ?? 0) * 180) / Math.PI, ((m.tilt?.[1] ?? 0) * 180) / Math.PI], size: holder ? modelSize(holder, m.scale) : null, materials };
@@ -805,6 +811,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   setInterval(refreshLoading, 120);
 
+  let libOptions: Option[] = []; // library files offered when a model's file is missing
+  async function refreshLibOptions() {
+    try {
+      const [files, used] = await Promise.all([library.list(), usage()]);
+      libOptions = files.map((f) => ({ id: f.path, name: `${used.get(f.path) ? [...used.get(f.path)!.names].join(' / ') : 'senza progetto'} · ${sizeText(f.size)}` }));
+    } catch {
+      libOptions = [];
+    }
+  }
+
   // The model library: every file of the account with the projects (and names) that use it.
   const sizeText = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
   async function usage() {
@@ -834,7 +850,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           const u = used.get(f.path);
           const fallback = f.path.split('/').pop()!.replace(/^\d{10,}-/, '').replace(/\.glb$/i, '');
           const name = u ? [...u.names].join(' / ') : /^[0-9a-f]{64}$/.test(fallback) ? 'Modello senza progetto' : fallback;
-          return { path: f.path, name, sub: `${sizeText(f.size)}${f.createdAt ? ` · caricato il ${dateOf(f.createdAt)}` : ''}`, usedIn: u ? [...u.projects] : [] };
+          const left = f.createdAt ? Math.ceil((24 * 3600 * 1000 - (Date.now() - new Date(f.createdAt).getTime())) / 3600000) : 0;
+          const wait = !u && left > 0 ? ` · si elimina da solo fra ${left} h` : '';
+          return { path: f.path, name, sub: `${sizeText(f.size)}${f.createdAt ? ` · caricato il ${dateOf(f.createdAt)}` : ''}${wait}`, usedIn: u ? [...u.projects] : [] };
         }),
         note,
       );
@@ -844,14 +862,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   // Deletes the files in the cloud that no project uses any more (silent, best effort, files under a day old are kept).
-  async function prune() {
+  async function prune(): Promise<PruneReport | null> {
     try {
       const used = new Set<string>();
       for (const p of await backend.listProjects()) for (const m of p.models) used.add(m.path);
       for (const m of project?.models ?? []) used.add(m.path);
-      await pruneModels(used);
+      return await pruneModels(used);
     } catch {
-      /* cleanup is optional */
+      return null; // cleanup is optional
     }
   }
 
@@ -966,6 +984,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       await backend.saveProject(p.id, { models: p.models });
     }
     for (const p of projects) if (hit.some((h) => h.id === p.id)) p.models.forEach(swap); // the copies the editor holds
+    for (const p of hit) for (const m of p.models) broken.delete(m.id);
+    ui.setDetails(detailsInfo());
     layer.sync(models());
     resetHistory();
   }
@@ -1051,8 +1071,29 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onOpenModels: () =>
       void run(async () => {
         ui.setLibrary(null);
-        await prune(); // clean first, so the list is already tidy
-        await loadLibrary();
+        const r = await prune(); // clean first, so the list is already tidy
+        const note = !r
+          ? ''
+          : r.error
+            ? `Pulizia automatica non riuscita: ${r.error}`
+            : `Pulizia automatica: ${r.removed} eliminati${r.recent ? `, ${r.recent} non usati ma troppo recenti (restano 24 ore)` : ''}.`;
+        await loadLibrary(note);
+      }),
+    onMissingFromFile: (files) =>
+      run(async () => {
+        const m = selModels()[0];
+        if (!m) return;
+        const prepared = await prepareGlb(files);
+        if (!prepared) return ui.setStatus('Sostituzione annullata.');
+        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(prepared.file));
+        await replaceModel(m.path, path, prepared.source);
+        await refreshLibOptions();
+      }),
+    onMissingFromLibrary: (path) =>
+      run(async () => {
+        const m = selModels()[0];
+        if (!m) return;
+        await replaceModel(m.path, path);
       }),
     onReplaceFromFile: (oldPath, files) =>
       run(async () => {
@@ -1595,7 +1636,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     for (const s of p.structures ?? []) bakeXf(s); // what was moved / turned / scaled in the headset is now the shape
   }
   refreshLists();
-  void prune(); // at every start: files nobody uses any more (older than a day) go
+  void prune().then(() => refreshLibOptions()); // at every start: files nobody uses any more (older than a day) go
   ui.setStatus(
     !rooms.length
       ? 'Nessuna stanza salvata: scansionala e salvala dal visore (tab Scan).'

@@ -43,7 +43,7 @@ export function preloadModels(paths: string[]) {
 const partsKey = (m: RoomModel) => (m.parts && Object.keys(m.parts).length ? JSON.stringify(m.parts) : '');
 const lookKey = (m: RoomModel) => [m.color, m.materialColors, m.finish, m.materialFinish].map((x) => (x && Object.keys(x).length ? JSON.stringify(x) : '')).join('|').replace(/^\|+$/, '');
 
-export function createModelLayer(parent: Object3D, onError: (text: string) => void) {
+export function createModelLayer(parent: Object3D, onError: (text: string, model: RoomModel) => void) {
   const holders = new Map<string, Group>();
 
   // Colours of the model, then the moved / coloured components on top; each only when it changed.
@@ -81,7 +81,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
         if (look) refresh(holder, look);
       })
       .catch((e: Error) => {
-        onError(`${m.name}: ${e.message}`);
+        onError(`${m.name}: ${e.message}`, m);
         holder.add(new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0xff3030, wireframe: true })));
       })
       .finally(() => pending--);

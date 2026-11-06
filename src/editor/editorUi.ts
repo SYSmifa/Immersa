@@ -54,6 +54,8 @@ export interface EditorHandlers {
   onOpenModels(): void;
   onDeleteModel(path: string): void;
   onReplaceFromFile(oldPath: string, files: File[]): void;
+  onMissingFromFile(files: File[]): void;
+  onMissingFromLibrary(path: string): void;
   onReplaceFromLibrary(oldPath: string, newPath: string): void;
   onPruneModels(): void;
   onSave(): void;
@@ -101,6 +103,7 @@ export type Details =
       key: string;
       name: string;
       source?: string; // the file it was imported from
+      missing?: Option[]; // its file cannot be loaded: the library files it could be replaced with
       scale: number;
       yawDeg: number;
       tiltDeg: [number, number]; // about X and Z
@@ -133,7 +136,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-type Option = { id: string; name: string; sub?: string; hidden?: boolean };
+export type Option = { id: string; name: string; sub?: string; hidden?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -495,6 +498,24 @@ export function createEditorUi(h: EditorHandlers) {
     fileInput.value = '';
   };
 
+  const missingInput = el('input', '', 'ed-file');
+  missingInput.type = 'file';
+  missingInput.accept = MODEL_ACCEPT;
+  missingInput.multiple = true;
+  missingInput.onchange = () => {
+    if (missingInput.files?.length) h.onMissingFromFile([...missingInput.files]);
+    missingInput.value = '';
+  };
+  // A model whose file is gone (or cannot be read): replace it from a new file or from the library.
+  function missingBlock(options: Option[]): HTMLElement[] {
+    const pick = select();
+    fill(pick, options, null, options.length ? '— dalla libreria —' : '(libreria vuota)');
+    pick.disabled = !options.length;
+    const warn = el('div', 'Il file di questo modello non si carica (forse non esiste più). Sostituiscilo: posizione, rotazione e scala restano.', 'ed-meta');
+    warn.style.color = '#ef4444';
+    return [warn, row(pick, pill('Usa questo', () => pick.value && h.onMissingFromLibrary(pick.value), 'acc')), row(pill('Da file…', () => missingInput.click()))];
+  }
+
   function renderProject() {
     const name = el('div', projectName);
     name.style.cssText = 'font-weight:700;font-size:16px';
@@ -838,6 +859,7 @@ export function createEditorUi(h: EditorHandlers) {
         card(
           nameField(d.name),
           ...(d.source ? [el('div', `Importato da ${d.source}`, 'ed-meta')] : []),
+          ...(d.missing ? missingBlock(d.missing) : []),
           row(el('span', 'Scala'), numberField(d.scale, '0.01', '0.001', (v, c) => h.onModelScale(v, c))),
           row(el('span', 'Rotazione ° (Y)'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
           row(el('span', 'Inclina ° (X)'), numberField(d.tiltDeg[0], '1', null, (v, c) => h.onModelTilt('x', v, c))),

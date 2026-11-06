@@ -33,23 +33,33 @@ export async function uploadModel(file: File): Promise<{ path: string; name: str
   return { path, name: file.name };
 }
 
+export interface PruneReport {
+  removed: number;
+  recent: number; // unused but younger than minAge: kept for now
+  error?: string;
+}
+
 // Deletes the user's files that no project uses any more. `used` = every model path of every project of the user.
 // Files younger than `minAgeMs` are left alone: they may belong to a project that is still being edited and not saved.
-// Best effort: never throws.
-export async function pruneModels(used: Set<string>, minAgeMs = 24 * 3600 * 1000): Promise<number> {
+// Best effort: never throws, tells what it did.
+export async function pruneModels(used: Set<string>, minAgeMs = 24 * 3600 * 1000): Promise<PruneReport> {
   try {
-    if (!supabase) return 0;
+    if (!supabase) return { removed: 0, recent: 0 };
     const { data: auth } = await supabase.auth.getSession();
     const uid = auth.session?.user.id;
-    if (!uid) return 0;
+    if (!uid) return { removed: 0, recent: 0 };
     const { data, error } = await supabase.storage.from(BUCKET).list(uid, { limit: 1000 });
-    if (error || !data) return 0;
-    const old = data.filter((f) => f.id && !used.has(`${uid}/${f.name}`) && Date.now() - new Date(f.created_at ?? Date.now()).getTime() > minAgeMs);
-    if (!old.length) return 0;
-    const { error: e } = await supabase.storage.from(BUCKET).remove(old.map((f) => `${uid}/${f.name}`));
-    return e ? 0 : old.length;
-  } catch {
-    return 0;
+    if (error || !data) return { removed: 0, recent: 0, error: error?.message ?? 'lista non disponibile' };
+    const unused = data.filter((f) => f.id && !used.has(`${uid}/${f.name}`));
+    const age = (f: (typeof data)[number]) => (f.created_at ? Date.now() - new Date(f.created_at).getTime() : 0); // unknown date: not old
+    const old = unused.filter((f) => age(f) > minAgeMs);
+    if (old.length) {
+      const { error: e } = await supabase.storage.from(BUCKET).remove(old.map((f) => `${uid}/${f.name}`));
+      if (e) return { removed: 0, recent: unused.length - old.length, error: e.message };
+    }
+    return { removed: old.length, recent: unused.length - old.length };
+  } catch (e) {
+    return { removed: 0, recent: 0, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
