@@ -43,6 +43,7 @@ export interface Parsed {
   name: string; // without extension
   format: string;
   triangles: number;
+  flipped: number; // parts whose faces pointed inwards and were turned round
   size: Vector3; // in the file's own units
   guessUnit: Unit;
   guessZUp: boolean;
@@ -228,16 +229,67 @@ function toStandard(m: Material): MeshStandardMaterial {
   return out;
 }
 
-function tidy(root: Object3D): number {
+// A closed solid whose faces point inwards (a negative volume) is drawn as its inside: flip it. Only for meshes that clearly
+// are solids (the volume is a good part of the box that holds them), so thin sheets are left as they are.
+function flipInverted(g: BufferGeometry): boolean {
+  const pos = g.getAttribute('position') as BufferAttribute;
+  const idx = g.index;
+  const n = idx ? idx.count : pos.count;
+  if (n < 12) return false;
+  let vol = 0;
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  for (let i = 0; i < n; i += 3) {
+    a.fromBufferAttribute(pos, idx ? idx.getX(i) : i);
+    b.fromBufferAttribute(pos, idx ? idx.getX(i + 1) : i + 1);
+    c.fromBufferAttribute(pos, idx ? idx.getX(i + 2) : i + 2);
+    vol += a.dot(b.clone().cross(c)) / 6;
+  }
+  g.computeBoundingBox();
+  const size = g.boundingBox!.getSize(new Vector3());
+  const boxVol = size.x * size.y * size.z;
+  if (!(vol < 0) || !(boxVol > 0) || -vol < boxVol * 0.3) return false;
+  if (idx) {
+    for (let i = 0; i < n; i += 3) {
+      const t = idx.getX(i + 1);
+      idx.setX(i + 1, idx.getX(i + 2));
+      idx.setX(i + 2, t);
+    }
+    idx.needsUpdate = true;
+  } else {
+    // Not indexed: swap the second and third vertex of each triangle in every attribute.
+    for (const attr of Object.values(g.attributes) as BufferAttribute[]) {
+      const k = attr.itemSize;
+      for (let i = 0; i < n; i += 3) for (let j = 0; j < k; j++) {
+        const t = attr.array[(i + 1) * k + j];
+        attr.array[(i + 1) * k + j] = attr.array[(i + 2) * k + j];
+        attr.array[(i + 2) * k + j] = t;
+      }
+      attr.needsUpdate = true;
+    }
+  }
+  g.deleteAttribute('normal');
+  g.computeVertexNormals();
+  return true;
+}
+
+function tidy(root: Object3D): { triangles: number; flipped: number } {
   const cache = new Map<Material, MeshStandardMaterial>();
   const drop: Object3D[] = [];
+  const seen = new Set<BufferGeometry>();
   let triangles = 0;
+  let flipped = 0;
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (mesh.isMesh) {
       const conv = (m: Material) => cache.get(m) ?? cache.set(m, toStandard(m)).get(m)!;
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(conv) : conv(mesh.material);
       const g = mesh.geometry as BufferGeometry;
+      if (!seen.has(g)) {
+        seen.add(g);
+        if (flipInverted(g)) flipped++;
+      }
       if (!g.getAttribute('normal')) g.computeVertexNormals();
       triangles += (g.index ? g.index.count : (g.getAttribute('position') as BufferAttribute).count) / 3;
     } else if (o !== root && ((o as Object3D & { isLine?: boolean }).isLine || (o as Object3D & { isPoints?: boolean }).isPoints || (o as Object3D & { isLight?: boolean }).isLight || (o as Object3D & { isCamera?: boolean }).isCamera)) {
@@ -245,7 +297,7 @@ function tidy(root: Object3D): number {
     }
   });
   for (const o of drop) o.parent?.remove(o);
-  return Math.round(triangles);
+  return { triangles: Math.round(triangles), flipped };
 }
 
 // What the file's unit probably is, from the size of the model: a person-sized thing is 2 in metres, 200 in centimetres, 2000 in millimetres.
@@ -260,7 +312,7 @@ export async function parseModel(chosen: File[]): Promise<Parsed> {
   if (!main) throw new Error('Nel gruppo di file non c\'è un modello 3D che conosco (glb, gltf, obj, fbx, stl, ply, dae, 3mf, step, iges, brep).');
   const root = await readFile(files, main);
   await tick();
-  const triangles = tidy(root);
+  const { triangles, flipped } = tidy(root);
   root.updateMatrixWorld(true);
   const box = new Box3().setFromObject(root);
   if (box.isEmpty()) throw new Error('Il modello è vuoto: non contiene superfici.');
@@ -273,6 +325,7 @@ export async function parseModel(chosen: File[]): Promise<Parsed> {
     name: stem(main.name),
     format: kind.toUpperCase(),
     triangles,
+    flipped,
     size,
     guessUnit: cadWithUnit || kind === 'gltf' || kind === 'glb' ? 'm' : kind === 'stl' || kind === '3mf' || kind === 'brep' ? 'mm' : guessUnit(size), // meshes from CAD tools are in millimetres
     guessZUp: cad || kind === 'stl' || kind === '3mf',

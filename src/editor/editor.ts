@@ -809,6 +809,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           dims: (unit, zUp) => sizeFor(parsed, { unit, zUp }).map((v) => v.toFixed(2)).join(' × ') + ' m (larghezza × altezza × profondità)',
         });
         if (!choice) return ui.setStatus('Importazione annullata.');
+        if (parsed.flipped) ui.setStatus(`Ho girato le facce di ${parsed.flipped} ${parsed.flipped === 1 ? 'parte' : 'parti'} rivolte all'interno.`);
         file = await withLoading('Converto in GLB', parsed.name, () => exportGlb(parsed, choice));
       }
       const { path, name } = await withLoading('Carico il modello', file.name, () => upload(file));

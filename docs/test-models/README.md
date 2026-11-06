@@ -20,3 +20,6 @@ L'assieme ha parti separate: dopo l'importazione prova il doppio clic su un comp
 
 FBX: non c'è un file di esempio qui, usane uno tuo (o uno scaricato da un sito di modelli).
 I cubi e l'assieme CAD vengono dai file di prova di `occt-import-js` (licenza MIT).
+
+`scatola-facce-invertite.obj` (con `scatola.mtl`) è la stessa scatola con le facce rivolte all'interno, scritta apposta:
+l'importazione le raddrizza da sola e la scatola deve apparire piena (rossa, vista da fuori).
