@@ -21,3 +21,7 @@ public/models/*
 Thumbs.db
 .vscode/
 .idea/
+
+# Small sample files for trying the importer
+!docs/test-models/
+!docs/test-models/*

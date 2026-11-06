@@ -135,7 +135,8 @@ async function readCad(file: File, kind: 'step' | 'iges' | 'brep'): Promise<Obje
       geo.setIndex(m.index.array);
       if (!m.attributes.normal) geo.computeVertexNormals();
       const mat = new MeshStandardMaterial({ roughness: 0.55, metalness: 0.1, side: DoubleSide });
-      if (m.color) mat.color.setRGB(m.color[0], m.color[1], m.color[2], SRGBColorSpace);
+      // A colour of pure black is what the reader gives to parts that have none: grey instead of a black shape.
+      if (m.color && m.color[0] + m.color[1] + m.color[2] > 0.03) mat.color.setRGB(m.color[0], m.color[1], m.color[2], SRGBColorSpace);
       else mat.color.set(0xbfc4cc);
       const mesh = new Mesh(geo, mat);
       mesh.name = m.name || node.name || '';
@@ -266,15 +267,16 @@ export async function parseModel(chosen: File[]): Promise<Parsed> {
   const size = box.getSize(new Vector3());
   const kind = ext(main.name);
   const cad = ['step', 'stp', 'iges', 'igs', 'brep'].includes(kind);
+  const cadWithUnit = cad && kind !== 'brep'; // a BREP file has no unit: ask (millimetres is the usual)
   return {
     root,
     name: stem(main.name),
     format: kind.toUpperCase(),
     triangles,
     size,
-    guessUnit: cad || kind === 'gltf' || kind === 'glb' ? 'm' : kind === 'stl' || kind === '3mf' ? 'mm' : guessUnit(size), // meshes from CAD tools are in millimetres
+    guessUnit: cadWithUnit || kind === 'gltf' || kind === 'glb' ? 'm' : kind === 'stl' || kind === '3mf' || kind === 'brep' ? 'mm' : guessUnit(size), // meshes from CAD tools are in millimetres
     guessZUp: cad || kind === 'stl' || kind === '3mf',
-    fixedUnit: cad || kind === 'gltf' || kind === 'glb',
+    fixedUnit: cadWithUnit || kind === 'gltf' || kind === 'glb',
   };
 }
 

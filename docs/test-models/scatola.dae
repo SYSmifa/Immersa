@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+ <asset><unit name="centimeter" meter="0.01"/><up_axis>Y_UP</up_axis></asset>
+ <library_effects><effect id="fx"><profile_COMMON><technique sid="common"><phong><diffuse><color>0.15 0.4 0.85 1</color></diffuse></phong></technique></profile_COMMON></effect></library_effects>
+ <library_materials><material id="blu" name="blu"><instance_effect url="#fx"/></material></library_materials>
+ <library_geometries><geometry id="g" name="scatola"><mesh>
+  <source id="p"><float_array id="pa" count="24">0 0 0 200 0 0 200 100 0 0 100 0 0 0 50 200 0 50 200 100 50 0 100 50</float_array><technique_common><accessor source="#pa" count="8" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>
+  <vertices id="v"><input semantic="POSITION" source="#p"/></vertices>
+  <triangles material="m" count="12"><input semantic="VERTEX" source="#v" offset="0"/><p>0 1 2 0 2 3 4 7 6 4 6 5 0 4 5 0 5 1 1 5 6 1 6 2 2 6 7 2 7 3 3 7 4 3 4 0</p></triangles>
+ </mesh></geometry></library_geometries>
+ <library_visual_scenes><visual_scene id="s"><node id="n" name="scatola"><instance_geometry url="#g"><bind_material><technique_common><instance_material symbol="m" target="#blu"/></technique_common></bind_material></instance_geometry></node></visual_scene></library_visual_scenes>
+ <scene><instance_visual_scene url="#s"/></scene>
+</COLLADA>
