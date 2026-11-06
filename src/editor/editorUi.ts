@@ -131,6 +131,7 @@ const CSS = `
 .ed-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:.02em}
 .ed-brand i{width:12px;height:12px;border-radius:4px;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 0 12px var(--acc)}
 .ed-title{color:#8b95a7;font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:6px 4px 0}
+.ed-ver{color:#5d6678;font-size:11px;padding:0 4px;text-align:center}
 .ed-footer{border-top:1px solid #ffffff1a;padding-top:10px}
 .ed-card{background:#fff;color:#12151c;border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .ed-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -319,7 +320,8 @@ export function createEditorUi(h: EditorHandlers) {
   brand.append(el('i'), document.createTextNode('Immersa'));
   const body = el('div', '', 'ed-body');
   const footer = el('div', '', 'ed-footer');
-  side.append(brand, body, footer);
+  const version = el('div', `Versione ${__BUILD_ID__}`, 'ed-ver'); // to tell which build is online
+  side.append(brand, body, footer, version);
 
   let view: View = 'home';
   let projectItems: Option[] = [];
