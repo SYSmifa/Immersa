@@ -360,7 +360,7 @@ export function createEditorUi(h: EditorHandlers) {
       big(ICON.folder, 'Apri progetto', 'La lista dei tuoi progetti', () => setView('projects')),
       big(ICON.plus, 'Nuovo progetto', 'Nome e stanze', () => setView('new')),
       big(ICON.room, 'Le mie stanze', 'Stanze scansionate dal visore', () => setView('rooms')),
-      big(ICON.folder, 'I miei modelli', 'File caricati nel cloud', () => {
+      big(ICON.cube, 'I miei modelli', 'File caricati nel cloud', () => {
         setView('models');
         h.onOpenModels();
       }),
