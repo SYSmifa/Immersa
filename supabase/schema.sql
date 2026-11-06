@@ -51,6 +51,9 @@ create policy "projects: owner only" on public.projects
 alter table public.projects add column if not exists structures jsonb not null default '[]'::jsonb;
 
 -- Migration to multi-room projects (safe to re-run).
+-- The tile colour of each project (safe to re-run).
+alter table public.projects add column if not exists tone smallint;
+
 alter table public.projects add column if not exists room_ids jsonb not null default '[]'::jsonb;
 update public.projects set room_ids = jsonb_build_array(room_id::text) where room_ids = '[]'::jsonb and room_id is not null;
 alter table public.projects alter column room_id drop not null;

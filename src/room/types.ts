@@ -91,4 +91,5 @@ export interface Project {
   roomIds: string[];
   models: RoomModel[];
   structures: Structure[]; // walls and floors built in the editor
+  tone?: number; // tile colour (index in the theme's tones), kept so that no two projects look alike
 }

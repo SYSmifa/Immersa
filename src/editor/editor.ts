@@ -44,6 +44,7 @@ import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/type
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
+import { newTone, projectTones } from '../ui3d/theme';
 import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type Option, type StructureEdit } from './editorUi';
 
 interface Deps {
@@ -520,8 +521,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   function refreshLists() {
-    ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, sub: `Creata il ${dateOf(r.createdAt)}` })));
+    const tones = projectTones(projects);
+    ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
       projectRoomsList().map((r) => ({ id: r.id, name: r.name, hidden: hiddenRooms.has(r.id) })),
@@ -1006,7 +1008,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onCreateProject: (name, roomIds) =>
       run(async () => {
         if (!confirmLeave()) return;
-        const p = await backend.createProject(name, roomIds, []);
+        const p = await backend.createProject(name, roomIds, [], [], newTone(projects));
         projects.unshift(p);
         showProject(p);
         ui.setView('project');
@@ -1640,6 +1642,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   for (const p of projects) {
     adoptOrphans(p, rooms); // models of a room that no longer exists stay reachable
     for (const s of p.structures ?? []) bakeXf(s); // what was moved / turned / scaled in the headset is now the shape
+  }
+  // Projects without a colour yet get a free one and keep it (saved once, without touching "last modified").
+  const tones = projectTones(projects);
+  for (const p of projects) {
+    if (p.tone !== undefined) continue;
+    p.tone = tones.get(p.id);
+    if (p.tone !== undefined) void backend.saveProject(p.id, { tone: p.tone }).catch(() => undefined);
   }
   refreshLists();
   void prune().then(() => refreshLibOptions()); // at every start: files nobody uses any more (older than a day) go

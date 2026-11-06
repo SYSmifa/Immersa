@@ -64,5 +64,30 @@ export const AURA: Theme = {
 
 export const theme = (): Theme => AURA;
 
-// A project's tile colour: looks random but is stable (from the project's id), so it is the same in the headset and on the PC.
-export const projectTone = (id: string): number => [...id].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % AURA.tones.length;
+// Tile colours of the projects: a saved `tone` is kept; the others get a free tone (their preferred one, from the id, if it is
+// free), so two projects only share a colour when there are more projects than tones. Deterministic (same on every device).
+const hashId = (id: string) => [...id].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+export function projectTones(projects: { id: string; tone?: number }[]): Map<string, number> {
+  const n = AURA.tones.length;
+  const out = new Map<string, number>();
+  const count = new Array<number>(n).fill(0);
+  for (const p of projects) if (p.tone !== undefined && p.tone >= 0 && p.tone < n) (out.set(p.id, p.tone), count[p.tone]++);
+  for (const p of [...projects].filter((x) => !out.has(x.id)).sort((a, b) => a.id.localeCompare(b.id))) {
+    const pref = hashId(p.id) % n;
+    let best = pref;
+    for (let k = 0; k < n; k++) if (count[(pref + k) % n] < count[best]) best = (pref + k) % n;
+    out.set(p.id, best);
+    count[best]++;
+  }
+  return out;
+}
+
+// The tone for a new project: one of the least used.
+export function newTone(projects: { id: string; tone?: number }[]): number {
+  const n = AURA.tones.length;
+  const count = new Array<number>(n).fill(0);
+  for (const t of projectTones(projects).values()) count[t]++;
+  const least = Math.min(...count);
+  const free = count.flatMap((c, i) => (c === least ? [i] : []));
+  return free[Math.floor(Math.random() * free.length)];
+}

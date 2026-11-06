@@ -106,8 +106,8 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       // like the database: projects stay, with a stale room id
     },
     listProjects: async () => projects.map((p) => ({ ...p })),
-    async createProject(name, roomIds, models, structures = []) {
-      const p = { id: `p${projects.length + 1}`, roomIds, name, updatedAt: now(), models, structures };
+    async createProject(name, roomIds, models, structures = [], tone) {
+      const p = { id: `p${projects.length + 1}`, roomIds, name, updatedAt: now(), models, structures, tone };
       projects.push(p);
       return p;
     },

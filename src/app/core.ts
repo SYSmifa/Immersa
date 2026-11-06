@@ -15,7 +15,7 @@ import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/rec
 import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
-import { theme } from '../ui3d/theme';
+import { projectTones, theme } from '../ui3d/theme';
 import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
 import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type ObjectView, type Tab } from '../ui3d/menu';
@@ -317,10 +317,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     view.captureAvailable = !!capture?.available;
     const roomName = (id: string) => rooms.find((r) => r.id === id)?.name ?? '?';
     const here = (p: Project) => !!recognised && p.roomIds.includes(recognised.room.id);
+    const tones = projectTones(allProjects);
     view.projects = projectsLoaded
       ? [...allProjects]
           .sort((a, b) => Number(here(b)) - Number(here(a)) || b.updatedAt.localeCompare(a.updatedAt))
-          .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p) }))
+          .map((p) => ({ id: p.id, name: p.name, models: p.models.length, rooms: p.roomIds.map(roomName).join(', ') || '(nessuna stanza)', here: here(p), tone: tones.get(p.id) ?? 0 }))
       : null;
     view.projectName = current?.name ?? null;
     view.events = events.slice(-4);

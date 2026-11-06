@@ -17,11 +17,13 @@ interface ProjectRow {
   name: string;
   models: RoomModel[];
   structures: Structure[] | null;
+  tone?: number | null;
   updated_at: string;
 }
 
 const ROOM_COLS = 'id,name,data,created_at,updated_at';
-const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,updated_at';
+const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,tone,updated_at';
+const PROJECT_COLS_NOTONE = 'id,room_id,room_ids,name,models,structures,updated_at';
 // Until supabase/schema.sql has been re-run the newer columns do not exist: read (and write) without them instead of failing.
 const ROOM_COLS_OLD = 'id,name,data,updated_at';
 const PROJECT_COLS_OLD = 'id,room_id,room_ids,name,models,updated_at';
@@ -38,6 +40,7 @@ const toProject = (r: ProjectRow): Project => {
     // Projects saved before multi-room had no roomId on their models.
     models: (r.models ?? []).map((m) => ({ ...m, roomId: m.roomId ?? roomIds[0] ?? '' })),
     structures: r.structures ?? [],
+    tone: r.tone ?? undefined,
   };
 };
 
@@ -86,20 +89,24 @@ export function createSupabaseBackend(): Backend {
     async listProjects() {
       const res = await client().from('projects').select(PROJECT_COLS).order('updated_at', { ascending: false });
       let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('projects').select(PROJECT_COLS_NOTONE).order('updated_at', { ascending: false })) as unknown as typeof res);
       if (missingColumn(error)) ({ data, error } = (await client().from('projects').select(PROJECT_COLS_OLD).order('updated_at', { ascending: false })) as unknown as typeof res);
       check(error);
       return (data as ProjectRow[]).map(toProject);
     },
-    async createProject(name, roomIds, models, structures = []) {
+    async createProject(name, roomIds, models, structures = [], tone) {
       const row = { name, room_id: roomIds[0] ?? null, room_ids: roomIds, models };
-      const res = await client().from('projects').insert({ ...row, structures }).select(PROJECT_COLS).single();
+      const res = await client().from('projects').insert({ ...row, structures, tone: tone ?? null }).select(PROJECT_COLS).single();
       let { data, error } = res;
+      if (missingColumn(error)) ({ data, error } = (await client().from('projects').insert({ ...row, structures }).select(PROJECT_COLS_NOTONE).single()) as unknown as typeof res);
       if (missingColumn(error)) ({ data, error } = (await client().from('projects').insert(row).select(PROJECT_COLS_OLD).single()) as unknown as typeof res);
       check(error);
       return toProject(data as ProjectRow);
     },
     async saveProject(id, patch) {
-      const row: Record<string, unknown> = { updated_at: now() };
+      // Only the colour changing is not an edit of the project: its "last modified" stays.
+      const row: Record<string, unknown> = Object.keys(patch).every((k) => k === 'tone') ? {} : { updated_at: now() };
+      if (patch.tone !== undefined) row.tone = patch.tone;
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.models !== undefined) row.models = patch.models;
       if (patch.structures !== undefined) row.structures = patch.structures;
@@ -108,6 +115,10 @@ export function createSupabaseBackend(): Backend {
         row.room_id = patch.roomIds[0] ?? null;
       }
       let { error } = await client().from('projects').update(row).eq('id', id);
+      if (missingColumn(error) && 'tone' in row) {
+        delete row.tone; // the colour column does not exist yet
+        ({ error } = Object.keys(row).length ? await client().from('projects').update(row).eq('id', id) : { error: null });
+      }
       if (missingColumn(error) && 'structures' in row) {
         delete row.structures; // schema not updated yet: the rest is still saved
         ({ error } = await client().from('projects').update(row).eq('id', id));

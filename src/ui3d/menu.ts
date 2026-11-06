@@ -1,4 +1,4 @@
-import { projectTone, theme } from './theme';
+import { theme } from './theme';
 import { hsvToHex, type Hsv } from './color';
 import type { IconName } from './icons';
 import type { Widget } from './panel';
@@ -52,7 +52,7 @@ export interface MenuView {
   events: string[]; // recent session events (standby, resume, resets)
   log: string[]; // the same events kept across app restarts (shown in Account)
   fits: string[]; // how well each room's saved planes match the live scan (diagnostics)
-  projects: { id: string; name: string; models: number; rooms: string; here: boolean }[] | null; // all of them, this room's first
+  projects: { id: string; name: string; models: number; rooms: string; here: boolean; tone: number }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   unsaved: boolean; // models moved in the headset and not saved yet
   page: number;
@@ -300,7 +300,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
           rect: { x: M, y, w: W, h: cardH },
           text: p.name,
           sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
-          tone: projectTone(p.id),
+          tone: p.tone,
           active: open,
           reserve: open ? 150 : undefined, // room for the "Chiudi" button drawn over the card
           onClick: () => a.selectProject(p.id),
