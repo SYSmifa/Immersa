@@ -889,31 +889,39 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     for (let i = 1; ; i++) if (!nameTaken(`${base}_${i}`)) return `${base}_${i}`;
   }
 
+  // Reads any supported file(s) into a GLB ready to upload: a .glb goes as it is, anything else is read, asked about (unit, up
+  // axis) and converted. null = the user cancelled.
+  async function prepareGlb(files: File[]): Promise<{ file: File; source: string; base: string } | null> {
+    let file = files[0];
+    let source = files[0].name;
+    let base = files[0].name.replace(/\.[^.]+$/, '');
+    if (!isSimpleGlb(files)) {
+      const parsed = await withLoading('Leggo il modello', files[0].name, () => parseModel(files));
+      const choice = await ui.askImport({
+        name: parsed.name,
+        format: parsed.format,
+        triangles: parsed.triangles,
+        fixedUnit: parsed.fixedUnit,
+        unit: parsed.guessUnit,
+        zUp: parsed.guessZUp,
+        dims: (unit, zUp) => sizeFor(parsed, { unit, zUp }).map((v) => v.toFixed(2)).join(' × ') + ' m (larghezza × altezza × profondità)',
+      });
+      if (!choice) return null;
+      source = parsed.source;
+      base = parsed.name;
+      if (parsed.flipped) ui.setStatus(`Ho girato le facce di ${parsed.flipped} ${parsed.flipped === 1 ? 'parte' : 'parti'} rivolte all'interno.`);
+      file = await withLoading('Converto in GLB', parsed.name, () => exportGlb(parsed, choice));
+    }
+    return { file, source, base };
+  }
+
   async function importFiles(files: File[]) {
     if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
     ui.setStatus(`Carico ${files[0].name}...`);
     try {
-      let file = files[0];
-      let source = files[0].name;
-      let base = files[0].name.replace(/\.[^.]+$/, '');
-      if (!isSimpleGlb(files)) {
-        // Any other format: read it, ask the unit and the up axis, convert to GLB (the headset only reads GLB).
-        const parsed = await withLoading('Leggo il modello', files[0].name, () => parseModel(files));
-        const choice = await ui.askImport({
-          name: parsed.name,
-          format: parsed.format,
-          triangles: parsed.triangles,
-          fixedUnit: parsed.fixedUnit,
-          unit: parsed.guessUnit,
-          zUp: parsed.guessZUp,
-          dims: (unit, zUp) => sizeFor(parsed, { unit, zUp }).map((v) => v.toFixed(2)).join(' × ') + ' m (larghezza × altezza × profondità)',
-        });
-        if (!choice) return ui.setStatus('Importazione annullata.');
-        source = parsed.source;
-        base = parsed.name;
-        if (parsed.flipped) ui.setStatus(`Ho girato le facce di ${parsed.flipped} ${parsed.flipped === 1 ? 'parte' : 'parti'} rivolte all'interno.`);
-        file = await withLoading('Converto in GLB', parsed.name, () => exportGlb(parsed, choice));
-      }
+      const prepared = await prepareGlb(files);
+      if (!prepared) return ui.setStatus('Importazione annullata.');
+      const { file, source, base } = prepared;
       const { path } = await withLoading('Carico il modello', file.name, () => upload(file));
       const name = uniqueModelName(base);
       const id = newId();
@@ -929,6 +937,37 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     } catch (e) {
       ui.setStatus(`Importazione FALLITA: ${errText(e)}`);
     }
+  }
+
+  // Library: every model that uses the file `oldPath`, in every project, now uses `newPath` with the same position, rotation,
+  // tilt, scale and name. Colours and edited components are dropped (they point at materials / nodes of the old file).
+  async function replaceModel(oldPath: string, newPath: string, newSource?: string) {
+    if (oldPath === newPath) return ui.setStatus('È già lo stesso modello.');
+    if (dirty) return ui.setStatus('Salva (o scarta) prima le modifiche al progetto aperto, poi sostituisci.');
+    const fresh = await backend.listProjects();
+    const hit = fresh.filter((p) => p.models.some((m) => m.path === oldPath));
+    if (!hit.length) return ui.setStatus('Nessun progetto usa questo modello: niente da sostituire.');
+    const count = hit.reduce((n, p) => n + p.models.filter((m) => m.path === oldPath).length, 0);
+    const list = hit.map((p) => `${p.name} (${p.models.filter((m) => m.path === oldPath).length})`).join(', ');
+    if (!confirm(`Sostituire il modello in ${count} posizioni, in questi progetti: ${list}?\nPosizione, rotazione, scala e nome restano; colori e componenti modificati si azzerano.`)) return;
+    const swap = (m: RoomModel) => {
+      if (m.path !== oldPath) return;
+      m.path = newPath;
+      if (newSource) m.source = newSource;
+      else delete m.source;
+      delete m.color;
+      delete m.materialColors;
+      delete m.finish;
+      delete m.materialFinish;
+      delete m.parts;
+    };
+    for (const p of hit) {
+      p.models.forEach(swap);
+      await backend.saveProject(p.id, { models: p.models });
+    }
+    for (const p of projects) if (hit.some((h) => h.id === p.id)) p.models.forEach(swap); // the copies the editor holds
+    layer.sync(models());
+    resetHistory();
   }
 
   // ---- the UI ----
@@ -1014,6 +1053,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         ui.setLibrary(null);
         await prune(); // clean first, so the list is already tidy
         await loadLibrary();
+      }),
+    onReplaceFromFile: (oldPath, files) =>
+      run(async () => {
+        ui.setStatus(`Preparo ${files[0].name}...`);
+        const prepared = await prepareGlb(files);
+        if (!prepared) return ui.setStatus('Sostituzione annullata.');
+        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(prepared.file));
+        await replaceModel(oldPath, path, prepared.source);
+        await loadLibrary('Modello sostituito.');
+      }),
+    onReplaceFromLibrary: (oldPath, newPath) =>
+      run(async () => {
+        await replaceModel(oldPath, newPath);
+        await loadLibrary('Modello sostituito.');
       }),
     onDeleteModel: (path) =>
       run(async () => {

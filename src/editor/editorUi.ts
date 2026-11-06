@@ -53,6 +53,8 @@ export interface EditorHandlers {
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onDeleteModel(path: string): void;
+  onReplaceFromFile(oldPath: string, files: File[]): void;
+  onReplaceFromLibrary(oldPath: string, newPath: string): void;
   onPruneModels(): void;
   onSave(): void;
   // toolbar
@@ -429,6 +431,17 @@ export function createEditorUi(h: EditorHandlers) {
 
   let libraryItems: LibraryItem[] | null = null; // null = loading
   let libraryNote = '';
+  let replacing: string | null = null; // the library file whose replacement is being chosen
+  const replaceInput = el('input', '', 'ed-file');
+  replaceInput.type = 'file';
+  replaceInput.accept = MODEL_ACCEPT;
+  replaceInput.multiple = true;
+  replaceInput.onchange = () => {
+    const old = replacing;
+    replacing = null;
+    if (old && replaceInput.files?.length) h.onReplaceFromFile(old, [...replaceInput.files]);
+    replaceInput.value = '';
+  };
   function renderModels() {
     const items = libraryItems;
     const unused = items?.filter((i) => !i.usedIn.length) ?? [];
@@ -437,7 +450,31 @@ export function createEditorUi(h: EditorHandlers) {
       t.style.fontWeight = '700';
       const del = pill('Elimina', () => h.onDeleteModel(i.path), 'bad');
       del.disabled = i.usedIn.length > 0;
-      return card(t, el('div', i.sub, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta'), row(del));
+      const info = [t, el('div', i.sub, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta')];
+      if (replacing === i.path) {
+        // Choosing the replacement: another file of the library, or a new one from the PC.
+        const others = select();
+        fill(others, (items ?? []).filter((o) => o.path !== i.path).map((o) => ({ id: o.path, name: `${o.name} · ${o.sub.split(' · ')[0]}` })), null, '— dalla libreria —');
+        return card(
+          ...info,
+          el('div', 'Sostituisci con:', 'ed-title'),
+          row(others, pill('Usa questo', () => {
+            if (!others.value) return;
+            replacing = null;
+            h.onReplaceFromLibrary(i.path, others.value);
+          }, 'acc')),
+          row(pill('Da file…', () => replaceInput.click()), pill('Annulla', () => {
+            replacing = null;
+            renderModels();
+          })),
+        );
+      }
+      const rep = pill('Sostituisci…', () => {
+        replacing = i.path;
+        renderModels();
+      });
+      rep.disabled = !i.usedIn.length;
+      return card(...info, row(rep, del));
     });
     const clean = pill(`Elimina i non usati (${unused.length})`, h.onPruneModels, 'bad');
     clean.disabled = !unused.length;
