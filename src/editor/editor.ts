@@ -988,6 +988,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setDetails(detailsInfo());
     layer.sync(models());
     resetHistory();
+    // The old file is no longer needed (unless some project still uses it): remove it from the cloud right away.
+    try {
+      if (!oldPath.startsWith('local:') && !(await usage()).has(oldPath)) await library.remove([oldPath]);
+    } catch {
+      /* the automatic cleanup will take it later */
+    }
   }
 
   // ---- the UI ----
