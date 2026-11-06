@@ -497,7 +497,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
-    if (splash) return; // the splash screen is up: the menu opens when it goes
+    if (splash || warnOpen) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
       yaw = yawOf(lastHead.fwd);
@@ -558,6 +558,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    warnOpen = false;
+    warn.mesh.visible = false;
     visit = false;
     view.visit = false;
     sky.visible = ground.visible = tpMarker.visible = false;
@@ -663,6 +665,40 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     closeMenu();
     notify(on ? 'Visita virtuale: punta il pavimento e pizzica per spostarti' : 'Visita virtuale finita', on ? 2600 : 1200);
   }
+  // Before the visit starts, a warning card in front of you (the real room is still in view): nothing else works until "Ho capito".
+  const warn = new Panel(0.62, 0.4, 1200, 'ink');
+  warn.mesh.visible = false;
+  host.root.add(warn.mesh);
+  host.add(warn);
+  let warnOpen = false;
+  function closeWarning() {
+    warnOpen = false;
+    warn.mesh.visible = false;
+  }
+  function openVisitWarning() {
+    if (!current || visit || warnOpen) return;
+    warnOpen = true;
+    closeMenu();
+    selectModel(null);
+    selectStruct(null);
+    const w = warn.pxW;
+    const T = theme();
+    warn.set([
+      { kind: 'label', rect: { x: 36, y: 30, w: w - 72, h: 50 }, text: 'ATTENZIONE', size: 40, bold: true, color: '#fbbf24' },
+      { kind: 'label', rect: { x: 36, y: 96, w: w - 72, h: 170 }, text: 'Durante la visita virtuale non vedi la stanza reale. Resta fermo dove sei e muoviti solo con il laser: se cammini davvero potresti urtare qualcosa o inciampare.', size: 27, color: '#ffffff', wrap: true },
+      { kind: 'pill', primary: true, icon: 'check', rect: { x: 36, y: warn.pxH - 112, w: w - 72, h: 70 }, text: 'Ho capito', size: 30, onClick: () => { closeWarning(); setVisit(true); } },
+    ]);
+    void T;
+    if (lastHead) {
+      const f = new Vector3(lastHead.fwd.x, 0, lastHead.fwd.z);
+      if (f.length() < 0.2) f.set(0, 0, -1);
+      f.normalize();
+      warn.mesh.position.set(lastHead.pos.x + f.x * 0.9, lastHead.pos.y - 0.05, lastHead.pos.z + f.z * 0.9);
+      warn.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - warn.mesh.position.x, lastHead.pos.z - warn.mesh.position.z), 0);
+    }
+    warn.mesh.visible = true;
+  }
+
   // A pinch on the floor in the visit: it is moved so that the pointed place is under you.
   function teleportTo(world: Vector3) {
     if (!freeFrame || !lastHead) return;
@@ -1079,7 +1115,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     saveChanges,
     toggleVisit() {
-      setVisit(!visit);
+      if (visit) setVisit(false);
+      else openVisitWarning();
     },
     askSearch() {
       // The list is filtered after every key; OK or closing the keyboard keeps the filter.
@@ -1532,6 +1569,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
   function pressModel(id: string) {
+    if (warnOpen) return; // the warning must be answered first
     const target = hovered.get(id) ?? null;
     if (visit && !target) {
       const at = hoverPoint.get(id);
@@ -2204,7 +2242,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -2268,7 +2306,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     planesGap(on: boolean) {
       if (on) closeMenu(); // no glimpse of the menu while the rooms are gone (the app is about to restart)
-      if (on) setVisit(false); // the session lost its frame: the visit ends, the plan comes back in front of you
+      if (on) {
+        closeWarning();
+        setVisit(false);
+      } // the session lost its frame: the visit ends, the plan comes back in front of you
       gap = on;
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
@@ -2395,6 +2436,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
     referenceReset(newOrigin?: ArrayLike<number> | null) {
       if (newOrigin || rawLive.length < MIN_PLANES) {
+        closeWarning();
         setVisit(false); // the headset moved its frame: the visit's place is no longer valid
         if (newOrigin) {
           const inv = new Matrix4().fromArray(Array.from(newOrigin)).invert();
