@@ -129,10 +129,6 @@ const closeButton = (a: MenuActions): Widget => ({ kind: 'iconbtn', icon: 'close
 const backButton = (onClick: () => void): Widget => ({ kind: 'iconbtn', icon: 'back', rect: { x: M, y: 22, w: 54, h: 54 }, text: '', onClick });
 const surface = (x: number, y: number, w: number, h: number): Widget => ({ kind: 'surface', rect: { x, y, w, h }, text: '' });
 const text = (t: string, x: number, y: number, w: number, h: number, size = 24, color?: string, o: Partial<Widget> = {}): Widget => ({ kind: 'label', rect: { x, y, w, h }, text: t, size, color, ...o });
-// A short message floats above the bottom bar like a toast.
-const toast = (msg: string, y = 472): Widget[] => [
-  { kind: 'chip', rect: { x: M + 40, y, w: W - 80, h: 42 }, text: msg, size: 21, fill: theme().surface, color: theme().text2 },
-];
 
 function navBar(v: MenuView, a: MenuActions, out: Widget[]) {
   out.push(surface(M - 4, NAV_Y, W + 8, 84));
@@ -196,7 +192,7 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   return out;
 }
 
-function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: string): Widget[] {
+function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   if (o.colorPage) return colorPage(o, out, a);
   out.push(backButton(o.part ? a.objExitPart : a.objClose), title(o.part ? 'Componente' : o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
   const half = (W - 16) / 2;
@@ -207,7 +203,6 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: strin
     out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Colore e finitura', sub: o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colori originali', swatch: o.color ?? o.materials[0]?.color, onClick: a.objOpenColor });
     out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: W, h: 64 }, text: "Riposiziona dov'era", size: 26, disabled: !o.part.moved, onClick: a.objReset });
     out.push({ kind: 'pill', icon: 'close', rect: { x: M, y: 480, w: W, h: 64 }, text: 'Esci dal componente', size: 26, onClick: a.objExitPart });
-    if (message) out.push(...toast(message, 556));
     return out;
   }
   if (o.structure) {
@@ -229,7 +224,6 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: strin
       out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: bw, h: 64 }, text: "Riposiziona", size: 24, disabled: !st.moved, onClick: a.objReset });
       out.push({ kind: 'pill', icon: 'trash', rect: { x: M + bw + 14, y: 404, w: bw, h: 64 }, text: `Elimina`, size: 24, color: theme().bad, onClick: a.objDelete });
     }
-    if (message) out.push(...toast(message));
     return out;
   }
   out.push({ kind: 'card', icon: 'rotate', rect: { x: M, y: 112, w: half, h: 104 }, text: `${o.yawDeg}°`, sub: 'Rotazione', size: 34, onClick: a.objRotation });
@@ -246,7 +240,6 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions, message: strin
   } else {
     out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 404, w: W, h: 64 }, text: 'Elimina oggetto', size: 26, color: theme().bad, onClick: a.objDelete });
   }
-  if (message) out.push(...toast(message));
   return out;
 }
 
@@ -269,11 +262,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push({ kind: 'pill', primary: true, rect: { x: M + 24, y: 326, w: W - 48, h: 64 }, text: 'Accedi', size: 28, disabled: !ready, onClick: () => a.signIn(false) });
       out.push({ kind: 'pill', rect: { x: M + 24, y: 406, w: W - 48, h: 64 }, text: 'Crea account', size: 26, disabled: !ready, onClick: () => a.signIn(true) });
     }
-    if (v.message) out.push(...toast(v.message, 540));
     return out;
   }
 
-  if (v.object) return objectPage(v.object, out, a, v.message);
+  if (v.object) return objectPage(v.object, out, a);
 
   const project = v.projectName ? ` · ${v.projectName}` : '';
   const where = v.roomName
@@ -377,7 +369,5 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     // The last events, kept across app restarts: what the session did around a standby.
     v.log.slice(-7).forEach((line, i) => out.push(text(line, M + 28, top + 230 + i * 20, W - 56, 20, 14, T.sub)));
   }
-
-  if (v.message) out.push(...toast(v.message));
   return out;
 }

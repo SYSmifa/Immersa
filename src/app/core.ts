@@ -158,13 +158,29 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   setLoadingText('Carico il progetto');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
+  // Messages while the menu is open sit just under it, so they never cover its widgets (the keyboard is lower still).
+  const menuToast = new Panel(0.62, 0.05, 1200, 'clear');
+  menuToast.mesh.position.set(0, -MENU_H / 2400 - 0.04, 0.02);
+  menuToast.animated = true; // redrawn every frame while shown (it is not in the pointer host)
+  menuToast.mesh.visible = false;
+  rig.add(menuToast.mesh);
+  let toastShown = '';
+  function showMenuToast() {
+    const on = !!view.message;
+    menuToast.mesh.visible = on;
+    if (on && toastShown !== view.message) {
+      toastShown = view.message;
+      menuToast.set([{ kind: 'chip', rect: { x: 0, y: 0, w: menuToast.pxW, h: menuToast.pxH }, text: view.message, size: 22, fill: 'rgba(11,18,32,0.9)', color: '#ffffff' }]);
+    }
+    if (!on) toastShown = '';
+  }
   // Short notice in front of you, shown even with the menu closed (deleted, project loaded / closed).
   const notice = new Panel(0.46, 0.075, 1200, 'clear');
   notice.mesh.visible = false;
   host.root.add(notice.mesh);
   let noticeUntil = 0;
   let noticePlace = false;
-  function notify(text: string, ms = 2600) {
+  function notify(text: string, ms = 1800) {
     notice.set([{ kind: 'chip', rect: { x: 0, y: 0, w: notice.pxW, h: notice.pxH }, text, size: 30, fill: 'rgba(11,18,32,0.9)', color: '#ffffff' }]);
     noticeUntil = performance.now() + ms;
     noticePlace = true;
@@ -277,6 +293,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   function render() {
     menu.set(buildMenu(view, actions));
+    showMenuToast();
   }
 
   function say(text: string, ms = 7000) {
@@ -1991,7 +2008,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -2091,6 +2108,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
       }
+      if (menuToast.mesh.visible && rig.visible) menuToast.draw();
       if (notice.mesh.visible) {
         if (performance.now() > noticeUntil) notice.mesh.visible = false;
         else {
