@@ -1457,8 +1457,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     offset: Vector3; // base minus landing point, horizontal: fades out so the base ends up at the laser tip
     decay: boolean;
     two: {
-      // Turning and scaling take turns: one is active, the other is frozen where it was. `ref*` is where the active one
-      // started (it is renewed at every switch), `dead` the distance it must travel before it follows the hands.
+      // Turning and scaling never mix: the first to pass its threshold stays until the pinch is released. `ref*` is where the
+      // gesture started, `dead` the distance it must travel before it follows the hands.
       refDist: number;
       refAcc: number;
       refYaw: number;
@@ -1625,7 +1625,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   // ---- dragging the chosen component: it slides on the horizontal plane through its pivot ----
-  let partGrab: { pointer: string; y: number; l0: Vector3; d0: [number, number, number]; seen: boolean } | null = null;
+  type PartTwo = { refDist: number; refAcc: number; refYaw: number; refScale: number; yaw0: number; scale0: number; prevAng: number; acc: number; yaw: number; scale: number; mode: 'none' | 'turn' | 'scale'; dead: number };
+  let partGrab: { pointer: string; y: number; l0: Vector3; d0: [number, number, number]; seen: boolean; two: PartTwo | null } | null = null;
   function planePoint(pointer: string, y: number): Vector3 | null {
     const ray = rays.get(pointer);
     return ray ? (partRay.ray.set(ray.origin, ray.dir).intersectPlane(new Plane(new Vector3(0, 1, 0), -y), new Vector3()) ?? null) : null;
@@ -1637,19 +1638,70 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const y = pivotWorld(holder, node, partEditOf()).y;
     const p = planePoint(pointer, y);
     if (!p) return false;
-    partGrab = { pointer, y, l0: holder.worldToLocal(p), d0: [...(partEditOf()?.d ?? [0, 0, 0])] as [number, number, number], seen: true };
+    partGrab = { pointer, y, l0: holder.worldToLocal(p), d0: [...(partEditOf()?.d ?? [0, 0, 0])] as [number, number, number], seen: true, two: null };
     return true;
   }
   function endPartGrab() {
     partGrab = null;
+    hud.mesh.visible = false;
+    hudText = '';
   }
-  function updatePartGrab() {
+  function updatePartGrab(dt: number) {
     const g = partGrab;
     if (!g) return;
     const m = partModelOf();
     const holder = partHolderOf();
     if (!m || !holder || !g.seen) return endPartGrab();
     g.seen = false;
+    // The other hand pinching too: turn and scale the component with the two hands, like a whole model (one gesture at a time).
+    const L = pinchL;
+    const R = pinchR;
+    const e0 = partEditOf(true)!;
+    if (!g.two && leftHeld && L && R && L.distanceTo(R) > 0.05) {
+      const yaw = e0.yaw ?? 0;
+      const scale = e0.scale ?? 1;
+      g.two = { refDist: L.distanceTo(R), refAcc: 0, refYaw: yaw, refScale: scale, yaw0: yaw, scale0: scale, prevAng: angleOf(L, R), acc: 0, yaw, scale, mode: 'none', dead: 0 };
+      markUnsaved();
+    } else if (g.two && !(leftHeld && L && R)) {
+      g.two = null; // one hand again: carry on from where the component is, without a jump
+      hud.mesh.visible = false;
+      hudText = '';
+      const q = planePoint(g.pointer, g.y);
+      if (q) {
+        g.l0 = holder.worldToLocal(q);
+        g.d0 = [...(e0.d ?? [0, 0, 0])] as [number, number, number];
+      }
+    }
+    if (g.two && L && R) {
+      const t = g.two;
+      const ang = angleOf(L, R);
+      t.acc += wrap(ang - t.prevAng);
+      t.prevAng = ang;
+      const k = 1 - Math.exp(-dt * SMOOTH);
+      const dist = L.distanceTo(R);
+      const ratio = Math.log(dist / t.refDist);
+      const turn = t.acc - t.refAcc;
+      if (t.mode === 'none') {
+        const rs = Math.abs(ratio) / SCALE_START;
+        const rt = Math.abs(turn) / TURN_START;
+        if (rs > 1 || rt > 1) {
+          t.mode = rt >= rs ? 'turn' : 'scale';
+          t.dead = t.mode === 'turn' ? TURN_START : SCALE_START;
+        }
+      }
+      const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
+      const wantYaw = t.mode === 'turn' ? t.refYaw + past(turn, t.dead) : t.refYaw;
+      const wantScale = t.mode === 'scale' ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.refScale * Math.exp(past(ratio, t.dead)))) : t.refScale;
+      const snapped = view.snap ? snapTwo({ roomId: '' } as RoomModel, t.yaw0, wantYaw, wantScale, t.mode === 'turn', t.mode === 'scale') : { yaw: wantYaw, scale: wantScale, note: '' };
+      t.yaw += (snapped.yaw - t.yaw) * k;
+      t.scale += (snapped.scale - t.scale) * k;
+      snapNote = snapped.note;
+      e0.yaw = t.yaw;
+      e0.scale = t.scale;
+      houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId));
+      showHud({ yaw: t.yaw, scale: t.scale } as RoomModel, holder, t.yaw0, t.scale0, t.mode === 'turn', t.mode === 'scale', '');
+      return;
+    }
     const p = planePoint(g.pointer, g.y);
     if (!p) return;
     const l = holder.worldToLocal(p); // the model's own frame: where `d` lives
@@ -2175,7 +2227,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       checkPending();
       followHead(head, dt);
       updateGrab(dt);
-      updatePartGrab();
+      updatePartGrab(dt);
       updateStructGrab(dt);
       placeObjectButton(head);
       syncOutline();

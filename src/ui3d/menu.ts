@@ -290,11 +290,15 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     } else {
       const pages = Math.ceil(v.projects.length / PER_PAGE);
       const page = Math.min(v.page, pages - 1);
+      // With several pages the cards are a little tighter, to leave a pager row under the list where it cannot be missed.
+      const step = pages > 1 ? 84 : 94;
+      const cardH = pages > 1 ? 76 : 84;
       v.projects.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((p, i) => {
         const open = p.id === v.currentProjectId;
+        const y = top + i * step;
         out.push({
           kind: 'card',
-          rect: { x: M, y: top + i * 94, w: W, h: 84 },
+          rect: { x: M, y, w: W, h: cardH },
           text: p.name,
           sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
           tone: ptTone(p.name),
@@ -304,15 +308,14 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         });
         // The open project has its own close button instead of the "Aperto" label (the one in Options stays too).
         if (open) {
-          out.push({ kind: 'pill', fill: '#ffffff', hoverFill: T.bad, color: T.accentText, icon: 'close', rect: { x: M + W - 18 - 150, y: top + i * 94 + 18, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
+          out.push({ kind: 'pill', fill: '#ffffff', hoverFill: T.bad, color: T.accentText, icon: 'close', rect: { x: M + W - 18 - 150, y: y + (cardH - 48) / 2, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
         }
       });
       if (pages > 1) {
-        const y = top - 4 - 0;
-        out.push({ kind: 'iconbtn', icon: 'left', rect: { x: MENU_W - M - 54 - 14 - 100, y: 80, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.turnPage(-1) });
-        out.push({ kind: 'chip', rect: { x: MENU_W - M - 54 - 14 - 100 + 42, y: 80, w: 64, h: 36 }, text: `${page + 1}/${pages}`, size: 18 });
-        out.push({ kind: 'iconbtn', icon: 'right', rect: { x: MENU_W - M - 54 - 14 - 100 + 112, y: 80, w: 36, h: 36 }, text: '', disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
-        void y;
+        const y = top + PER_PAGE * step + 2;
+        out.push({ kind: 'pill', icon: 'left', rect: { x: M, y, w: 190, h: 46 }, text: 'Precedenti', size: 21, disabled: page === 0, onClick: () => a.turnPage(-1) });
+        out.push({ kind: 'chip', rect: { x: M + (W - 260) / 2, y, w: 260, h: 46 }, text: `Pagina ${page + 1} di ${pages}`, size: 22 });
+        out.push({ kind: 'pill', icon: 'right', primary: page < pages - 1, rect: { x: M + W - 190, y, w: 190, h: 46 }, text: 'Altri progetti', size: 21, disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
       }
     }
   } else if (v.tab === 'scan') {
