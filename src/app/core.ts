@@ -1431,7 +1431,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const SMOOTH = 14; // 1/s, low-pass on scale and turn against hand tracking noise
   const SCALE_START = 0.2; // change of the hands' distance (log ratio, about 22 %) before scaling starts
   const TURN_START = 0.4; // rad (about 23 degrees) before turning starts
-  const CROSS = 2.2; // to go from one gesture to the other the new one must travel this many times its threshold
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 10; // relative to the scale when the two-hand gesture starts
   interface Grab {
@@ -1574,8 +1573,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       t.prevAng = ang;
       const k = 1 - Math.exp(-dt * SMOOTH);
       const dist = L.distanceTo(R);
-      let ratio = Math.log(dist / t.refDist);
-      let turn = t.acc - t.refAcc;
+      const ratio = Math.log(dist / t.refDist);
+      const turn = t.acc - t.refAcc;
       if (t.mode === 'none') {
         const rs = Math.abs(ratio) / SCALE_START;
         const rt = Math.abs(turn) / TURN_START;
@@ -1583,16 +1582,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
           t.mode = rt >= rs ? 'turn' : 'scale';
           t.dead = t.mode === 'turn' ? TURN_START : SCALE_START;
         }
-      } else if ((t.mode === 'turn' && Math.abs(ratio) > SCALE_START * CROSS) || (t.mode === 'scale' && Math.abs(turn) > TURN_START * CROSS)) {
-        t.mode = t.mode === 'turn' ? 'scale' : 'turn';
-        t.dead = 0;
-        t.refDist = dist;
-        t.refAcc = t.acc;
-        t.refYaw = t.yaw;
-        t.refScale = t.scale;
-        ratio = 0;
-        turn = 0;
-      }
+      } // once chosen, the gesture stays until the pinch is released: turning and scaling never mix
       const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
       const wantYaw = t.mode === 'turn' ? t.refYaw + past(turn, t.dead) : t.refYaw;
       const wantScale = t.mode === 'scale' ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.refScale * Math.exp(past(ratio, t.dead)))) : t.refScale;
@@ -1906,10 +1896,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       t.prevAng = ang;
       const k = 1 - Math.exp(-dt * SMOOTH);
       // Turning the hands changes their distance a little and the other way round, so only one gesture works at a time:
-      // the first to pass its threshold, and the other stays frozen until it is clearly wanted (CROSS times its threshold).
+      // the first to pass its threshold wins and the other stays frozen until the pinch is released.
       const dist = L.distanceTo(R);
-      let ratio = Math.log(dist / t.refDist);
-      let turn = t.acc - t.refAcc;
+      const ratio = Math.log(dist / t.refDist);
+      const turn = t.acc - t.refAcc;
       if (t.mode === 'none') {
         const rs = Math.abs(ratio) / SCALE_START;
         const rt = Math.abs(turn) / TURN_START;
@@ -1917,16 +1907,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
           t.mode = rt >= rs ? 'turn' : 'scale';
           t.dead = t.mode === 'turn' ? TURN_START : SCALE_START;
         }
-      } else if ((t.mode === 'turn' && Math.abs(ratio) > SCALE_START * CROSS) || (t.mode === 'scale' && Math.abs(turn) > TURN_START * CROSS)) {
-        t.mode = t.mode === 'turn' ? 'scale' : 'turn';
-        t.dead = 0; // clearly meant: it follows from here
-        t.refDist = dist;
-        t.refAcc = t.acc;
-        t.refYaw = t.yaw;
-        t.refScale = t.scale;
-        ratio = 0;
-        turn = 0;
-      }
+      } // once chosen, the gesture stays until the pinch is released: turning and scaling never mix
       const past = (x: number, start: number) => Math.sign(x) * Math.max(0, Math.abs(x) - start);
       const wantYaw = t.mode === 'turn' ? t.refYaw + past(turn, t.dead) : t.refYaw;
       const wantScale = t.mode === 'scale' ? Math.min(t.scale0 * MAX_SCALE, Math.max(t.scale0 * MIN_SCALE, t.refScale * Math.exp(past(ratio, t.dead)))) : t.refScale;

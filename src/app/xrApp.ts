@@ -33,7 +33,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   // Laser smoothing (exponential, time based): light while pointing, heavier while pinching (grabs) for precision.
-  const hands = createHands(scene);
+  createHands(renderer, scene);
   let smoothO: Vector3 | null = null;
   let smoothD: Vector3 | null = null;
   const TAU_POINT = 0.03;
@@ -234,7 +234,6 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         else pl = pinchPoint(frame, src, ref);
       }
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
-      hands.update(frame, ref);
       const seen = new Set<string>();
       let laserOn = false;
       for (const src of frame.session.inputSources) {
