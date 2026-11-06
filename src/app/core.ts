@@ -558,6 +558,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    pendingTp = null;
     warnOpen = false;
     warn.mesh.visible = false;
     visit = false;
@@ -1568,17 +1569,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
+  const DOUBLE_MS = 450;
   let lastFloorPress: { id: string; t: number } | null = null; // for the double pinch on a floor in the visit
+  let pendingTp: { at: Vector3; t: number } | null = null; // a walk on a floor, waiting to see if a second pinch follows
   function pressModel(id: string) {
     if (warnOpen) return; // the warning must be answered first
     const target = hovered.get(id) ?? null;
     if (visit) {
       // In the visit the floor and the open ground are for walking: a pinch there deselects when something is selected and
       // walks there when nothing is. A floor is chosen for editing with a double pinch (or pinched while it is the chosen one).
+      // The walk on a floor waits a moment, so that the first pinch of a double one does not move you.
+      pendingTp = null;
       const floor = !!target?.startsWith('s:') && current?.structures.find((x) => x.id === target.slice(2))?.kind === 'floor';
       if (!target || floor) {
         const now = performance.now();
-        const double = floor && lastFloorPress?.id === target && now - lastFloorPress.t < 450;
+        const double = floor && lastFloorPress?.id === target && now - lastFloorPress.t < DOUBLE_MS;
         lastFloorPress = floor ? { id: target!, t: now } : null;
         const chosen = floor && target!.slice(2) === selectedStructId;
         if (!double && !chosen) {
@@ -1588,7 +1593,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
             selectModel(null);
           } else {
             const at = hoverPoint.get(id);
-            if (at) teleportTo(at);
+            if (at) {
+              if (floor) pendingTp = { at: at.clone(), t: now };
+              else teleportTo(at); // open ground: no double pinch there, go at once
+            }
           }
           return;
         }
@@ -2364,6 +2372,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         ground.position.set(head.pos.x, (freeFrame?.elements[13] ?? 0) - 0.02, head.pos.z);
       }
       if (tpMarker.visible && performance.now() - tpSeen > 150) tpMarker.visible = false;
+      if (pendingTp && performance.now() - pendingTp.t >= DOUBLE_MS) {
+        const at = pendingTp.at;
+        pendingTp = null;
+        if (visit) teleportTo(at);
+      }
       if (menuToast.mesh.visible && rig.visible) menuToast.draw();
       if (notice.mesh.visible) {
         if (performance.now() > noticeUntil) notice.mesh.visible = false;

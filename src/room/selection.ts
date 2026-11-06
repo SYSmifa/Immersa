@@ -29,6 +29,7 @@ const depthOnly = new ShaderMaterial({
   fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }',
   colorWrite: false,
   depthWrite: true,
+  transparent: true, // drawn with the transparent objects, after the opaque ones: it must not hide a wall behind the selection
   side: FrontSide,
   polygonOffset: true, // a little farther, so the blue pass is always in front of it
   polygonOffsetFactor: 1,
@@ -52,6 +53,7 @@ export function applySelectionLook(holder: Object3D): boolean {
       m.userData[ORIGINAL] = m.material;
       const helper = new Mesh(m.geometry, depthOnly);
       helper.userData[HELPER] = true;
+      helper.renderOrder = -1; // before the blue pass (both are in the transparent queue)
       helper.raycast = () => undefined; // never picked
       helper.frustumCulled = m.frustumCulled;
       m.add(helper);
