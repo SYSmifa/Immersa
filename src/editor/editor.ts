@@ -166,7 +166,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     lastDrag = Date.now();
     if (e.value) {
       startDrag();
-      topSpin = ortho && effectiveGizmo() === 'rotate' ? { a0: floorAngleAt(lastPointer.x, lastPointer.y) } : null;
+      topSpin = null;
+      if (ortho && effectiveGizmo() === 'rotate') {
+        const p0 = floorPointAt(lastPointer.x, lastPointer.y);
+        if (p0) topSpin = { prev: p0, r0: Math.max(0.1, Math.hypot(p0.x - pivot.position.x, p0.z - pivot.position.z)), turn: 0 };
+      }
     } else {
       topSpin = null;
       start = null;
@@ -375,23 +379,32 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   // The top view is a tiny field of view from far away, and the gizmo's own rotation speed depends on that distance (it would
-  // turn a hundred times too little): there the turn is read from where the pointer is on the floor, round the pivot.
-  let topSpin: { a0: number } | null = null;
+  // turn a hundred times too little): there the turn is read from the pointer on the floor. Each move turns by the distance
+  // travelled along the circle round the pivot, over the radius where the ring was grabbed: dragging along a line turns at a
+  // steady rate, however far from the pivot the pointer goes, and going round the ring follows it.
+  let topSpin: { prev: Vector3; r0: number; turn: number } | null = null;
   const lastPointer = { x: 0, y: 0 };
   renderer.domElement.addEventListener('pointermove', (e) => ((lastPointer.x = e.clientX), (lastPointer.y = e.clientY)), true);
-  function floorAngleAt(cx: number, cy: number): number {
+  function floorPointAt(cx: number, cy: number): Vector3 | null {
     const rect = renderer.domElement.getBoundingClientRect();
     ray.setFromCamera(new Vector2(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1), camera);
-    const at = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -pivot.position.y), new Vector3());
-    return at ? Math.atan2(at.x - pivot.position.x, at.z - pivot.position.z) : 0;
+    return ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -pivot.position.y), new Vector3());
   }
 
   transform.addEventListener('objectChange', () => {
     if (!start) return;
     const mode = effectiveGizmo();
     if (topSpin && mode === 'rotate') {
-      let turn = floorAngleAt(lastPointer.x, lastPointer.y) - topSpin.a0;
-      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      const p = floorPointAt(lastPointer.x, lastPointer.y);
+      if (p) {
+        const rx = p.x - pivot.position.x;
+        const rz = p.z - pivot.position.z;
+        const r = Math.max(Math.hypot(rx, rz), topSpin.r0 * 0.3);
+        // yaw grows with atan2(x, z): d(yaw) = (z dx - x dz) / r^2, here over r * r0
+        topSpin.turn += (rz * (p.x - topSpin.prev.x) - rx * (p.z - topSpin.prev.z)) / (r * topSpin.r0);
+        topSpin.prev = p;
+      }
+      let turn = topSpin.turn;
       if (snapGrid) turn = Math.round(turn / MathUtils.degToRad(15)) * MathUtils.degToRad(15);
       const q0 = (partSel && partStart ? partStart.q : start.q).clone();
       pivot.quaternion.copy(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), turn).multiply(q0));
