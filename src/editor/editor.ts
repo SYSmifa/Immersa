@@ -30,7 +30,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { uploadModel } from '../cloud/models';
+import { pruneModels, uploadModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
@@ -804,6 +804,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   setInterval(refreshLoading, 120);
 
+  // Deletes the files in the cloud that no project uses any more (silent, best effort, files under a day old are kept).
+  async function prune() {
+    try {
+      const used = new Set<string>();
+      for (const p of await backend.listProjects()) for (const m of p.models) used.add(m.path);
+      for (const m of project?.models ?? []) used.add(m.path);
+      await pruneModels(used);
+    } catch {
+      /* cleanup is optional */
+    }
+  }
+
   async function save() {
     if (!project) return;
     ui.setStatus('Salvo...');
@@ -811,6 +823,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures }));
       markDirty(false);
       ui.setStatus(`Progetto "${project.name}" salvato`);
+      void prune();
     } catch (e) {
       ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
     }
@@ -913,6 +926,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       run(async () => {
         if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
         await backend.deleteProject(project.id);
+        void prune();
         projects = projects.filter((p) => p !== project);
         showProject(null);
         ui.setView('home');
@@ -970,6 +984,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           p.structures = p.structures.filter((x) => x.roomId !== id);
           await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models, structures: p.structures });
         }
+        void prune();
         if (room === r) showRoom(projectRoomsList()[0] ?? null);
         refreshLists();
         resetHistory();
