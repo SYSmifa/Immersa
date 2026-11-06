@@ -9,6 +9,8 @@ export interface KeyboardRequest {
   max?: number;
   secret?: boolean; // show dots instead of the typed text (passwords)
   capital?: boolean; // start with a capital letter (names); false for emails and passwords
+  allowEmpty?: boolean; // OK works with nothing typed (a search that is being cleared)
+  onChange?(text: string): void; // after every key that changes the text (a live filter)
   onDone(text: string): void;
   onCancel?(): void;
 }
@@ -90,6 +92,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
     if (text.length >= (req?.max ?? 24)) return;
     text += upper() ? ch.toUpperCase() : ch;
     if (shift === 'once') shift = 'off';
+    req?.onChange?.(text);
     render();
   }
 
@@ -102,6 +105,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
       case 'back':
         text = text.slice(0, -1);
         if (!text && req?.capital !== false) shift = 'once';
+        req?.onChange?.(text);
         break;
       case 'shift': {
         const t = performance.now();
@@ -126,7 +130,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
 
   function done() {
     const value = req?.secret ? text : text.trim();
-    if (!value || !req) return;
+    if ((!value && !req?.allowEmpty) || !req) return;
     const r = req;
     close();
     r.onDone(value);
@@ -162,7 +166,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
           size: k.ch || k.act === 'space' ? 38 : 30,
           primary: k.act === 'ok',
           active: isShift && shift !== 'off',
-          disabled: k.act === 'ok' && !text.trim(),
+          disabled: k.act === 'ok' && !text.trim() && !req?.allowEmpty,
           onClick: () => press(k),
         });
         if (isShift && shift === 'caps') widgets[widgets.length - 1].text = '⇪';

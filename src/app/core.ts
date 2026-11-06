@@ -989,12 +989,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (p) openProject(p);
     },
     saveChanges,
-    async askSearch() {
-      const text = await ask('Cerca un progetto', view.search, { max: 30, capital: false });
-      if (text === null) return;
-      view.search = text.trim();
-      view.scroll = 0;
-      render();
+    askSearch() {
+      // The list is filtered after every key; OK or closing the keyboard keeps the filter.
+      const apply = (text: string) => {
+        view.search = text.trim();
+        view.scroll = 0;
+        render();
+      };
+      keyboard.open({ title: 'Cerca un progetto', initial: view.search, max: 30, capital: false, allowEmpty: true, onChange: apply, onDone: apply, onCancel: () => undefined });
     },
     clearSearch() {
       view.search = '';
