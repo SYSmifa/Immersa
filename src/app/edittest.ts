@@ -6,7 +6,12 @@ import { createFakeBackend } from './fakeBackend';
 export function runEditTest() {
   const backend = createFakeBackend();
   (window as any).__backend = backend;
-  const editor = createEditorPage(backend, async (file) => ({ path: 'local:smoke.glb', name: file.name }));
+  let files = [
+    { path: 'u/aaaa.glb', size: 3_400_000, createdAt: new Date().toISOString() },
+    { path: 'u/bbbb.glb', size: 120_000, createdAt: new Date().toISOString() },
+  ];
+  const library = { list: async () => files, remove: async (paths: string[]) => void (files = files.filter((f) => !paths.includes(f.path))) };
+  const editor = createEditorPage(backend, async (file) => ({ path: 'local:smoke.glb', name: file.name }), library);
   void editor.then((e) => ((window as any).__editor = e));
   return editor;
 }

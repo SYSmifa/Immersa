@@ -11,7 +11,15 @@ import { AURA } from '../ui3d/theme';
 // centre-top toolbar, top-right outline of the scene with the details of the selection under it, toast at the bottom.
 export type BuildKind = 'floor' | 'wall';
 export type Gizmo = 'translate' | 'rotate' | 'scale';
-export type View = 'home' | 'projects' | 'rooms' | 'new' | 'project';
+export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
+
+// A file of the model library (the user's cloud storage) and where it is used.
+export interface LibraryItem {
+  path: string;
+  name: string;
+  sub: string;
+  usedIn: string[];
+}
 
 export interface LookEdit {
   target?: 'all' | number; // which material; omitted with `reset`
@@ -43,6 +51,9 @@ export interface EditorHandlers {
   onUpload(files: File[]): void;
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
+  onOpenModels(): void;
+  onDeleteModel(path: string): void;
+  onPruneModels(): void;
   onSave(): void;
   // toolbar
   onBuild(kind: BuildKind | null): void;
@@ -344,6 +355,10 @@ export function createEditorUi(h: EditorHandlers) {
       big(ICON.folder, 'Apri progetto', 'La lista dei tuoi progetti', () => setView('projects')),
       big(ICON.plus, 'Nuovo progetto', 'Nome e stanze', () => setView('new')),
       big(ICON.room, 'Le mie stanze', 'Stanze scansionate dal visore', () => setView('rooms')),
+      big(ICON.folder, 'I miei modelli', 'File caricati nel cloud', () => {
+        setView('models');
+        h.onOpenModels();
+      }),
     );
   }
 
@@ -412,6 +427,28 @@ export function createEditorUi(h: EditorHandlers) {
     );
   }
 
+  let libraryItems: LibraryItem[] | null = null; // null = loading
+  let libraryNote = '';
+  function renderModels() {
+    const items = libraryItems;
+    const unused = items?.filter((i) => !i.usedIn.length) ?? [];
+    const cards = (items ?? []).map((i) => {
+      const t = el('div', i.name);
+      t.style.fontWeight = '700';
+      const del = pill('Elimina', () => h.onDeleteModel(i.path), 'bad');
+      del.disabled = i.usedIn.length > 0;
+      return card(t, el('div', i.sub, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta'), row(del));
+    });
+    const clean = pill(`Elimina i non usati (${unused.length})`, h.onPruneModels, 'bad');
+    clean.disabled = !unused.length;
+    body.replaceChildren(
+      back('Indietro', goHome),
+      el('div', 'I miei modelli', 'ed-h'),
+      ...(libraryNote ? [el('div', libraryNote, 'ed-meta')] : []),
+      ...(items === null ? [el('div', 'Carico la lista...', 'ed-title')] : items.length ? [clean, ...cards] : [el('div', 'Nessun modello nel cloud: caricane uno da un progetto.', 'ed-title')]),
+    );
+  }
+
   const fileInput = el('input', '', 'ed-file');
   fileInput.type = 'file';
   fileInput.accept = MODEL_ACCEPT;
@@ -455,7 +492,7 @@ export function createEditorUi(h: EditorHandlers) {
   }
 
   function render() {
-    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, project: renderProject })[view]();
+    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, project: renderProject })[view]();
   }
   function setView(v: View) {
     view = v;
@@ -907,6 +944,12 @@ export function createEditorUi(h: EditorHandlers) {
       projectItems = items;
       openId = selected;
       if (view === 'projects') renderProjects();
+    },
+    // The model library: null while loading; `note` = a message at the top (e.g. an error).
+    setLibrary(items: LibraryItem[] | null, note = '') {
+      libraryItems = items;
+      libraryNote = note;
+      if (view === 'models') renderModels();
     },
     setRooms(items: Option[]) {
       roomItems = items;

@@ -52,3 +52,28 @@ export async function pruneModels(used: Set<string>, minAgeMs = 24 * 3600 * 1000
     return 0;
   }
 }
+
+export interface StoredModel {
+  path: string;
+  size: number; // bytes
+  createdAt: string;
+}
+
+// The user's files in the bucket (for the library). Empty without Supabase.
+export async function listModels(): Promise<StoredModel[]> {
+  if (!supabase) return [];
+  const { data: auth } = await supabase.auth.getSession();
+  const uid = auth.session?.user.id;
+  if (!uid) return [];
+  const { data, error } = await supabase.storage.from(BUCKET).list(uid, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .filter((f) => f.id)
+    .map((f) => ({ path: `${uid}/${f.name}`, size: Number((f.metadata as { size?: number } | null)?.size ?? 0), createdAt: f.created_at ?? '' }));
+}
+
+export async function removeModels(paths: string[]): Promise<void> {
+  if (!supabase || !paths.length) return;
+  const { error } = await supabase.storage.from(BUCKET).remove(paths);
+  if (error) throw new Error(error.message);
+}

@@ -30,7 +30,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { pruneModels, uploadModel } from '../cloud/models';
+import { listModels, pruneModels, removeModels, uploadModel, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
@@ -53,6 +53,7 @@ interface Deps {
   controls: OrbitControls;
   backend: Backend;
   upload?: (file: File) => Promise<{ path: string; name: string }>;
+  library?: { list(): Promise<StoredModel[]>; remove(paths: string[]): Promise<void> };
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -91,14 +92,14 @@ function restyleGizmo(t: TransformControls) {
 }
 
 // Entry for the PC: stage without AR, then the editor (the login box lives in its sidebar).
-export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload']) {
+export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload'], library?: Deps['library']) {
   const { renderer, scene, camera, controls } = createStage({ arButton: false });
-  return createEditor({ renderer, scene, camera, controls, backend, upload });
+  return createEditor({ renderer, scene, camera, controls, backend, upload, library });
 }
 
 // PC editor: open or create a project, add the rooms it covers (named scans from the headset), then for each room add
 // .glb models, build floors and walls, and move / rotate / scale everything in real size.
-export async function createEditor({ renderer, scene, camera, controls, backend, upload = uploadModel }: Deps) {
+export async function createEditor({ renderer, scene, camera, controls, backend, upload = uploadModel, library = { list: listModels, remove: removeModels } }: Deps) {
   const persp = camera as PerspectiveCamera;
   let rooms: Room[] = [];
   let projects: Project[] = [];
@@ -804,6 +805,44 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   setInterval(refreshLoading, 120);
 
+  // The model library: every file of the account with the projects (and names) that use it.
+  const sizeText = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  async function usage() {
+    const used = new Map<string, { names: Set<string>; projects: Set<string> }>();
+    for (const p of await backend.listProjects()) {
+      for (const m of p.models) {
+        const u = used.get(m.path) ?? { names: new Set(), projects: new Set() };
+        u.names.add(m.name);
+        u.projects.add(p.name);
+        used.set(m.path, u);
+      }
+    }
+    for (const m of project?.models ?? []) {
+      const u = used.get(m.path) ?? { names: new Set(), projects: new Set() };
+      u.names.add(m.name);
+      u.projects.add(project!.name); // what is open now, saved or not
+      used.set(m.path, u);
+    }
+    return used;
+  }
+  async function loadLibrary(note = '') {
+    ui.setLibrary(null);
+    try {
+      const [files, used] = await Promise.all([library.list(), usage()]);
+      ui.setLibrary(
+        files.map((f) => {
+          const u = used.get(f.path);
+          const fallback = f.path.split('/').pop()!.replace(/^\d{10,}-/, '').replace(/\.glb$/i, '');
+          const name = u ? [...u.names].join(' / ') : /^[0-9a-f]{64}$/.test(fallback) ? 'Modello senza progetto' : fallback;
+          return { path: f.path, name, sub: `${sizeText(f.size)}${f.createdAt ? ` · caricato il ${dateOf(f.createdAt)}` : ''}`, usedIn: u ? [...u.projects] : [] };
+        }),
+        note,
+      );
+    } catch (e) {
+      ui.setLibrary([], `Errore: ${errText(e)}`);
+    }
+  }
+
   // Deletes the files in the cloud that no project uses any more (silent, best effort, files under a day old are kept).
   async function prune() {
     try {
@@ -969,6 +1008,21 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         await backend.renameRoom(id, name);
         r.name = name;
         refreshLists();
+      }),
+    onOpenModels: () => void run(() => loadLibrary()),
+    onDeleteModel: (path) =>
+      run(async () => {
+        if (!confirm('Eliminare questo modello dal cloud? Non si può annullare.')) return;
+        await library.remove([path]);
+        await loadLibrary('Modello eliminato.');
+      }),
+    onPruneModels: () =>
+      run(async () => {
+        const used = await usage();
+        const files = (await library.list()).filter((f) => !used.has(f.path));
+        if (!files.length || !confirm(`Eliminare ${files.length} modelli non usati da nessun progetto (${sizeText(files.reduce((a, f) => a + f.size, 0))})? Non si può annullare.`)) return;
+        await library.remove(files.map((f) => f.path));
+        await loadLibrary(`${files.length} modelli eliminati.`);
       }),
     onDeleteRoom: (id) =>
       run(async () => {
