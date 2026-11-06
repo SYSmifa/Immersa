@@ -75,6 +75,21 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), structures: [], models: [model('Macchina', 1, 1)] },
     { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [], structures: [] },
     // A whole house: models in two rooms, each in its own room's frame.
+    // A plan from a CAD drawing: walls and a floor in the free space, no scanned room (can be visited virtually).
+    {
+      id: 'p5',
+      roomIds: [],
+      name: 'Casa CAD',
+      updatedAt: now(),
+      models: [],
+      structures: [
+        { id: 'w1', roomId: '', kind: 'floor', a: [-4, -2.5], b: [4, 2.5], y: 0, height: 2.7, thickness: 0.05, pts: [[-4, -2.5], [4, -2.5], [4, 2.5], [-4, 2.5]] },
+        { id: 'w2', roomId: '', kind: 'wall', a: [-4, -2.5], b: [4, -2.5], y: 0, height: 2.7, thickness: 0.2, align: 'center' },
+        { id: 'w3', roomId: '', kind: 'wall', a: [4, -2.5], b: [4, 2.5], y: 0, height: 2.7, thickness: 0.2, align: 'center' },
+        { id: 'w4', roomId: '', kind: 'wall', a: [4, 2.5], b: [-4, 2.5], y: 0, height: 2.7, thickness: 0.2, align: 'center' },
+        { id: 'w5', roomId: '', kind: 'wall', a: [-4, 2.5], b: [-4, -2.5], y: 0, height: 2.7, thickness: 0.2, align: 'center' },
+      ],
+    },
     { id: 'p4', roomIds: ['r1', 'r2'], name: 'Casa', updatedAt: now(), structures: [], models: [model('Divano', 0.5, -0.5, 'r1'), model('Frigo', 0.3, 0.2, 'r2')] },
   ];
   return {

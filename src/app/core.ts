@@ -1,4 +1,4 @@
-import { Box3, Group, Matrix4, Plane, Raycaster, Scene, Vector3, type Object3D } from 'three';
+import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
@@ -242,6 +242,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     currentProjectId: null,
     object: null,
     unsaved: false,
+    canVisit: false,
+    visit: false,
     search: '',
     scroll: 0,
     outline: true,
@@ -316,6 +318,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     view.captureAvailable = !!capture?.available;
+    view.canVisit = canVisit(current);
+    view.visit = visit;
     const roomName = (id: string) => rooms.find((r) => r.id === id)?.name ?? '?';
     const here = (p: Project) => !!recognised && p.roomIds.includes(recognised.room.id);
     const tones = projectTones(allProjects);
@@ -554,6 +558,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    visit = false;
+    view.visit = false;
+    sky.visible = ground.visible = tpMarker.visible = false;
     current = null;
     freeFrame = null;
     grab = null;
@@ -580,6 +587,88 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const h = lastHead?.pos;
     const floorY = live.find((x) => x.label === 'floor')?.pos[1] ?? (h ? h.y - 1.5 : 0);
     return new Matrix4().makeTranslation((h?.x ?? 0) - pivot[0], floorY - pivot[1], (h?.z ?? 0) - pivot[2]);
+  }
+
+  // ---- virtual visit: a plan without scanned rooms (built from a CAD drawing) can be walked through. An opaque sky and ground hide
+  // the passthrough (the session stays an AR session), and a pinch on the floor moves the plan under your feet (teleport).
+  let visit = false;
+  let visitYaw = 0; // how the plan is turned: kept while you teleport
+  const sky = new Mesh(
+    new SphereGeometry(150, 24, 12),
+    new ShaderMaterial({
+      side: BackSide,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      uniforms: { top: { value: new Color(0x6fa8d8) }, horizon: { value: new Color(0xdbe9f3) }, bottom: { value: new Color(0x8f989f) } },
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; varying vec3 vP;
+        void main(){ float h = normalize(vP).y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, bottom, min(1.0, -h * 4.0));
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+        }`,
+    }),
+  );
+  sky.renderOrder = -1000;
+  sky.frustumCulled = false;
+  sky.visible = false;
+  const ground = new Mesh(new CircleGeometry(120, 48), new MeshBasicMaterial({ color: 0x9aa3a8, side: DoubleSide }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.visible = false;
+  const tpMarker = new Mesh(new RingGeometry(0.16, 0.22, 40), new MeshBasicMaterial({ color: 0x2dd4bf, side: DoubleSide, transparent: true, opacity: 0.9, depthTest: false }));
+  tpMarker.rotation.x = -Math.PI / 2;
+  tpMarker.renderOrder = 999;
+  tpMarker.visible = false;
+  scene.add(sky, ground, tpMarker);
+  let tpSeen = 0; // when the pointer last rested on a floor (the marker hides soon after)
+  const canVisit = (p: Project | null) => !!p && p.roomIds.length === 0 && (p.structures ?? []).some((x) => x.roomId === '' && x.kind === 'wall');
+  // Where you start: the middle of the biggest floor (else of the walls), in the plan's own coordinates.
+  function visitStart(p: Project): [number, number] {
+    const floors = (p.structures ?? []).filter((x) => x.roomId === '' && x.kind === 'floor');
+    const list = floors.length ? floors : (p.structures ?? []).filter((x) => x.roomId === '');
+    let best: Structure | null = null;
+    let area = -1;
+    for (const st of list) {
+      const a = Math.abs((st.b[0] - st.a[0]) * (st.b[1] - st.a[1]));
+      if (a > area) (best = st, area = a);
+    }
+    return best ? [(best.a[0] + best.b[0]) / 2, (best.a[1] + best.b[1]) / 2] : [0, 0];
+  }
+  // The plan's frame so that the plan point `at` is under you now, the plan turned by visitYaw.
+  function visitFrame(at: [number, number]): Matrix4 {
+    const h = lastHead;
+    const m = new Matrix4().makeRotationY(visitYaw);
+    const v = new Vector3(at[0], 0, at[1]).applyMatrix4(m);
+    const floorY = freeFrame ? freeFrame.elements[13] : h ? h.pos.y - 1.6 : 0;
+    return m.setPosition((h?.pos.x ?? 0) - v.x, floorY, (h?.pos.z ?? 0) - v.z);
+  }
+  function setVisit(on: boolean) {
+    if (!current || visit === on) return;
+    visit = on;
+    view.visit = on;
+    if (on) {
+      const f = new Vector3(lastHead?.fwd.x ?? 0, 0, lastHead?.fwd.z ?? -1);
+      if (f.length() < 0.2) f.set(0, 0, -1);
+      visitYaw = Math.atan2(-f.x, -f.z); // the plan's "north" (-z) is where you look
+      const y = lastHead ? (rawLive.filter((q) => q.label === 'floor' && q.pos[1] < lastHead!.pos.y - 0.3).map((q) => q.pos[1]).sort((a, b) => b - a)[0] ?? lastHead.pos.y - 1.6) : 0;
+      freeFrame = new Matrix4().setPosition(0, y, 0);
+      freeFrame = visitFrame(visitStart(current));
+    } else {
+      freeFrame = makeFreeFrame();
+      tpMarker.visible = false;
+    }
+    sky.visible = ground.visible = on;
+    syncHouses();
+    refreshView();
+    closeMenu();
+    notify(on ? 'Visita virtuale: punta il pavimento e pizzica per spostarti' : 'Visita virtuale finita', on ? 2600 : 1200);
+  }
+  // A pinch on the floor in the visit: it is moved so that the pointed place is under you.
+  function teleportTo(world: Vector3) {
+    if (!freeFrame || !lastHead) return;
+    const local = world.clone().applyMatrix4(freeFrame.clone().invert());
+    freeFrame = visitFrame([local.x, local.z]);
+    syncHouses();
   }
 
   // A project without a room (or models placed without one: roomId ''): its "free space" is a frame set where you stand when
@@ -989,6 +1078,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (p) openProject(p);
     },
     saveChanges,
+    toggleVisit() {
+      setVisit(!visit);
+    },
     askSearch() {
       // The list is filtered after every key; OK or closing the keyboard keeps the filter.
       const apply = (text: string) => {
@@ -1384,7 +1476,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     let best: { id: string; d: number } | null = null;
     if (current) {
-      const limit = panelDist ?? 5;
+      const limit = panelDist ?? (visit ? 30 : 5);
       for (const m of current.models) {
         const house = houses.get(m.roomId);
         const holder = house?.layer.holders.get(m.id);
@@ -1395,7 +1487,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     // Walls and floors: plain ray against their meshes; a model in front of them wins.
     if (current?.structures?.length) {
-      const limit = Math.min(panelDist ?? 5, best ? best.d : 5);
+      const limit = Math.min(panelDist ?? (visit ? 30 : 5), best ? best.d : visit ? 30 : 5);
       structRay.set(origin, dir);
       structRay.far = limit;
       for (const st of current.structures) {
@@ -1412,6 +1504,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
     if (best) {
       hovered.set(id, best.id);
+      if (visit && best.id.startsWith('s:') && current?.structures.find((x) => x.id === best!.id.slice(2))?.kind === 'floor') {
+        const at = hoverPoint.get(id);
+        if (at) {
+          tpMarker.position.set(at.x, at.y + 0.01, at.z);
+          tpMarker.visible = true;
+          tpSeen = performance.now();
+        }
+      }
       return { length: best.d, target: 'model' };
     }
     return { length: 3, target: 'none' };
@@ -1420,6 +1520,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
   function pressModel(id: string) {
     const target = hovered.get(id) ?? null;
+    if (visit && target?.startsWith('s:') && current?.structures.find((x) => x.id === target.slice(2))?.kind === 'floor') {
+      const at = hoverPoint.get(id);
+      if (at) teleportTo(at); // the floor is for walking, not for selecting
+      return;
+    }
     if (target?.startsWith('s:')) {
       structHit = hoverPoint.get(id)?.clone() ?? null;
       selectStruct(target.slice(2));
@@ -2181,6 +2286,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
       }
+      if (visit) {
+        sky.position.copy(head.pos); // the sky and the ground follow your head: you never reach their edge
+        ground.position.set(head.pos.x, (freeFrame?.elements[13] ?? 0) - 0.02, head.pos.z);
+      }
+      if (tpMarker.visible && performance.now() - tpSeen > 150) tpMarker.visible = false;
       if (menuToast.mesh.visible && rig.visible) menuToast.draw();
       if (notice.mesh.visible) {
         if (performance.now() > noticeUntil) notice.mesh.visible = false;

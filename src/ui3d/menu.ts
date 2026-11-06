@@ -55,6 +55,8 @@ export interface MenuView {
   projects: { id: string; name: string; models: number; rooms: string; here: boolean; tone: number }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   unsaved: boolean; // models moved in the headset and not saved yet
+  canVisit: boolean; // the open project is a plan without scanned rooms: it can be visited virtually
+  visit: boolean; // the virtual visit is on
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
@@ -69,6 +71,7 @@ export interface MenuView {
 export interface MenuActions {
   setTab(tab: Tab): void;
   selectProject(id: string): void;
+  toggleVisit(): void;
   askSearch(): void;
   clearSearch(): void;
   setScroll(fraction: number): void;
@@ -328,6 +331,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push({ kind: 'scroll', rect: { x: M + W - 30, y: listTop, w: 30, h }, text: '', value: first / (list.length - PER_PAGE), span: PER_PAGE / list.length, onPoint: (_fx, fy) => a.setScroll(fy) });
       }
     }
+  } else if (v.tab === 'scan' && v.canVisit) {
+    // A plan built from a CAD drawing: there is no room to find, you can walk through it instead.
+    out.push(surface(M, top, W, 300));
+    const inner = M + 28;
+    const iw = W - 56;
+    out.push(text(v.visit ? 'Visita virtuale attiva.\nPunta il pavimento e pizzica per spostarti lì. Puoi comunque camminare davvero.' : 'Questo progetto è una pianta senza stanza scansionata.\nEntra nella visita virtuale per camminarci dentro.', inner, top + 22, iw, 120, 25, T.text2, { wrap: true }));
+    out.push({ kind: 'pill', icon: 'cube', primary: !v.visit, rect: { x: inner, y: top + 170, w: iw, h: 66 }, text: v.visit ? 'Esci dalla visita virtuale' : 'Entra nella visita virtuale', size: 26, onClick: a.toggleVisit });
   } else if (v.tab === 'scan') {
     out.push(surface(M, top, W, 380));
     const inner = M + 28;
