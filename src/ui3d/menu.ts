@@ -1,4 +1,4 @@
-import { theme } from './theme';
+import { projectTone, theme } from './theme';
 import { hsvToHex, type Hsv } from './color';
 import type { IconName } from './icons';
 import type { Widget } from './panel';
@@ -141,7 +141,6 @@ function saveButton(v: MenuView, a: MenuActions, out: Widget[]) {
   if (v.currentProjectId && v.unsaved) out.push({ kind: 'pill', icon: 'check', primary: true, rect: { x: MENU_W - M - 54 - 14 - 176, y: 25, w: 176, h: 48 }, text: 'Salva', size: 24, onClick: a.saveChanges });
 }
 
-const ptTone = (name: string) => name.length;
 
 // Object menu --------------------------------------------------------------------------------------------------
 // Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or presets.
@@ -301,7 +300,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
           rect: { x: M, y, w: W, h: cardH },
           text: p.name,
           sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
-          tone: ptTone(p.name),
+          tone: projectTone(p.id),
           active: open,
           reserve: open ? 150 : undefined, // room for the "Chiudi" button drawn over the card
           onClick: () => a.selectProject(p.id),

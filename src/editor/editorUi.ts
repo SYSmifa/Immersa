@@ -4,7 +4,7 @@ import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
 import { MODEL_ACCEPT, type Unit } from './importer';
-import { AURA } from '../ui3d/theme';
+import { AURA, projectTone } from '../ui3d/theme';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -371,7 +371,7 @@ export function createEditorUi(h: EditorHandlers) {
     const list = projectItems.map((p) => {
       const b = el('button', '', 'ed-item');
       // Like the headset's project list: the initial on a tile whose colour depends on the name (same rule: name length).
-      const tone = A.tones[p.name.length % A.tones.length];
+      const tone = A.tones[projectTone(p.id)];
       b.innerHTML = '<i class="ed-ini"></i><span></span>';
       const ini = b.querySelector('.ed-ini') as HTMLElement;
       ini.textContent = (p.name.trim()[0] ?? '?').toUpperCase();

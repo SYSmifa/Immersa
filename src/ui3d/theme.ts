@@ -59,7 +59,10 @@ export const AURA: Theme = {
   glass: 'rgba(255,255,255,0.09)',
   glassHover: 'rgba(255,255,255,0.18)',
   textDisabled: '#a8b1c6',
-  tones: [['#14b8a6', '#5eead4'], ['#64748b', '#a0aec0'], ['#e0a53a', '#f3d37a'], ['#6366f1', '#a5b4fc']],
+  tones: [['#14b8a6', '#5eead4'], ['#e0a53a', '#f3d37a'], ['#6366f1', '#a5b4fc'], ['#f43f5e', '#fda4af'], ['#0ea5e9', '#7dd3fc'], ['#22c55e', '#86efac'], ['#a855f7', '#d8b4fe'], ['#f97316', '#fdba74']],
 };
 
 export const theme = (): Theme => AURA;
+
+// A project's tile colour: looks random but is stable (from the project's id), so it is the same in the headset and on the PC.
+export const projectTone = (id: string): number => [...id].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % AURA.tones.length;
