@@ -275,6 +275,30 @@ function flipInverted(g: BufferGeometry): boolean {
   return true;
 }
 
+// An FBX gives every face its own material index, and the geometry ends up with hundreds of groups (one per run of faces with
+// the same material); the GLB exporter writes one primitive per group, so one sofa became ~350 meshes. Sort the faces by
+// material: one group per material.
+function mergeGroups(g: BufferGeometry, materialCount: number) {
+  if (g.groups.length <= materialCount) return;
+  const pos = g.getAttribute('position') as BufferAttribute;
+  const src = g.index ? Array.from(g.index.array) : Array.from({ length: pos.count }, (_, i) => i);
+  const used = [...new Set(g.groups.map((x) => x.materialIndex ?? 0))].sort((a, b) => a - b);
+  const out: number[] = [];
+  const groups: { start: number; count: number; materialIndex: number }[] = [];
+  for (const mi of used) {
+    const start = out.length;
+    for (const grp of g.groups) {
+      if ((grp.materialIndex ?? 0) !== mi) continue;
+      const end = Math.min(src.length, grp.start + grp.count);
+      for (let i = grp.start; i < end; i++) out.push(src[i]);
+    }
+    groups.push({ start, count: out.length - start, materialIndex: mi });
+  }
+  g.setIndex(out);
+  g.clearGroups();
+  for (const x of groups) g.addGroup(x.start, x.count, x.materialIndex);
+}
+
 function tidy(root: Object3D): { triangles: number; flipped: number } {
   const cache = new Map<Material, MeshStandardMaterial>();
   const drop: Object3D[] = [];
@@ -290,6 +314,7 @@ function tidy(root: Object3D): { triangles: number; flipped: number } {
       if (!seen.has(g)) {
         seen.add(g);
         if (flipInverted(g)) flipped++;
+        if (Array.isArray(mesh.material)) mergeGroups(g, mesh.material.length);
       }
       if (!g.getAttribute('normal')) g.computeVertexNormals();
       triangles += (g.index ? g.index.count : (g.getAttribute('position') as BufferAttribute).count) / 3;

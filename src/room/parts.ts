@@ -33,13 +33,18 @@ export function nodeByPath(holder: Object3D, path: string): Object3D | null {
   return o;
 }
 
+// A glTF mesh with several materials loads as a group of meshes (one per material, same place): that is one component.
+function primitivesOfOne(group: Object3D): boolean {
+  return group.children.every((c) => (c as Mesh).isMesh && c.position.lengthSq() === 0 && c.quaternion.w === 1 && c.scale.x === 1 && c.scale.y === 1 && c.scale.z === 1);
+}
+
 // The component that a hit mesh belongs to: wrappers with a single child are skipped, so a door made of a group with one
 // panel inside is one component. Picking the component that is already chosen goes up one level (its parent), if any.
 export function partFromMesh(holder: Object3D, mesh: Object3D, current: string | null): string | null {
   const root = sceneRoot(holder);
   if (!root) return null;
   let node: Object3D = mesh;
-  while (node.parent && node.parent !== root && node.parent.children.length === 1) node = node.parent;
+  while (node.parent && node.parent !== root && (node.parent.children.length === 1 || primitivesOfOne(node.parent))) node = node.parent;
   let path = pathOf(holder, node);
   if (path && path === current) {
     const up = node.parent && node.parent !== root ? pathOf(holder, node.parent) : null;
