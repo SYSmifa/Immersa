@@ -1176,6 +1176,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         confirmDelete = false;
         houses.get(st.roomId)?.structs.sync(structsOf(st.roomId));
         markUnsaved();
+        closeMenu(); // deleted: the menu goes away altogether, it does not fall back to the main one
         refreshView();
         return say(`Eliminato: ${name} (non salvato)`, 4000);
       }
@@ -1185,8 +1186,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       selectedId = null;
       objectOpen = false;
       confirmDelete = false;
+      selectedPart = null;
       houses.get(m.roomId)?.layer.sync(modelsOf(m.roomId)); // removes it from the scene
       markUnsaved();
+      closeMenu(); // deleted: the menu goes away altogether, it does not fall back to the main one
       refreshView();
       say(`Eliminato: ${m.name} (non salvato)`, 4000);
     },
