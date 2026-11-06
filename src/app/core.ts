@@ -621,7 +621,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   tpMarker.visible = false;
   scene.add(sky, ground, tpMarker);
   let tpSeen = 0; // when the pointer last rested on a floor (the marker hides soon after)
-  const canVisit = (p: Project | null) => !!p && p.roomIds.length === 0 && (p.structures ?? []).some((x) => x.roomId === '' && x.kind === 'wall');
+  const canVisit = (p: Project | null) => !!p && p.roomIds.length === 0 && (p.structures ?? []).some((x) => x.roomId === '');
   // Where you start: the middle of the biggest floor (else of the walls), in the plan's own coordinates.
   function visitStart(p: Project): [number, number] {
     const floors = (p.structures ?? []).filter((x) => x.roomId === '' && x.kind === 'floor');
@@ -1514,12 +1514,30 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       return { length: best.d, target: 'model' };
     }
+    if (visit && freeFrame) {
+      // Nothing pointed at: the ground of the virtual world is a place to walk to too.
+      const y = freeFrame.elements[13];
+      const hit = structRay.ray.set(origin, dir).intersectPlane(new Plane(new Vector3(0, 1, 0), -y), new Vector3());
+      const d = hit ? hit.distanceTo(origin) : 0;
+      if (hit && dir.y < -0.02 && d < 30) {
+        hoverPoint.set(id, hit);
+        tpMarker.position.set(hit.x, y + 0.01, hit.z);
+        tpMarker.visible = true;
+        tpSeen = performance.now();
+        return { length: d, target: 'none' };
+      }
+    }
     return { length: 3, target: 'none' };
   }
 
   // A pinch that the UI did not take: select what the pointer aims at, or clear the selection.
   function pressModel(id: string) {
     const target = hovered.get(id) ?? null;
+    if (visit && !target) {
+      const at = hoverPoint.get(id);
+      if (at) teleportTo(at); // empty ground: walk there
+      return;
+    }
     if (visit && target?.startsWith('s:') && current?.structures.find((x) => x.id === target.slice(2))?.kind === 'floor') {
       const at = hoverPoint.get(id);
       if (at) teleportTo(at); // the floor is for walking, not for selecting
@@ -2250,6 +2268,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     planesGap(on: boolean) {
       if (on) closeMenu(); // no glimpse of the menu while the rooms are gone (the app is about to restart)
+      if (on) setVisit(false); // the session lost its frame: the visit ends, the plan comes back in front of you
       gap = on;
       roomRoot.visible = !!recognised && !gap;
       syncHouses();
@@ -2376,6 +2395,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
     referenceReset(newOrigin?: ArrayLike<number> | null) {
       if (newOrigin || rawLive.length < MIN_PLANES) {
+        setVisit(false); // the headset moved its frame: the visit's place is no longer valid
         if (newOrigin) {
           const inv = new Matrix4().fromArray(Array.from(newOrigin)).invert();
           const move = (a: Alignment): Alignment => {
