@@ -164,8 +164,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   transform.addEventListener('dragging-changed', (e) => {
     controls.enabled = !e.value;
     lastDrag = Date.now();
-    if (e.value) startDrag();
-    else {
+    if (e.value) {
+      startDrag();
+      topSpin = ortho && effectiveGizmo() === 'rotate' ? { a0: floorAngleAt(lastPointer.x, lastPointer.y) } : null;
+    } else {
+      topSpin = null;
       start = null;
       partStart = null;
       refreshPivot();
@@ -371,9 +374,28 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return best;
   }
 
+  // The top view is a tiny field of view from far away, and the gizmo's own rotation speed depends on that distance (it would
+  // turn a hundred times too little): there the turn is read from where the pointer is on the floor, round the pivot.
+  let topSpin: { a0: number } | null = null;
+  const lastPointer = { x: 0, y: 0 };
+  renderer.domElement.addEventListener('pointermove', (e) => ((lastPointer.x = e.clientX), (lastPointer.y = e.clientY)), true);
+  function floorAngleAt(cx: number, cy: number): number {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ray.setFromCamera(new Vector2(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1), camera);
+    const at = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -pivot.position.y), new Vector3());
+    return at ? Math.atan2(at.x - pivot.position.x, at.z - pivot.position.z) : 0;
+  }
+
   transform.addEventListener('objectChange', () => {
     if (!start) return;
     const mode = effectiveGizmo();
+    if (topSpin && mode === 'rotate') {
+      let turn = floorAngleAt(lastPointer.x, lastPointer.y) - topSpin.a0;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      if (snapGrid) turn = Math.round(turn / MathUtils.degToRad(15)) * MathUtils.degToRad(15);
+      const q0 = (partSel && partStart ? partStart.q : start.q).clone();
+      pivot.quaternion.copy(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), turn).multiply(q0));
+    }
     if (partSel && partStart) {
       // A component: the pivot's move, in the model's own frame at scale 1.
       if (snapGrid && mode === 'translate') {
@@ -1440,5 +1462,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         ? 'Apri un progetto, o creane uno nuovo.'
         : 'Nessun progetto: creane uno con "Nuovo progetto".',
   );
-  return { select: (id: string | null) => pick(id ? `m:${id}` : null, false) };
+  return {
+    select: (id: string | null) => pick(id ? `m:${id}` : null, false),
+    // For the tests: where the gizmo is on screen, which handle the pointer is on, and the yaw of the models.
+    debug: () => {
+      const v = pivot.position.clone().project(camera);
+      const r = renderer.domElement.getBoundingClientRect();
+      return { pivot: [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height], axis: transform.axis, yaws: (project?.models ?? []).map((m) => m.yaw) };
+    },
+  };
 }
