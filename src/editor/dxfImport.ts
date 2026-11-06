@@ -23,6 +23,11 @@ export interface PlanInfo {
   size: [number, number]; // width, depth of the whole drawing in drawing units
 }
 
+// A building or a room: between a small room and a big hall or campus.
+export const plausibleSize = (metres: number) => metres >= 2 && metres <= 250;
+// Without a usable unit in the file: a house is 5-30 m, so 5-30 in metres, 500-3000 in centimetres, 5000-30000 in millimetres.
+export const guessUnit = (longest: number): PlanUnit => (longest <= 60 ? 'm' : longest <= 2500 ? 'cm' : 'mm');
+
 const INSUNITS: Record<number, PlanUnit> = { 1: 'in', 2: 'ft', 4: 'mm', 5: 'cm', 6: 'm' };
 
 type Mat = [number, number, number, number, number, number]; // 2D affine: x' = a x + c y + e, y' = b x + d y + f
@@ -90,9 +95,11 @@ export function parsePlan(text: string): PlanInfo {
   for (const l of lines) for (const [x, y] of l.pts) (minX = Math.min(minX, x), maxX = Math.max(maxX, x), minY = Math.min(minY, y), maxY = Math.max(maxY, y));
   const size: [number, number] = [maxX - minX, maxY - minY];
   const code = Number(dxf.header?.['$INSUNITS'] ?? 0);
-  const known = INSUNITS[code];
   const longest = Math.max(size[0], size[1]);
-  const unit: PlanUnit = known ?? (longest < 150 ? 'm' : longest < 5000 ? 'cm' : 'mm'); // a house is 10-30 m: 20 / 2000 / 20000
+  // The header is often wrong (a plan in millimetres saved as "metres"), so it counts only when the size it gives is believable.
+  const header = INSUNITS[code];
+  const known = header && plausibleSize(longest * PLAN_UNIT_M[header]) ? header : undefined;
+  const unit: PlanUnit = known ?? guessUnit(longest);
   return { lines, layers: [...byLayer].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.lines - a.lines), unit, unitKnown: !!known, size };
 }
 

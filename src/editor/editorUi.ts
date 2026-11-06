@@ -5,7 +5,7 @@ import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
 import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
-import { PLAN_UNIT_M, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
+import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -945,8 +945,16 @@ export function createEditorUi(h: EditorHandlers) {
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel');
         const summary = el('div', '', 'ed-meta');
+        const sizeLine = el('div', '', 'ed-meta');
+        const unitNote = el('div', '', 'ed-meta');
         const refresh = () => {
           summary.textContent = preview(o);
+          const w = info.size[0] * PLAN_UNIT_M[o.unit];
+          const d = info.size[1] * PLAN_UNIT_M[o.unit];
+          sizeLine.textContent = `Con questa unità il disegno misura ${w.toFixed(1)} × ${d.toFixed(1)} m.`;
+          const odd = !plausibleSize(Math.max(w, d));
+          sizeLine.style.color = odd ? '#ef4444' : '';
+          unitNote.textContent = odd ? 'Misure improbabili per una casa: prova un\'altra unità (di solito mm o cm).' : info.unitKnown ? "L'unità è scritta nel file." : "L'unità non è nel file (o non è credibile): l'ho stimata dalle dimensioni, controllala.";
         };
         const layerList = (picked: string[], label: string) => {
           const box = card(el('div', label, 'ed-title'));
@@ -1017,8 +1025,8 @@ export function createEditorUi(h: EditorHandlers) {
         panel.append(
           el('h3', 'Importa la pianta (DXF)'),
           card(
-            el('div', `Disegno ${(info.size[0] * PLAN_UNIT_M[o.unit]).toFixed(1)} × ${(info.size[1] * PLAN_UNIT_M[o.unit]).toFixed(1)} m con l'unità scelta`, 'ed-meta'),
-            el('div', info.unitKnown ? "L'unità è scritta nel file." : "L'unità non è nel file: l'ho stimata dalle dimensioni, controllala.", 'ed-meta'),
+            sizeLine,
+            unitNote,
             choice<PlanUnit>([['mm', 'mm'], ['cm', 'cm'], ['m', 'm'], ['in', 'pollici'], ['ft', 'piedi']], () => o.unit, (v) => (o.unit = v)),
           ),
           layerList(o.wallLayers, 'Livelli delle pareti'),
