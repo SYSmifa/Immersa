@@ -110,7 +110,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string) => vo
         h.userData.look = m;
         refresh(h, m);
         h.position.set(...m.pos);
-        h.rotation.set(0, m.yaw, 0);
+        h.rotation.set(m.tilt?.[0] ?? 0, m.yaw, m.tilt?.[1] ?? 0, 'YXZ'); // yaw first, then the tilt in the model's own frame
         h.scale.setScalar(m.scale);
       }
     },

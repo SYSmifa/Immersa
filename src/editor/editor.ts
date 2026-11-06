@@ -3,6 +3,7 @@ import {
   BoxGeometry,
   Camera,
   Color,
+  Euler,
   GridHelper,
   Group,
   HalfFloatType,
@@ -37,7 +38,7 @@ import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
-import { listMaterials } from '../room/selection';
+import { listMaterials, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
@@ -267,6 +268,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     refreshAll();
   }
 
+  const modelQuat = (m: RoomModel) => new Quaternion().setFromEuler(new Euler(m.tilt?.[0] ?? 0, m.yaw, m.tilt?.[1] ?? 0, 'YXZ'));
+
   function refreshPivot() {
     const node = partNode();
     const holder = partHolder();
@@ -290,7 +293,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     pivot.position.copy(c);
     // "Relative" pivot: the gizmo follows the heading of a single object; with more it stays on the world axes.
     const yaw = local && n === 1 ? (ms[0] ? ms[0].yaw : ss[0].kind === 'wall' ? wallYaw(ss[0]) : 0) : 0;
-    pivot.rotation.set(0, yaw, 0);
+    if (local && n === 1 && ms[0]) pivot.rotation.set(ms[0].tilt?.[0] ?? 0, ms[0].yaw, ms[0].tilt?.[1] ?? 0, 'YXZ');
+    else pivot.rotation.set(0, yaw, 0, 'YXZ');
     pivot.scale.setScalar(1);
     pivot.updateMatrixWorld(true);
   }
@@ -298,8 +302,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function applyGizmo() {
     const mode = effectiveGizmo();
     transform.setMode(mode);
-    transform.showX = mode !== 'rotate'; // only yaw makes sense for things standing on the floor
-    transform.showZ = mode !== 'rotate';
+    // Models turn about any axis; walls, floors and components only about the vertical one.
+    const modelsOnly = !partSel && sel.length > 0 && selStructs().length === 0;
+    transform.showX = mode !== 'rotate' || modelsOnly;
+    transform.showZ = mode !== 'rotate' || modelsOnly;
     transform.setSpace(local && mode !== 'scale' ? 'local' : 'world');
     transform.setTranslationSnap(null); // done by hand in objectChange: the pivot lands exactly on a grid point
     transform.setRotationSnap(snapGrid ? MathUtils.degToRad(15) : null);
@@ -327,7 +333,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   interface Start {
     c: Vector3;
     q: Quaternion;
-    models: Map<string, { pos: [number, number, number]; yaw: number; scale: number }>;
+    models: Map<string, { pos: [number, number, number]; yaw: number; scale: number; q: Quaternion }>;
     structs: Map<string, { a: [number, number]; b: [number, number]; y: number; pts: [number, number][] | null }>;
   }
   let start: Start | null = null;
@@ -342,7 +348,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     start = {
       c: pivot.position.clone(),
       q: pivot.quaternion.clone(),
-      models: new Map(selModels().map((m) => [m.id, { pos: [...m.pos] as [number, number, number], yaw: m.yaw, scale: m.scale }])),
+      models: new Map(selModels().map((m) => [m.id, { pos: [...m.pos] as [number, number, number], yaw: m.yaw, scale: m.scale, q: modelQuat(m) }])),
       structs: new Map(selStructs().map((s) => [s.id, { a: [...s.a] as [number, number], b: [...s.b] as [number, number], y: s.y, pts: s.kind === 'floor' ? floorPoints(s).map(([x, z]) => [x, z] as [number, number]) : null }])),
     };
   }
@@ -377,10 +383,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const e = partEdit(true);
       if (!pm || !e) return;
       const dp = pivot.position.clone().sub(partStart.c);
-      const cs = Math.cos(pm.yaw);
-      const sn = Math.sin(pm.yaw);
-      // world -> model frame: undo the model's turn about Y and its scale
-      e.d = [partStart.d[0] + (dp.x * cs - dp.z * sn) / pm.scale, partStart.d[1] + dp.y / pm.scale, partStart.d[2] + (dp.x * sn + dp.z * cs) / pm.scale];
+      // world -> model frame: undo the model's turn (any axis) and its scale
+      const inModel = dp.clone().applyQuaternion(modelQuat(pm).invert()).divideScalar(pm.scale);
+      e.d = [partStart.d[0] + inModel.x, partStart.d[1] + inModel.y, partStart.d[2] + inModel.z];
       if (mode === 'rotate') {
         const dq = pivot.quaternion.clone().multiply(partStart.q.clone().invert());
         e.yaw = partStart.yaw + 2 * Math.atan2(dq.y, dq.w);
@@ -428,6 +433,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       // The component that moved the most (the uniform handle moves all three).
       factor = Math.max(0.001, [pivot.scale.x, pivot.scale.y, pivot.scale.z].reduce((a, b) => (Math.abs(b - 1) > Math.abs(a - 1) ? b : a), 1));
     }
+    const turnAny = mode === 'rotate' && selStructs().length === 0; // only models selected: all three axes
     const cs = Math.cos(dyaw);
     const sn = Math.sin(dyaw);
     const c = start.c;
@@ -435,9 +441,19 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     for (const m of selModels()) {
       const s0 = start.models.get(m.id);
       if (!s0) continue;
-      const [x, z] = rot(s0.pos[0], s0.pos[2]);
-      m.pos = [x, s0.pos[1] + dp.y, z];
-      m.yaw = Math.atan2(Math.sin(s0.yaw + dyaw), Math.cos(s0.yaw + dyaw));
+      if (turnAny) {
+        // Any axis: the whole rotation moves the models' places about the centre and turns each one.
+        const p = new Vector3(...s0.pos).sub(c).applyQuaternion(dq).add(c).add(dp);
+        m.pos = [p.x, p.y, p.z];
+        const e = new Euler().setFromQuaternion(dq.clone().multiply(s0.q), 'YXZ');
+        m.yaw = e.y;
+        if (Math.abs(e.x) > 1e-4 || Math.abs(e.z) > 1e-4) m.tilt = [e.x, e.z];
+        else delete m.tilt;
+      } else {
+        const [x, z] = rot(s0.pos[0], s0.pos[2]);
+        m.pos = [x, s0.pos[1] + dp.y, z];
+        m.yaw = Math.atan2(Math.sin(s0.yaw + dyaw), Math.cos(s0.yaw + dyaw));
+      }
       m.scale = s0.scale * factor;
     }
     for (const s of selStructs()) {
@@ -486,17 +502,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     );
   }
 
-  // Size along the model's own axes: measure with yaw 0, matrices fresh.
-  function modelSize(holder: Object3D): [number, number, number] | null {
-    const yaw = holder.rotation.y;
-    holder.rotation.y = 0;
-    holder.updateWorldMatrix(true, true);
-    const box = new Box3().setFromObject(holder);
-    holder.rotation.y = yaw;
-    holder.updateWorldMatrix(true, true);
-    if (box.isEmpty()) return null;
-    const d = box.getSize(new Vector3());
-    return [d.x, d.y, d.z];
+  // Real size along the model's own axes (the file's box in its own frame, times the scale).
+  function modelSize(holder: Object3D, scale: number): [number, number, number] | null {
+    const d = localModelSize(holder);
+    return d ? [d.x * scale, d.y * scale, d.z * scale] : null;
   }
 
   function detailsInfo(): Details | null {
@@ -539,7 +548,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         key: `m:${m.id}`,
         color: m.color ?? null,
         finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
-        scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, size: holder ? modelSize(holder) : null, materials };
+        scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, tiltDeg: [((m.tilt?.[0] ?? 0) * 180) / Math.PI, ((m.tilt?.[1] ?? 0) * 180) / Math.PI], size: holder ? modelSize(holder, m.scale) : null, materials };
     }
     const s = selStructs()[0];
     if (!s) return null;
@@ -960,6 +969,17 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (!m) return;
       const r = (deg * Math.PI) / 180;
       m.yaw = Math.atan2(Math.sin(r), Math.cos(r));
+      refreshPivot();
+      changed(doCommit);
+    },
+    onModelTilt(axis, deg, doCommit) {
+      const m = selModels()[0];
+      if (!m) return;
+      const r = (deg * Math.PI) / 180;
+      const t: [number, number] = [m.tilt?.[0] ?? 0, m.tilt?.[1] ?? 0];
+      t[axis === 'x' ? 0 : 1] = Math.atan2(Math.sin(r), Math.cos(r));
+      if (t[0] || t[1]) m.tilt = t;
+      else delete m.tilt;
       refreshPivot();
       changed(doCommit);
     },

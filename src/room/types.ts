@@ -24,6 +24,7 @@ export interface RoomModel {
   path: string; // "<user id>/<file>" in the Supabase "models" bucket, or "local:<file>" for public/models/
   pos: Vec3; // base centre of the model, in that room's frame
   yaw: number; // rotation about Y, radians
+  tilt?: [number, number]; // also turned about X and Z (radians); the orientation is Ry(yaw) * Rx(tilt[0]) * Rz(tilt[1])
   scale: number;
   color?: string; // '#rrggbb' tint replacing the colour of every material (textures stay); absent: the file's own colours
   materialColors?: Record<string, string>; // per material (index in the model's material list): overrides `color`

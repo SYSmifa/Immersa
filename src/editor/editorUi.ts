@@ -57,6 +57,7 @@ export interface EditorHandlers {
   onPick(key: string, additive: boolean): void;
   onModelScale(value: number, commit: boolean): void;
   onModelYaw(deg: number, commit: boolean): void;
+  onModelTilt(axis: 'x' | 'z', deg: number, commit: boolean): void;
   onModelLook(edit: LookEdit, commit: boolean): void;
   onStructure(edit: StructureEdit, commit: boolean): void;
   onDeleteSelection(): void;
@@ -86,6 +87,7 @@ export type Details =
       key: string;
       scale: number;
       yawDeg: number;
+      tiltDeg: [number, number]; // about X and Z
       size: [number, number, number] | null;
       color: string | null; // the colour given to every material, if any
       finish: { roughness: number; metalness: number }; // for 'every material'
@@ -743,7 +745,9 @@ export function createEditorUi(h: EditorHandlers) {
         el('div', 'Modello', 'ed-h'),
         card(
           row(el('span', 'Scala'), numberField(d.scale, '0.01', '0.001', (v, c) => h.onModelScale(v, c))),
-          row(el('span', 'Rotazione °'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
+          row(el('span', 'Rotazione ° (Y)'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
+          row(el('span', 'Inclina ° (X)'), numberField(d.tiltDeg[0], '1', null, (v, c) => h.onModelTilt('x', v, c))),
+          row(el('span', 'Inclina ° (Z)'), numberField(d.tiltDeg[1], '1', null, (v, c) => h.onModelTilt('z', v, c))),
           size,
         ),
         el('div', 'Colore e materiali', 'ed-h'),
