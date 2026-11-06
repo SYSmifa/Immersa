@@ -3,6 +3,7 @@ import '@fontsource/sen/latin-700.css';
 import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
+import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
@@ -39,7 +40,7 @@ export interface EditorHandlers {
   onRoomVisible(id: string): void;
   onAddRoom(id: string): void;
   onRemoveRoom(): void;
-  onUpload(file: File): void;
+  onUpload(files: File[]): void;
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
   onSave(): void;
@@ -219,6 +220,11 @@ const CSS = `
 .ed-loading span{color:#aeb7c8;font-size:13px;min-height:1.2em}
 .ed-loading i{display:block;width:70%;height:8px;border-radius:4px;background:#ffffff29;margin-top:10px;overflow:hidden}
 .ed-loading i u{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .15s}
+.ed-modal{position:fixed;inset:0;z-index:40;background:#05070bb0;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.ed-modal .ed-panel{width:380px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.ed-modal h3{margin:0;font-size:18px}
+.ed-modal .ed-card{gap:10px}
+.ed-warn{color:#b45309;font-size:12px;font-weight:500}
 .ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
@@ -401,9 +407,10 @@ export function createEditorUi(h: EditorHandlers) {
 
   const fileInput = el('input', '', 'ed-file');
   fileInput.type = 'file';
-  fileInput.accept = '.glb';
+  fileInput.accept = MODEL_ACCEPT;
+  fileInput.multiple = true; // an OBJ comes with its MTL and textures, a GLTF with its BIN
   fileInput.onchange = () => {
-    if (fileInput.files?.[0]) h.onUpload(fileInput.files[0]);
+    if (fileInput.files?.length) h.onUpload([...fileInput.files]);
     fileInput.value = '';
   };
 
@@ -787,6 +794,67 @@ export function createEditorUi(h: EditorHandlers) {
     footer,
     setStatus(text: string) {
       toast.textContent = text;
+    },
+    // The dialog shown when a file needs a decision: its unit and which axis is up. Resolves null when cancelled.
+    askImport(info: { name: string; format: string; triangles: number; fixedUnit: boolean; unit: Unit; zUp: boolean; dims(unit: Unit, zUp: boolean): string }) {
+      return new Promise<{ unit: Unit; zUp: boolean } | null>((resolve) => {
+        let unit = info.unit;
+        let zUp = info.zUp;
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel');
+        const dims = el('div', '', 'ed-meta');
+        const units = row();
+        const unitBtns = new Map<Unit, HTMLButtonElement>();
+        const refresh = () => {
+          dims.textContent = `Dimensioni: ${info.dims(unit, zUp)}`;
+          for (const [u, b] of unitBtns) b.classList.toggle('acc', u === unit);
+        };
+        for (const [u, label] of [['mm', 'Millimetri'], ['cm', 'Centimetri'], ['m', 'Metri'], ['in', 'Pollici']] as [Unit, string][]) {
+          const b = pill(label, () => {
+            unit = u;
+            refresh();
+          });
+          unitBtns.set(u, b);
+          units.append(b);
+        }
+        const z = el('input');
+        z.type = 'checkbox';
+        z.checked = zUp;
+        z.onchange = () => {
+          zUp = z.checked;
+          refresh();
+        };
+        const zLabel = el('label', '', 'ed-check');
+        zLabel.append(z, document.createTextNode("La Z è l'alto (tipico dei CAD e dell'STL)"));
+        const done = (v: { unit: Unit; zUp: boolean } | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          else if (e.key === 'Enter') done({ unit, zUp });
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const heavy = info.triangles > 300000;
+        panel.append(
+          el('h3', 'Importa il modello'),
+          card(
+            el('div', info.name),
+            el('div', `${info.format} · ${info.triangles.toLocaleString('it-IT')} triangoli`, 'ed-meta'),
+            ...(heavy ? [el('div', 'Molti triangoli: nel visore potrebbe essere pesante.', 'ed-warn')] : []),
+            ...(info.fixedUnit ? [el('div', "L'unità di misura è nel file: le dimensioni sono già in metri.", 'ed-meta')] : [units]),
+            zLabel,
+            dims,
+          ),
+          row(pill('Importa', () => done({ unit, zUp }), 'acc'), pill('Annulla', () => done(null))),
+        );
+        overlay.append(panel);
+        root.append(overlay);
+        refresh();
+        if (info.fixedUnit) for (const b of unitBtns.values()) b.classList.remove('acc');
+      });
     },
     // Shows / updates the loading card (null hides it). It appears only if the wait lasts a moment, so quick things do not flash.
     setLoading(info: { title: string; sub?: string; value?: number } | null) {

@@ -7,7 +7,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 
 ## Stack
 - TypeScript, three.js, WebXR, Vite; Supabase (auth, tabelle `rooms`/`projects`, bucket privato `models`)
-- Modelli glTF/GLB (futuro: STEP → GLB + semplificazione); un'unica app: editor PC + modalità XR nel Quest
+- Modelli: il visore legge solo GLB; su PC si importa qualsiasi formato (glb, gltf+bin+immagini, obj+mtl, fbx, stl, ply, dae, 3mf, step/stp, iges/igs, brep, zip) e `editor/importer.ts` lo converte in GLB all'importazione (finestra con unità e asse Z/Y; l'originale NON si conserva; STEP/IGES via `occt-import-js`, WASM caricato solo quando serve, uscita in metri); futuro: semplificazione triangoli. Un'unica app: editor PC + modalità XR nel Quest
 
 ## Vincoli
 - Quest 3: budget 100-300k tris a 72 fps (prudente; misure reali molto più alte, vedi Stato)

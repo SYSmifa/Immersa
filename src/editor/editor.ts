@@ -34,6 +34,7 @@ import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
+import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials } from '../room/selection';
@@ -780,6 +781,43 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     commit();
   }
 
+  // Importing models: a .glb goes straight up; anything else is read, asked about (unit, up axis) and converted to GLB first.
+  async function importFiles(files: File[]) {
+    if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
+    ui.setStatus(`Carico ${files[0].name}...`);
+    try {
+      let file = files[0];
+      if (!isSimpleGlb(files)) {
+        // Any other format: read it, ask the unit and the up axis, convert to GLB (the headset only reads GLB).
+        const parsed = await withLoading('Leggo il modello', files[0].name, () => parseModel(files));
+        const choice = await ui.askImport({
+          name: parsed.name,
+          format: parsed.format,
+          triangles: parsed.triangles,
+          fixedUnit: parsed.fixedUnit,
+          unit: parsed.guessUnit,
+          zUp: parsed.guessZUp,
+          dims: (unit, zUp) => sizeFor(parsed, { unit, zUp }).map((v) => v.toFixed(2)).join(' × ') + ' m (larghezza × altezza × profondità)',
+        });
+        if (!choice) return ui.setStatus('Importazione annullata.');
+        file = await withLoading('Converto in GLB', parsed.name, () => exportGlb(parsed, choice));
+      }
+      const { path, name } = await withLoading('Carico il modello', file.name, () => upload(file));
+      const id = newId();
+      // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
+      const free = models().length;
+      if (!room) frameWhenLoaded = true;
+      project.models.push({ id, roomId: spaceId(), name, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
+      layer.sync(models());
+      setSelection([`m:${id}`]);
+      markDirty();
+      commit();
+      ui.setStatus('Caricato. Ricorda di salvare.');
+    } catch (e) {
+      ui.setStatus(`Importazione FALLITA: ${errText(e)}`);
+    }
+  }
+
   // ---- the UI ----
   const ui = createEditorUi({
     onOpenProject(id) {
@@ -846,25 +884,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (room?.id === id) planesGroup.visible = !hiddenRooms.has(id);
       refreshLists();
     },
-    async onUpload(file) {
-      if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
-      ui.setStatus(`Carico ${file.name}...`);
-      try {
-        const { path, name } = await withLoading('Carico il modello', file.name, () => upload(file));
-        const id = newId();
-        // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
-        const free = models().length;
-        if (!room) frameWhenLoaded = true;
-        project.models.push({ id, roomId: spaceId(), name, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
-        layer.sync(models());
-        setSelection([`m:${id}`]);
-        markDirty();
-        commit();
-        ui.setStatus('Caricato. Ricorda di salvare.');
-      } catch (e) {
-        ui.setStatus(`Upload FALLITO: ${errText(e)}`);
-      }
-    },
+    onUpload: (files) => importFiles(files),
     onRenameRoom: (id) =>
       run(async () => {
         const r = rooms.find((x) => x.id === id);
@@ -1041,6 +1061,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (dirty) e.preventDefault();
   });
   void createLogin(ui.footer);
+  // Files dropped on the window are imported like the ones chosen with the button.
+  window.addEventListener('dragover', (e) => e.dataTransfer?.types.includes('Files') && e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    void importFiles([...e.dataTransfer.files]);
+  });
 
   // ---- 3D view: left click selects (Shift adds); with a Build button on, a drag on the floor draws ----
   const ray = new Raycaster();
