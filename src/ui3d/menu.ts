@@ -55,7 +55,8 @@ export interface MenuView {
   projects: { id: string; name: string; models: number; rooms: string; here: boolean; tone: number }[] | null; // all of them, this room's first
   currentProjectId: string | null;
   unsaved: boolean; // models moved in the headset and not saved yet
-  page: number;
+  search: string; // the project list is filtered by this name
+  scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
@@ -68,7 +69,9 @@ export interface MenuView {
 export interface MenuActions {
   setTab(tab: Tab): void;
   selectProject(id: string): void;
-  turnPage(delta: number): void;
+  askSearch(): void;
+  clearSearch(): void;
+  setScroll(fraction: number): void;
   saveRoom(): void;
   renameRoom(): void;
   confirmCandidate(): void;
@@ -111,6 +114,8 @@ export interface MenuActions {
 export const MENU_W = 864;
 export const MENU_H = 624;
 export const PER_PAGE = 4;
+// Lower case without accents: the project search ignores both.
+export const fold = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const M = 28; // outer margin
 const W = MENU_W - 2 * M;
 const TABS: [Tab, string, IconName][] = [
@@ -287,17 +292,25 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(surface(M, top, W, 150));
       out.push(text('Non ci sono ancora progetti.\nCreane uno dal PC e salvalo con un nome.', M + 28, top + 24, W - 56, 110, 26, T.text2, { wrap: true }));
     } else {
-      const pages = Math.ceil(v.projects.length / PER_PAGE);
-      const page = Math.min(v.page, pages - 1);
-      // With several pages the cards are a little tighter, to leave a pager row under the list where it cannot be missed.
-      const step = pages > 1 ? 84 : 94;
-      const cardH = pages > 1 ? 76 : 84;
-      v.projects.slice(page * PER_PAGE, (page + 1) * PER_PAGE).forEach((p, i) => {
+      // A search field on top (the 3D keyboard types the name), then the list, which scrolls with the bar on its right.
+      const q = fold(v.search.trim());
+      const list = q ? v.projects.filter((p) => fold(p.name).includes(q)) : v.projects;
+      const sw = v.search ? W - 64 : W;
+      out.push({ kind: 'row', icon: 'search', rect: { x: M, y: top, w: sw, h: 52 }, text: v.search || 'Cerca un progetto', size: 23, align: 'left', color: v.search ? undefined : T.sub, onClick: a.askSearch });
+      if (v.search) out.push({ kind: 'iconbtn', icon: 'close', rect: { x: M + W - 52, y: top, w: 52, h: 52 }, text: '', onClick: a.clearSearch });
+      const listTop = top + 64;
+      const step = 80;
+      const cardH = 72;
+      const scrolls = list.length > PER_PAGE;
+      const cardW = scrolls ? W - 34 : W;
+      const first = scrolls ? Math.round(Math.min(1, Math.max(0, v.scroll)) * (list.length - PER_PAGE)) : 0;
+      if (!list.length) out.push(text(`Nessun progetto con "${v.search.trim()}".`, M, listTop + 20, W, 40, 24, T.text2));
+      list.slice(first, first + PER_PAGE).forEach((p, i) => {
         const open = p.id === v.currentProjectId;
-        const y = top + i * step;
+        const y = listTop + i * step;
         out.push({
           kind: 'card',
-          rect: { x: M, y, w: W, h: cardH },
+          rect: { x: M, y, w: cardW, h: cardH },
           text: p.name,
           sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
           tone: p.tone,
@@ -307,14 +320,12 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         });
         // The open project has its own close button instead of the "Aperto" label (the one in Options stays too).
         if (open) {
-          out.push({ kind: 'pill', fill: '#ffffff', hoverFill: T.bad, color: T.accentText, icon: 'close', rect: { x: M + W - 18 - 150, y: y + (cardH - 48) / 2, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
+          out.push({ kind: 'pill', fill: '#ffffff', hoverFill: T.bad, color: T.accentText, icon: 'close', rect: { x: M + cardW - 18 - 150, y: y + (cardH - 48) / 2, w: 150, h: 48 }, text: 'Chiudi', size: 22, onClick: a.closeProject });
         }
       });
-      if (pages > 1) {
-        const y = top + PER_PAGE * step + 2;
-        out.push({ kind: 'pill', icon: 'left', rect: { x: M, y, w: 190, h: 46 }, text: 'Indietro', size: 22, disabled: page === 0, onClick: () => a.turnPage(-1) });
-        out.push({ kind: 'chip', rect: { x: M + (W - 260) / 2, y, w: 260, h: 46 }, text: `Pagina ${page + 1} di ${pages}`, size: 22 });
-        out.push({ kind: 'pill', icon: 'right', primary: page < pages - 1, rect: { x: M + W - 190, y, w: 190, h: 46 }, text: 'Avanti', size: 22, disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
+      if (scrolls) {
+        const h = PER_PAGE * step - 8;
+        out.push({ kind: 'scroll', rect: { x: M + W - 30, y: listTop, w: 30, h }, text: '', value: first / (list.length - PER_PAGE), span: PER_PAGE / list.length, onPoint: (_fx, fy) => a.setScroll(fy) });
       }
     }
   } else if (v.tab === 'scan') {

@@ -18,7 +18,7 @@ import { createKeyboard } from '../ui3d/keyboard';
 import { projectTones, theme } from '../ui3d/theme';
 import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
-import { buildMenu, MENU_H, MENU_W, type MenuActions, type MenuView, type ObjectView, type Tab } from '../ui3d/menu';
+import { buildMenu, fold, MENU_H, MENU_W, PER_PAGE, type MenuActions, type MenuView, type ObjectView, type Tab } from '../ui3d/menu';
 import { Panel } from '../ui3d/panel';
 
 export interface Capture {
@@ -242,7 +242,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     currentProjectId: null,
     object: null,
     unsaved: false,
-    page: 0,
+    search: '',
+    scroll: 0,
     outline: true,
     snap: readSnap(),
     layers: layersPreferred(),
@@ -988,8 +989,24 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (p) openProject(p);
     },
     saveChanges,
-    turnPage(delta) {
-      view.page = Math.max(0, view.page + delta);
+    async askSearch() {
+      const text = await ask('Cerca un progetto', view.search, { max: 30, capital: false });
+      if (text === null) return;
+      view.search = text.trim();
+      view.scroll = 0;
+      render();
+    },
+    clearSearch() {
+      view.search = '';
+      view.scroll = 0;
+      render();
+    },
+    setScroll(fraction) {
+      // The thumb follows the pointer: the pointed height, centred on the thumb, gives the position in the list.
+      const list = view.projects?.filter((p) => !view.search || fold(p.name).includes(fold(view.search))) ?? [];
+      if (list.length <= PER_PAGE) return;
+      const span = PER_PAGE / list.length;
+      view.scroll = Math.min(1, Math.max(0, (fraction - span / 2) / (1 - span)));
       render();
     },
     confirmCandidate() {

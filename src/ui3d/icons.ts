@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right';
+  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -131,6 +131,11 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
   },
   menu: (c) => {
     for (const y of [-0.6, 0, 0.6]) poly(c, [-0.85, y, 0.85, y]);
+  },
+  search: (c) => {
+    c.arc(-0.2, -0.2, 0.58, 0, Math.PI * 2);
+    c.moveTo(0.22, 0.22);
+    c.lineTo(0.85, 0.85);
   },
   plus: (c) => {
     poly(c, [-0.8, 0, 0.8, 0]);

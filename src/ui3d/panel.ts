@@ -22,7 +22,7 @@ export interface Widget {
   // button / row / key / field: the basic controls. surface: a white card behind other widgets. card: a tappable card
   // (project, setting). chip: a small pill label. nav: a bottom-bar tab. iconbtn: a round icon button. pill: a
   // call-to-action pill. wheel / slider / bar: pickers.
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar' | 'scroll';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean; // gradient fill
@@ -48,6 +48,7 @@ export interface Widget {
   // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
   // held and the ray stays over the widget.
   onPoint?(fx: number, fy: number): void;
+  span?: number; // scroll: the visible part of the list, 0..1 (the length of the thumb); `value` = where the thumb is, 0..1
 }
 
 // Canvas pixels per logical pixel: the panels are drawn denser than their layout so the text stays sharp when the
@@ -367,6 +368,23 @@ export class Panel {
     const down = w === this.pressed && !w.disabled;
     const size = w.size ?? 28;
     c.textBaseline = 'middle';
+
+    if (kind === 'scroll') {
+      // A vertical scroll bar: a soft track and a rounded accent thumb, like the other sliders.
+      const tw = 12;
+      const tx = x + ww / 2 - tw / 2;
+      c.fillStyle = T.glass;
+      roundRect(c, tx, y, tw, h, tw / 2);
+      c.fill();
+      const len = Math.max(54, Math.min(1, w.span ?? 0.3) * h);
+      const ty = y + Math.min(1, Math.max(0, w.value ?? 0)) * (h - len);
+      shadow(c, 8, 3, T.accentGlow);
+      c.fillStyle = gradient(c, tx, ty, tw, hover || down ? T.accentHover : T.accent);
+      roundRect(c, tx - 2, ty, tw + 4, len, (tw + 4) / 2);
+      c.fill();
+      noShadow(c);
+      return;
+    }
 
     if (kind === 'label') {
       c.fillStyle = w.color ?? T.text;
