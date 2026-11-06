@@ -158,6 +158,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   setLoadingText('Carico il progetto');
   loading.mesh.visible = false;
   host.root.add(loading.mesh);
+  // Short notice in front of you, shown even with the menu closed (deleted, project loaded / closed).
+  const notice = new Panel(0.46, 0.075, 1200, 'clear');
+  notice.mesh.visible = false;
+  host.root.add(notice.mesh);
+  let noticeUntil = 0;
+  let noticePlace = false;
+  function notify(text: string, ms = 2600) {
+    notice.set([{ kind: 'chip', rect: { x: 0, y: 0, w: notice.pxW, h: notice.pxH }, text, size: 30, fill: 'rgba(11,18,32,0.9)', color: '#ffffff' }]);
+    noticeUntil = performance.now() + ms;
+    noticePlace = true;
+    notice.mesh.visible = true;
+  }
   // Start-up screen: the cube drawing itself with the Immersa logo in front, nothing behind it (the room shows through).
   const splashPanel = new Panel(0.74, 0.46, 1200, 'clear');
   splashPanel.animated = true;
@@ -710,7 +722,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         return void refreshRoomScan(found);
       }
       const wasGap = gap;
-      if (wasGap) say('Rooms found again', 4000);
       gap = false;
       roomRoot.visible = true;
       if (wasGap || moved(recognised!.alignment, found.alignment, found.room.id)) {
@@ -725,16 +736,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (++switching >= 2) {
         switching = 0;
         setRecognised(found);
-        say(`Ora sei in: ${found.room.name}`);
         openMenu();
       }
     } else {
       switching = 0;
       if (++lost >= 3) {
         lost = 0;
-        const name = recognised!.room.name;
         setRecognised(null);
-        say(`Sei uscito da: ${name}`);
       }
     }
   }
@@ -853,7 +861,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       houses.delete(room.id);
     }
     setRecognised({ room, alignment: identity(planes.length) });
-    say('Room scan updated');
   }
 
   async function startScan() {
@@ -919,7 +926,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       loading.mesh.visible = true;
     }
     if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
-    else say(foreign ? `Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)` : `Aperto: ${p.name}`, foreign ? 9000 : 7000);
+    else if (foreign) say(`Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)`, 9000);
   }
 
   const actions: MenuActions = {
@@ -937,7 +944,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       render();
     },
     async signIn(signUp: boolean) {
-      say(signUp ? 'Creating account...' : 'Signing in...', 8000);
       const res = await backend.signIn(view.loginEmail, loginPassword, signUp);
       if (!res.ok) return say(res.message, 9000);
       loginPassword = '';
@@ -945,7 +951,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       await reloadRooms();
       loadProjects();
       view.tab = 'load';
-      say('Signed in');
     },
     setTab(tab: Tab) {
       view.tab = tab;
@@ -955,7 +960,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Always reads the project again from the account: edits made on the PC since the list was loaded show up, and
     // moves that were never saved are dropped.
     async selectProject(id) {
-      say('Carico il progetto...', 4000);
       try {
         allProjects = await backend.listProjects();
       } catch (e) {
@@ -988,7 +992,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     reread() {
       lastTry = 0;
       failedTries = 0;
-      say('Rileggo la stanza...', 3000);
     },
     async objRotation() {
       if (selectedPart) {
@@ -1148,7 +1151,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (sel && !selectedPart) {
         delete sel.xf; // back to the shape it has in the project
         applyStructChange(sel);
-        return say('Riposizionato dov\'era', 3000);
+        return;
       }
       const m = partModelOf();
       const e = partEditOf();
@@ -1159,7 +1162,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (!Object.keys(e).length) delete m.parts[selectedPart.path];
       if (!Object.keys(m.parts).length) delete m.parts;
       applyPartChange();
-      say('Componente riposizionato dov\'era', 3000);
     },
     objExitPart() {
       selectedPart = null;
@@ -1178,7 +1180,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         markUnsaved();
         closeMenu(); // deleted: the menu goes away altogether, it does not fall back to the main one
         refreshView();
-        return say(`Eliminato: ${name} (non salvato)`, 4000);
+        return notify(`Eliminato: ${name}`);
       }
       const m = selectedModel();
       if (!m || !current) return;
@@ -1191,7 +1193,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       markUnsaved();
       closeMenu(); // deleted: the menu goes away altogether, it does not fall back to the main one
       refreshView();
-      say(`Eliminato: ${m.name} (non salvato)`, 4000);
+      notify(`Eliminato: ${m.name}`);
     },
     objClose() {
       objectOpen = false;
@@ -1253,6 +1255,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       lastProject.clear();
       closeCurrent();
       refreshView();
+      notify('Progetto chiuso');
     },
     signOut,
     close: closeMenu,
@@ -1280,14 +1283,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
   let looked: { key: string; node: Object3D } | null = null;
 
-  const deg = (r: number) => Math.round((r * 180) / Math.PI);
   function selectStruct(id: string | null) {
     if (id === selectedStructId) return;
     selectedStructId = id;
     if (id) selectedId = null;
     if (objectOpen) closeMenu(); // another one (or nothing) pinched: the menu goes, the button shows on the new one
-    const st = selectedStruct();
-    say(st ? `Selezionato: ${structName(st)}` : 'Selezione annullata', 2500);
   }
   function selectPart(modelId: string, path: string) {
     if (selectedPart?.modelId === modelId && selectedPart.path === path) return;
@@ -1295,8 +1295,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selectedStructId = null;
     selectedId = modelId;
     selectedPart = { modelId, path };
-    const node = partNodeOf();
-    say(`Componente: ${node ? partName(node) : path}`, 2500);
   }
   function selectModel(id: string | null) {
     if (selectedPart && id !== selectedId) selectedPart = null;
@@ -1305,8 +1303,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (id && objectOpen) closeMenu(); // another model pinched while a menu is open: it closes
     selectedId = id;
     if (!id && objectOpen) closeMenu(); // nothing selected any more: the object's menu goes away
-    const m = id ? current?.models.find((x) => x.id === id) : null;
-    say(m ? `Selezionato: ${m.name} · yaw ${deg(m.yaw)}° (stanza ${deg(aligns.get(m.roomId)?.yaw ?? 0)}°)` : 'Selezione annullata', 2500);
   }
 
   // Keeps the outline on the selected model's holder (and only there); the model may still be loading.
@@ -1532,7 +1528,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function endStructGrab() {
     hud.mesh.visible = false;
     hudText = '';
-    if (structGrab && structGrab.phase !== 'pending') say('Modificato (non salvato)', 2500);
     structGrab = null;
   }
   function updateStructGrab(dt: number) {
@@ -1830,7 +1825,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function endGrab() {
     hud.mesh.visible = false;
     hudText = '';
-    if (grab && grab.phase !== 'pending') say('Modello modificato (non salvato)', 2500);
     grab = null;
   }
   const angleOf = (a: Vector3, b: Vector3) => Math.atan2(b.x - a.x, b.z - a.z); // direction on the floor, as yawOf
@@ -1997,7 +1991,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, keyboard.panel, listLoader, loading, splashPanel, hud, objButton],
+    layerPanels: () => [menu, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -2097,6 +2091,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
         loading.draw();
       }
+      if (notice.mesh.visible) {
+        if (performance.now() > noticeUntil) notice.mesh.visible = false;
+        else {
+          if (noticePlace) {
+            noticePlace = false; // once, where you are looking when it appears
+            notice.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.8, head.pos.y - 0.22, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.8);
+            notice.mesh.rotation.set(0, Math.atan2(head.pos.x - notice.mesh.position.x, head.pos.z - notice.mesh.position.z), 0);
+          }
+          notice.draw();
+        }
+      }
       if (splash) {
         if (splash.endAt === null && now - splash.since > SPLASH_MS && view.authKnown) splash.endAt = now;
         const gone = splash.endAt === null ? 0 : (now - splash.endAt) / 500; // half a second of fade-out
@@ -2146,6 +2151,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         awaitingModels = null;
         loading.mesh.visible = false;
         mark('modelli');
+        if (current) notify('Progetto caricato');
       }
       checkPending();
       followHead(head, dt);
@@ -2194,7 +2200,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       candidate = null;
       setRecognised(null);
-      say('Il visore ha cambiato riferimento: rileggo la stanza...', 5000);
     },
     aim,
     pinchDown,
