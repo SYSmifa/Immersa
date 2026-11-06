@@ -73,7 +73,8 @@ function restyleGizmo(t: TransformControls) {
   t.size = 0.8;
   // The centre handle that grabs the three axes at once is gone: it sat on top of the corner handles of walls and floors.
   const centres: Object3D[] = [];
-  t.getHelper().traverse((o) => o.name === 'XYZ' && centres.push(o));
+  // Also gone: the big outer ring of the rotation gizmo (it turns about the camera's line of sight).
+  t.getHelper().traverse((o) => (o.name === 'XYZ' || o.name === 'E') && centres.push(o));
   for (const o of centres) o.parent?.remove(o);
   t.getHelper().traverse((o) => {
     const m = (o as Mesh).material as (MeshBasicMaterial & { _color?: Color; _opacity?: number }) | undefined;
@@ -303,7 +304,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const mode = effectiveGizmo();
     transform.setMode(mode);
     // Models turn about any axis; walls, floors and components only about the vertical one.
-    const modelsOnly = !partSel && sel.length > 0 && selStructs().length === 0;
+    const modelsOnly = !partSel && sel.length > 0 && selStructs().length === 0 && !ortho; // the top view keeps the vertical ring only, as it was
     transform.showX = mode !== 'rotate' || modelsOnly;
     transform.showZ = mode !== 'rotate' || modelsOnly;
     transform.setSpace(local && mode !== 'scale' ? 'local' : 'world');
@@ -600,6 +601,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       controls.mouseButtons.LEFT = MOUSE.ROTATE;
     }
     ortho = on;
+    applyGizmo(); // the rotation gizmo has all its rings only in the perspective view
     persp.updateProjectionMatrix();
     controls.update();
     refreshToolbar();
