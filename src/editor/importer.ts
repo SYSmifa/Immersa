@@ -41,6 +41,7 @@ const MAX_TEXTURE = 2048;
 export interface Parsed {
   root: Object3D;
   name: string; // without extension
+  source: string; // the file as it was called, extension included
   format: string;
   triangles: number;
   flipped: number; // parts whose faces pointed inwards and were turned round
@@ -323,6 +324,7 @@ export async function parseModel(chosen: File[]): Promise<Parsed> {
   return {
     root,
     name: stem(main.name),
+    source: main.name,
     format: kind.toUpperCase(),
     triangles,
     flipped,

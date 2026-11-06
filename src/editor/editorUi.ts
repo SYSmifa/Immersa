@@ -58,6 +58,7 @@ export interface EditorHandlers {
   onModelScale(value: number, commit: boolean): void;
   onModelYaw(deg: number, commit: boolean): void;
   onModelTilt(axis: 'x' | 'z', deg: number, commit: boolean): void;
+  onModelName(name: string): void;
   onModelLook(edit: LookEdit, commit: boolean): void;
   onStructure(edit: StructureEdit, commit: boolean): void;
   onDeleteSelection(): void;
@@ -85,6 +86,8 @@ export type Details =
   | {
       kind: 'model';
       key: string;
+      name: string;
+      source?: string; // the file it was imported from
       scale: number;
       yawDeg: number;
       tiltDeg: [number, number]; // about X and Z
@@ -672,6 +675,19 @@ export function createEditorUi(h: EditorHandlers) {
 
   let matTarget: 'all' | number = 'all';
   let lastKey = '';
+  // The model's name: changed when you leave the field or press Enter.
+  const nameField = (value: string) => {
+    const i = el('input');
+    i.type = 'text';
+    i.value = value;
+    i.onchange = () => h.onModelName(i.value);
+    i.onkeydown = (e) => {
+      if (e.key === 'Enter') i.blur();
+      e.stopPropagation(); // no shortcuts while typing
+    };
+    return i;
+  };
+
   let lastSig = '';
   let pending: Details | null | undefined;
   let interacting = false;
@@ -746,6 +762,8 @@ export function createEditorUi(h: EditorHandlers) {
       details.replaceChildren(
         el('div', 'Modello', 'ed-h'),
         card(
+          nameField(d.name),
+          ...(d.source ? [el('div', `Importato da ${d.source}`, 'ed-meta')] : []),
           row(el('span', 'Scala'), numberField(d.scale, '0.01', '0.001', (v, c) => h.onModelScale(v, c))),
           row(el('span', 'Rotazione ° (Y)'), numberField(d.yawDeg, '1', null, (v, c) => h.onModelYaw(v, c))),
           row(el('span', 'Inclina ° (X)'), numberField(d.tiltDeg[0], '1', null, (v, c) => h.onModelTilt('x', v, c))),

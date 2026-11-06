@@ -20,7 +20,8 @@ export interface RoomBox {
 export interface RoomModel {
   id: string;
   roomId: string; // the room whose frame `pos` and `yaw` are in
-  name: string; // display name
+  name: string; // display name (unique in the project)
+  source?: string; // the file it was imported from, with its extension (the GLB in the cloud is a conversion of it)
   path: string; // "<user id>/<file>" in the Supabase "models" bucket, or "local:<file>" for public/models/
   pos: Vec3; // base centre of the model, in that room's frame
   yaw: number; // rotation about Y, radians

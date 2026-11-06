@@ -546,6 +546,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return {
         kind: 'model',
         key: `m:${m.id}`,
+        name: m.name,
+        source: m.source,
         color: m.color ?? null,
         finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
         scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, tiltDeg: [((m.tilt?.[0] ?? 0) * 180) / Math.PI, ((m.tilt?.[1] ?? 0) * 180) / Math.PI], size: holder ? modelSize(holder, m.scale) : null, materials };
@@ -791,11 +793,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   // Importing models: a .glb goes straight up; anything else is read, asked about (unit, up axis) and converted to GLB first.
+  // Names are unique in the project: a second "scatola" becomes "scatola_1", then "scatola_2".
+  const nameTaken = (n: string, exceptId?: string) => !!project?.models.some((m) => m.id !== exceptId && m.name.toLowerCase() === n.toLowerCase());
+  function uniqueModelName(base: string): string {
+    if (!nameTaken(base)) return base;
+    for (let i = 1; ; i++) if (!nameTaken(`${base}_${i}`)) return `${base}_${i}`;
+  }
+
   async function importFiles(files: File[]) {
     if (!project) return ui.setStatus('Apri o crea un progetto prima di caricare un modello');
     ui.setStatus(`Carico ${files[0].name}...`);
     try {
       let file = files[0];
+      let source = files[0].name;
+      let base = files[0].name.replace(/\.[^.]+$/, '');
       if (!isSimpleGlb(files)) {
         // Any other format: read it, ask the unit and the up axis, convert to GLB (the headset only reads GLB).
         const parsed = await withLoading('Leggo il modello', files[0].name, () => parseModel(files));
@@ -809,15 +820,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           dims: (unit, zUp) => sizeFor(parsed, { unit, zUp }).map((v) => v.toFixed(2)).join(' × ') + ' m (larghezza × altezza × profondità)',
         });
         if (!choice) return ui.setStatus('Importazione annullata.');
+        source = parsed.source;
+        base = parsed.name;
         if (parsed.flipped) ui.setStatus(`Ho girato le facce di ${parsed.flipped} ${parsed.flipped === 1 ? 'parte' : 'parti'} rivolte all'interno.`);
         file = await withLoading('Converto in GLB', parsed.name, () => exportGlb(parsed, choice));
       }
-      const { path, name } = await withLoading('Carico il modello', file.name, () => upload(file));
+      const { path } = await withLoading('Carico il modello', file.name, () => upload(file));
+      const name = uniqueModelName(base);
       const id = newId();
       // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
       const free = models().length;
       if (!room) frameWhenLoaded = true;
-      project.models.push({ id, roomId: spaceId(), name, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
+      project.models.push({ id, roomId: spaceId(), name, source, path, pos: room ? floorCentre(room.scan.planes) : [free * 1.2, 0, 0], yaw: 0, scale: 1 });
       layer.sync(models());
       setSelection([`m:${id}`]);
       markDirty();
@@ -972,6 +986,17 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       m.yaw = Math.atan2(Math.sin(r), Math.cos(r));
       refreshPivot();
       changed(doCommit);
+    },
+    onModelName(name) {
+      const m = selModels()[0];
+      const n = name.trim();
+      if (!m || !n || n === m.name) return refreshAll();
+      if (nameTaken(n, m.id)) {
+        ui.setStatus(`Esiste già un modello chiamato "${n}" in questo progetto: scegli un altro nome.`);
+        return refreshAll();
+      }
+      m.name = n;
+      changed(true);
     },
     onModelTilt(axis, deg, doCommit) {
       const m = selModels()[0];
