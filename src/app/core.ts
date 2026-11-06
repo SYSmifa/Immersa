@@ -180,7 +180,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   host.root.add(notice.mesh);
   let noticeUntil = 0;
   let noticePlace = false;
-  function notify(text: string, ms = 1800) {
+  function notify(text: string, ms = 1200) {
     notice.set([{ kind: 'chip', rect: { x: 0, y: 0, w: notice.pxW, h: notice.pxH }, text, size: 30, fill: 'rgba(11,18,32,0.9)', color: '#ffffff' }]);
     noticeUntil = performance.now() + ms;
     noticePlace = true;
@@ -1273,7 +1273,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       lastProject.clear();
       closeCurrent();
       refreshView();
-      notify('Progetto chiuso');
+      say('Progetto chiuso', 2500); // the menu is open here: the card under it
     },
     signOut,
     close: closeMenu,
