@@ -3,6 +3,7 @@ import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
 import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
+import { createHands } from '../xr/hands';
 import { palmNormal, pinchPoint } from '../xr/pinch';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
@@ -31,6 +32,12 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
 export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
+  // Laser smoothing (exponential, time based): light while pointing, heavier while pinching (grabs) for precision.
+  const hands = createHands(scene);
+  let smoothO: Vector3 | null = null;
+  let smoothD: Vector3 | null = null;
+  const TAU_POINT = 0.03;
+  const TAU_PINCH = 0.1;
   let laserHidden = false; // the dominant hand is turned palm up / towards the face (the system's own gesture): no laser
   const layers: ReturnType<typeof createPanelLayers> = createPanelLayers(renderer, (text) => core.logEvent(text));
   const core = createAppCore({
@@ -227,6 +234,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         else pl = pinchPoint(frame, src, ref);
       }
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
+      hands.update(frame, ref);
       const seen = new Set<string>();
       let laserOn = false;
       for (const src of frame.session.inputSources) {
@@ -251,6 +259,16 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.host.setRay(id, null);
           } else if (src.handedness === dominant) {
             core.host.noCursor.add(id);
+            if (!smoothO || !smoothD || smoothO.distanceTo(origin) > 0.4) {
+              smoothO = origin.clone();
+              smoothD = dir.clone();
+            } else {
+              const k = 1 - Math.exp(-Math.min(dt, 0.1) / (rightPinching ? TAU_PINCH : TAU_POINT));
+              smoothO.lerp(origin, k);
+              smoothD.lerp(dir, k).normalize();
+            }
+            origin.copy(smoothO);
+            dir.copy(smoothD);
             const hit = core.aim(id, origin, dir);
             laser.meshReticle = !layers.active;
             laser.meshBeam = !layers.active;
@@ -272,6 +290,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         }
       }
       if (!laserOn) {
+        smoothO = smoothD = null;
         laser.hide();
         rightPinching = false;
         if (!seen.size) laserHidden = false;
