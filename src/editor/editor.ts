@@ -45,6 +45,7 @@ import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
 import { newTone, projectTones } from '../ui3d/theme';
+import { guessFloorLayers, guessWallLayers, parsePlan, planToStructures, type PlanOptions } from './dxfImport';
 import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type Option, type StructureEdit } from './editorUi';
 
 interface Deps {
@@ -1002,6 +1003,45 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const projectNameError = (name: string, exceptId?: string) =>
     projects.some((p) => p.id !== exceptId && p.name.trim().toLowerCase() === name.trim().toLowerCase()) ? `Esiste già un progetto "${name.trim()}": scegli un altro nome.` : '';
 
+  // A CAD plan (DXF) becomes the walls and floors of a project without scanned rooms (its free space).
+  async function importPlan(file: File) {
+    if (!project) return ui.setStatus('Apri o crea un progetto prima di importare una pianta');
+    if (project.roomIds.length) return ui.setStatus('Il progetto ha già stanze scansionate: la pianta CAD va importata in un progetto senza stanze (una cosa o l\'altra).');
+    try {
+      const info = await withLoading('Leggo la pianta', file.name, async () => parsePlan(await file.text()));
+      const names = info.layers.map((l) => l.name);
+      const walls = guessWallLayers(names);
+      const start: PlanOptions = {
+        unit: info.unit,
+        wallLayers: walls.length ? walls : names.slice(0, 1),
+        floorLayers: guessFloorLayers(names),
+        mode: 'double',
+        thickness: 0.2,
+        height: 2.7,
+        boxFloor: true,
+      };
+      const preview = (o: PlanOptions) => {
+        const st = planToStructures(info, o);
+        const w = st.filter((x) => x.kind === 'wall').length;
+        const f = st.filter((x) => x.kind === 'floor').length;
+        return w || f ? `Verranno create ${w} pareti e ${f} pavimenti.` : 'Con queste scelte non viene creato niente: scegli i livelli delle pareti.';
+      };
+      const o = await ui.askPlan(info, start, preview);
+      if (!o) return ui.setStatus('Importazione annullata.');
+      const made = planToStructures(info, o);
+      if (!made.length) return ui.setStatus('Nessuna parete o pavimento creati.');
+      project.structures.push(...made);
+      structLayer.sync(structures());
+      frameWhenLoaded = true;
+      setSelection([]); // also refreshes the outline of the scene
+      markDirty();
+      commit();
+      ui.setStatus(`Pianta importata: ${made.filter((x) => x.kind === 'wall').length} pareti, ${made.filter((x) => x.kind === 'floor').length} pavimenti. Ricorda di salvare.`);
+    } catch (e) {
+      ui.setStatus(`Importazione della pianta FALLITA: ${errText(e)}`);
+    }
+  }
+
   // ---- the UI ----
   const ui = createEditorUi({
     onOpenProject(id) {
@@ -1080,6 +1120,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       refreshLists();
     },
     onUpload: (files) => importFiles(files),
+    onImportPlan: (file) => void importPlan(file),
     onRenameRoom: (id) =>
       run(async () => {
         const r = rooms.find((x) => x.id === id);

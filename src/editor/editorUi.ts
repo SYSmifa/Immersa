@@ -5,6 +5,7 @@ import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
 import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
+import { PLAN_UNIT_M, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -50,6 +51,7 @@ export interface EditorHandlers {
   onAddRoom(id: string): void;
   onRemoveRoom(): void;
   onUpload(files: File[]): void;
+  onImportPlan(file: File): void;
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
@@ -525,6 +527,14 @@ export function createEditorUi(h: EditorHandlers) {
     return [warn, row(pick, pill('Usa questo', () => pick.value && h.onMissingFromLibrary(pick.value), 'acc')), row(pill('Da file…', () => missingInput.click()))];
   }
 
+  const planInput = el('input', '', 'ed-file');
+  planInput.type = 'file';
+  planInput.accept = '.dxf';
+  planInput.onchange = () => {
+    if (planInput.files?.length) h.onImportPlan(planInput.files[0]);
+    planInput.value = '';
+  };
+
   function renderProject() {
     const name = el('div', projectName);
     name.style.cssText = 'font-weight:700;font-size:16px';
@@ -555,6 +565,8 @@ export function createEditorUi(h: EditorHandlers) {
       card(row(addable, add), remove),
       title('Aggiungi un modello (.glb)'),
       fileInput,
+      title('Pianta CAD (.dxf): pareti e pavimenti'),
+      card(el('div', 'Crea le pareti e i pavimenti da una pianta, in un progetto senza stanze scansionate: ci puoi camminare dentro col visore.', 'ed-meta'), pill('Importa pianta…', () => planInput.click())),
     );
   }
 
@@ -925,6 +937,108 @@ export function createEditorUi(h: EditorHandlers) {
       toast.textContent = text;
     },
     // The dialog shown when a file needs a decision: its unit and which axis is up. Resolves null when cancelled.
+    // The CAD plan dialog: which layers are walls and floors, how the walls are drawn, size and unit. `preview` says what the
+    // choices would build, live.
+    askPlan(info: PlanInfo, start: PlanOptions, preview: (o: PlanOptions) => string) {
+      return new Promise<PlanOptions | null>((resolve) => {
+        const o: PlanOptions = { ...start, wallLayers: [...start.wallLayers], floorLayers: [...start.floorLayers] };
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel');
+        const summary = el('div', '', 'ed-meta');
+        const refresh = () => {
+          summary.textContent = preview(o);
+        };
+        const layerList = (picked: string[], label: string) => {
+          const box = card(el('div', label, 'ed-title'));
+          for (const l of info.layers) {
+            const c = el('input');
+            c.type = 'checkbox';
+            c.checked = picked.includes(l.name);
+            c.onchange = () => {
+              const i = picked.indexOf(l.name);
+              if (c.checked && i < 0) picked.push(l.name);
+              if (!c.checked && i >= 0) picked.splice(i, 1);
+              refresh();
+            };
+            const lab = el('label', '', 'ed-check');
+            lab.append(c, document.createTextNode(`${l.name} · ${l.lines} linee${l.closed ? `, ${l.closed} chiuse` : ''}`));
+            box.append(lab);
+          }
+          return box;
+        };
+        const choice = <T extends string>(items: [T, string][], get: () => T, set: (v: T) => void) => {
+          const r = row();
+          const btns = new Map<T, HTMLButtonElement>();
+          const paint = () => btns.forEach((b, k) => b.classList.toggle('acc', k === get()));
+          for (const [k, label] of items) {
+            const b = pill(label, () => {
+              set(k);
+              paint();
+              refresh();
+            });
+            btns.set(k, b);
+            r.append(b);
+          }
+          paint();
+          return r;
+        };
+        const num = (label: string, value: number, step: string, apply: (v: number) => void) => {
+          const i = el('input');
+          i.type = 'number';
+          i.step = step;
+          i.min = '0';
+          i.value = String(value);
+          i.oninput = () => {
+            const v = Number(i.value);
+            if (v > 0) apply(v);
+            refresh();
+          };
+          return row(el('span', label), i);
+        };
+        const done = (v: PlanOptions | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const boxFloor = el('input');
+        boxFloor.type = 'checkbox';
+        boxFloor.checked = o.boxFloor;
+        boxFloor.onchange = () => {
+          o.boxFloor = boxFloor.checked;
+          refresh();
+        };
+        const boxLabel = el('label', '', 'ed-check');
+        boxLabel.append(boxFloor, document.createTextNode('Senza livello pavimenti: un pavimento sotto tutto'));
+        panel.append(
+          el('h3', 'Importa la pianta (DXF)'),
+          card(
+            el('div', `Disegno ${(info.size[0] * PLAN_UNIT_M[o.unit]).toFixed(1)} × ${(info.size[1] * PLAN_UNIT_M[o.unit]).toFixed(1)} m con l'unità scelta`, 'ed-meta'),
+            el('div', info.unitKnown ? "L'unità è scritta nel file." : "L'unità non è nel file: l'ho stimata dalle dimensioni, controllala.", 'ed-meta'),
+            choice<PlanUnit>([['mm', 'mm'], ['cm', 'cm'], ['m', 'm'], ['in', 'pollici'], ['ft', 'piedi']], () => o.unit, (v) => (o.unit = v)),
+          ),
+          layerList(o.wallLayers, 'Livelli delle pareti'),
+          card(
+            el('div', 'Come sono disegnate le pareti', 'ed-title'),
+            choice<'double' | 'axis'>([['double', 'Doppia linea'], ['axis', 'Una linea (asse)']], () => o.mode, (v) => (o.mode = v)),
+            num('Spessore (m) se una linea sola', o.thickness, '0.01', (v) => (o.thickness = v)),
+            num('Altezza (m)', o.height, '0.05', (v) => (o.height = v)),
+          ),
+          layerList(o.floorLayers, 'Livelli dei pavimenti (polilinee chiuse)'),
+          card(boxLabel),
+          summary,
+          row(pill('Crea', () => done(o), 'acc'), pill('Annulla', () => done(null))),
+        );
+        overlay.append(panel);
+        root.append(overlay);
+        refresh();
+      });
+    },
+
     askImport(info: { name: string; format: string; triangles: number; fixedUnit: boolean; unit: Unit; zUp: boolean; dims(unit: Unit, zUp: boolean): string }) {
       return new Promise<{ unit: Unit; zUp: boolean } | null>((resolve) => {
         let unit = info.unit;
