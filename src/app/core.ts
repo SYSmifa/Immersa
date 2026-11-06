@@ -977,6 +977,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Always reads the project again from the account: edits made on the PC since the list was loaded show up, and
     // moves that were never saved are dropped.
     async selectProject(id) {
+      if (current?.id === id) return; // already open: reloading it would drop the unsaved changes
       try {
         allProjects = await backend.listProjects();
       } catch (e) {
