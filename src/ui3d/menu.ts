@@ -313,9 +313,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       });
       if (pages > 1) {
         const y = top + PER_PAGE * step + 2;
-        out.push({ kind: 'pill', icon: 'left', rect: { x: M, y, w: 190, h: 46 }, text: 'Precedenti', size: 21, disabled: page === 0, onClick: () => a.turnPage(-1) });
+        out.push({ kind: 'pill', icon: 'left', rect: { x: M, y, w: 190, h: 46 }, text: 'Indietro', size: 22, disabled: page === 0, onClick: () => a.turnPage(-1) });
         out.push({ kind: 'chip', rect: { x: M + (W - 260) / 2, y, w: 260, h: 46 }, text: `Pagina ${page + 1} di ${pages}`, size: 22 });
-        out.push({ kind: 'pill', icon: 'right', primary: page < pages - 1, rect: { x: M + W - 190, y, w: 190, h: 46 }, text: 'Altri progetti', size: 21, disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
+        out.push({ kind: 'pill', icon: 'right', primary: page < pages - 1, rect: { x: M + W - 190, y, w: 190, h: 46 }, text: 'Avanti', size: 22, disabled: page >= pages - 1, onClick: () => a.turnPage(1) });
       }
     }
   } else if (v.tab === 'scan') {
