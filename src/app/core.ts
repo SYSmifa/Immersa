@@ -228,7 +228,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
-    canLink: !!backend.deviceLogin,
+    canLink: false, // the sign-in with a code from the PC is built (`!!backend.deviceLogin`) but not shown: the email code does the job
     canEmailCode: !!backend.emailCode,
     codeFor: null,
     loginCode: '',
@@ -1143,6 +1143,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       render();
     },
     async signIn(signUp: boolean) {
+      if (!view.loginEmail.trim() || !loginPassword) return say('Scrivi email e password.', 5000);
       const res = await backend.signIn(view.loginEmail, loginPassword, signUp);
       if (!res.ok) return say(res.message, 9000);
       loginPassword = '';

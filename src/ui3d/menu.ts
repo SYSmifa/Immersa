@@ -274,9 +274,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     if (!v.authKnown) {
       out.push(subtitle('Carico...'));
     } else {
-      const ready = !!v.loginEmail && v.loginPassLen > 0;
       out.push(subtitle('Accedi al tuo account'));
-      out.push(surface(M, 128, W, 390));
+      if (v.codeFor || v.linkCode) out.push(surface(M, 128, W, 390));
       if (v.codeFor) {
         // A code was sent by email: type it here.
         out.push(text(`Ti ho scritto a ${v.codeFor}. Apri l'email e scrivi qui il codice che trovi.`, M + 28, 150, W - 56, 80, 24, T.text2, { wrap: true }));
@@ -293,24 +292,28 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push(text('Aspetto la conferma dal PC…', M + 28, 372, W - 56, 30, 22, T.sub, { align: 'center' }));
         out.push({ kind: 'pill', rect: { x: M + 24, y: 432, w: W - 48, h: 60 }, text: 'Annulla', size: 26, onClick: a.cancelLink });
       } else {
-        // Same card as on the PC: the code from the PC first, then email and password, then Google.
+        // Same look as the PC login card: a white card with the two fields, Accedi, Crea un account, then "oppure" and the
+        // sign-in with a code sent by email (or Google, where it is on).
         let y = 142;
         if (v.canLink) {
-          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 60 }, text: 'Accedi con un codice dal PC', size: 25, onClick: a.startLink });
-          out.push(text('oppure con email e password', M + 24, y + 66, W - 48, 24, 19, T.sub, { align: 'center' }));
-          y += 98;
+          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 52 }, text: 'Accedi con un codice dal PC', size: 24, onClick: a.startLink });
+          y += 64;
         }
         const h = 52;
-        const half = (W - 48 - 12) / 2;
-        out.push({ kind: 'row', rect: { x: M + 24, y, w: W - 48, h }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 24, align: 'left', onClick: a.askEmail });
-        out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 10, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 24, align: 'left', onClick: a.askPassword });
-        out.push({ kind: 'pill', primary: !v.canLink, rect: { x: M + 24, y: y + 2 * (h + 10), w: half, h }, text: 'Accedi', size: 25, disabled: !ready, onClick: () => a.signIn(false) });
-        out.push({ kind: 'pill', rect: { x: M + 24 + half + 12, y: y + 2 * (h + 10), w: half, h }, text: 'Crea account', size: 23, disabled: !ready, onClick: () => a.signIn(true) });
-        const gy = y + 3 * (h + 10) + 2;
+        out.push({ kind: 'surface', rect: { x: M + 8, y: y - 8, w: W - 16, h: 2 * h + 10 + 32 }, text: '' });
+        out.push({ kind: 'row', rect: { x: M + 24, y, w: W - 48, h }, text: v.loginEmail ? v.loginEmail : 'Email', size: 24, align: 'left', fill: '#f1f3f8', hoverFill: '#e6eaf3', color: v.loginEmail ? undefined : T.sub, onClick: a.askEmail });
+        out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 10, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Password', size: 24, align: 'left', fill: '#f1f3f8', hoverFill: '#e6eaf3', color: v.loginPassLen ? undefined : T.sub, onClick: a.askPassword });
+        const by = y + 2 * h + 10 + 32 + 4;
+        out.push({ kind: 'pill', primary: true, rect: { x: M + 8, y: by, w: W - 16, h: 54 }, text: 'Accedi', size: 26, onClick: () => a.signIn(false) });
+        out.push({ kind: 'pill', rect: { x: M + 8, y: by + 62, w: W - 16, h: 48 }, text: 'Crea un account', size: 24, onClick: () => a.signIn(true) });
         if (v.canEmailCode || v.canGoogle) {
-          out.push(text('oppure', M + 24, gy, W - 48, 22, 19, T.sub, { align: 'center' }));
-          if (v.canEmailCode) out.push({ kind: 'pill', icon: 'check', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Accedi con un codice via email', size: 24, onClick: a.startEmailCode });
-          else out.push({ kind: 'pill', icon: 'google', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Continua con Google', size: 24, onClick: a.signInGoogle });
+          const oy = by + 122;
+          const dim = 'rgba(255,255,255,0.18)';
+          out.push({ kind: 'chip', rect: { x: M + 8, y: oy + 10, w: (W - 16) / 2 - 44, h: 2 }, text: '', fill: dim });
+          out.push({ kind: 'chip', rect: { x: M + 8 + (W - 16) / 2 + 44, y: oy + 10, w: (W - 16) / 2 - 44, h: 2 }, text: '', fill: dim });
+          out.push(text('oppure', M + 8, oy, W - 16, 22, 19, 'rgba(255,255,255,0.6)', { align: 'center' }));
+          if (v.canEmailCode) out.push({ kind: 'pill', icon: 'check', rect: { x: M + 8, y: oy + 30, w: W - 16, h: 52 }, text: 'Accedi con un codice via email', size: 24, onClick: a.startEmailCode });
+          else out.push({ kind: 'pill', icon: 'google', rect: { x: M + 8, y: oy + 30, w: W - 16, h: 52 }, text: 'Continua con Google', size: 24, onClick: a.signInGoogle });
         }
       }
     }
