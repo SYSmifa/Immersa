@@ -12,7 +12,7 @@ import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanU
 // centre-top toolbar, top-right outline of the scene with the details of the selection under it, toast at the bottom.
 export type BuildKind = 'floor' | 'wall';
 export type Gizmo = 'translate' | 'rotate' | 'scale';
-export type View = 'home' | 'projects' | 'rooms' | 'models' | 'link' | 'new' | 'project';
+export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
 
 // A file of the model library (the user's cloud storage) and where it is used.
 export interface LibraryItem {
@@ -363,7 +363,7 @@ export function createEditorUi(h: EditorHandlers) {
   // "Collega un visore" sits above the account (email / Esci) that the login box adds to the footer.
   const linkBtn = el('button', '', 'ed-pill ed-link');
   linkBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.visor}</span>Collega un visore`;
-  linkBtn.onclick = () => setView('link');
+  linkBtn.onclick = () => openLinkCard();
   footer.append(linkBtn);
   const version = el('div', `Versione ${__BUILD_ID__}`, 'ed-ver'); // to tell which build is online
   side.append(brand, body, footer, version);
@@ -466,42 +466,59 @@ export function createEditorUi(h: EditorHandlers) {
     );
   }
 
-  // Link a headset: the code it shows is typed here (on the signed-in PC) and the headset gets in.
-  let linkNote = { text: '', ok: false };
-  function renderLink() {
+  // Link a headset: a card in the middle of the screen (like the login one). The code the headset shows is typed here, on the
+  // signed-in PC, and the headset gets in.
+  let linkNoteEl: HTMLElement | null = null; // the message of the open card
+  const showLinkNote = (text: string, ok: boolean) => {
+    if (!linkNoteEl) return;
+    linkNoteEl.textContent = text;
+    linkNoteEl.style.color = ok ? '#5eead4' : '#fca5a5';
+  };
+  function openLinkCard() {
+    if (linkNoteEl) return; // already open
+    const overlay = el('div', '', 'ed-modal');
+    const panel = el('div', '', 'ed-panel ed-login');
+    const brand = el('div', '', 'ed-brand');
+    brand.append(el('i'), document.createTextNode('Immersa'));
     const code = el('input');
     code.type = 'text';
     code.placeholder = 'ABC 234';
     code.maxLength = 7;
     code.autocomplete = 'off';
-    code.style.cssText = 'text-transform:uppercase;letter-spacing:.25em;font-size:22px;text-align:center';
-    const note = el('div', linkNote.text, 'ed-meta');
-    note.style.color = linkNote.ok ? '#0d9488' : '#b45309';
+    code.style.cssText = 'text-transform:uppercase;letter-spacing:.25em;font-size:24px;text-align:center';
+    const note = el('div', '', 'ed-err');
+    linkNoteEl = note;
+    const close = () => {
+      window.removeEventListener('keydown', key, true);
+      overlay.remove();
+      linkNoteEl = null;
+    };
     const go = pill('Collega il visore', () => {
       const v = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (v.length < 6) {
-        linkNote = { text: 'Il codice ha 6 caratteri.', ok: false };
-        note.textContent = linkNote.text;
-        note.style.color = '#b45309';
+        showLinkNote('Il codice ha 6 caratteri.', false);
         return code.focus();
       }
-      linkNote = { text: 'Collego…', ok: true };
-      note.textContent = linkNote.text;
+      showLinkNote('Collego…', true);
       h.onLinkVisor(v);
     }, 'acc');
-    code.onkeydown = (e) => {
-      if (e.key === 'Enter') go.click();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+      else if (e.key === 'Enter') go.click();
+      e.stopPropagation();
     };
-    body.replaceChildren(
-      back('Indietro', goHome),
-      el('div', 'Collega un visore', 'ed-h'),
-      card(
-        el('div', 'Nel visore, nella schermata di accesso, scegli "Accedi con un codice dal PC": compare un codice. Scrivilo qui.', 'ed-meta'),
-        code,
-        note,
-        go,
-      ),
+    window.addEventListener('keydown', key, true);
+    panel.append(
+      brand,
+      el('h3', 'Collega un visore'),
+      el('div', 'Nel visore, nella schermata di accesso, scegli "Accedi con un codice dal PC": compare un codice. Scrivilo qui.', 'ed-sub'),
+      card(code),
+      note,
+      go,
+      pill('Chiudi', close),
     );
+    overlay.append(panel);
+    root.append(overlay);
     code.focus();
   }
 
@@ -633,7 +650,7 @@ export function createEditorUi(h: EditorHandlers) {
   }
 
   function render() {
-    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, link: renderLink, project: renderProject })[view]();
+    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, project: renderProject })[view]();
   }
   function setView(v: View) {
     view = v;
@@ -1273,8 +1290,7 @@ export function createEditorUi(h: EditorHandlers) {
     },
     // The answer to a headset code typed in the "Collega un visore" page.
     setLinkResult(text: string, ok: boolean) {
-      linkNote = { text, ok };
-      if (view === 'link') renderLink();
+      showLinkNote(text, ok);
     },
     setRooms(items: Option[]) {
       roomItems = items;
