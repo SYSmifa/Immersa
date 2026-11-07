@@ -66,7 +66,7 @@ function rows(mode: Mode): Key[][] {
 }
 
 const W = 1080;
-const H = 520;
+const H = 572; // five rows of keys (130 + 5 x 76 + 4 x 8 = 542) and a margin under them
 const PAD = 12;
 const GAP = 8;
 
@@ -74,7 +74,7 @@ const GAP = 8;
 // fingers can be put on the keys (see poke.ts). The laser works on it too. Dark keys like the system keyboard, in Immersa's
 // font; the OK key is turquoise.
 const SIZE = 0.54; // m, width of the panel
-const KEY = { fill: 'rgba(46,50,60,0.96)', hoverFill: 'rgba(84,92,108,0.98)', downFill: '#2dd4bf' };
+const KEY = { fill: 'rgba(46,50,60,0.96)', hoverFill: 'rgba(32,128,118,0.97)', downFill: '#2dd4bf' }; // the key under a finger goes turquoise
 
 export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos: Vector3; fwd: Vector3 } | null) {
   const panel = new Panel(SIZE, (SIZE * H) / W, W / SIZE);
