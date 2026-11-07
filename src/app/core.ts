@@ -229,7 +229,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     loginEmail: '',
     loginPassLen: 0,
     canLink: !!backend.deviceLogin,
-    canGoogle: !!backend.signInWith,
+    canGoogle: false, // Google's page ends the AR session: hidden in the headset (a code from the PC / phone does the job); `!!backend.signInWith` would show it again
     linkCode: null,
     roomName: null,
     candidate: null,
