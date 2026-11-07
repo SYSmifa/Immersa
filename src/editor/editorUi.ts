@@ -156,6 +156,7 @@ const CSS = `
 .ed-title{color:#8b95a7;font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:6px 4px 0}
 .ed-ver{color:#5d6678;font-size:11px;padding:0 4px;text-align:center}
 .ed-footer{border-top:1px solid #ffffff1a;padding-top:10px}
+.ed-link{width:100%;justify-content:center;gap:8px;margin-bottom:10px}
 .ed-card{background:#fff;color:#12151c;border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .ed-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .ed-row.sp{justify-content:space-between;flex-wrap:nowrap}
@@ -359,6 +360,11 @@ export function createEditorUi(h: EditorHandlers) {
   brand.append(el('i'), document.createTextNode('Immersa'));
   const body = el('div', '', 'ed-body');
   const footer = el('div', '', 'ed-footer');
+  // "Collega un visore" sits above the account (email / Esci) that the login box adds to the footer.
+  const linkBtn = el('button', '', 'ed-pill ed-link');
+  linkBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.visor}</span>Collega un visore`;
+  linkBtn.onclick = () => setView('link');
+  footer.append(linkBtn);
   const version = el('div', `Versione ${__BUILD_ID__}`, 'ed-ver'); // to tell which build is online
   side.append(brand, body, footer, version);
 
@@ -380,7 +386,6 @@ export function createEditorUi(h: EditorHandlers) {
       big(ICON.folder, 'Apri progetto', 'La lista dei tuoi progetti', () => setView('projects')),
       big(ICON.plus, 'Nuovo progetto', 'Nome e stanze', () => setView('new')),
       big(ICON.room, 'Le mie stanze', 'Stanze scansionate dal visore', () => setView('rooms')),
-      big(ICON.visor, 'Collega un visore', 'Accedi nel visore con un codice', () => setView('link')),
       big(ICON.cube, 'I miei modelli', 'File caricati nel cloud', () => {
         setView('models');
         h.onOpenModels();
