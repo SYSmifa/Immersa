@@ -1113,12 +1113,13 @@ export function createEditorUi(h: EditorHandlers) {
     askLogin(h: {
       signIn(email: string, password: string, signUp: boolean): Promise<{ ok: true } | { ok: false; message: string }>;
       signInWith?(provider: 'google' | 'azure'): Promise<{ ok: true } | { ok: false; message: string }>;
+      notice?: string; // why a sign-in that just ended did not work (the provider sent the page back with an error)
     }) {
       const overlay = el('div', '', 'ed-modal');
       const panel = el('div', '', 'ed-panel ed-login');
       const brand = el('div', '', 'ed-brand');
       brand.append(el('i'), document.createTextNode('Immersa'));
-      const err = el('div', '', 'ed-err');
+      const err = el('div', h.notice ?? '', 'ed-err');
       const email = el('input');
       email.type = 'email';
       email.placeholder = 'Email';

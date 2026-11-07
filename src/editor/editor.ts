@@ -93,6 +93,17 @@ function restyleGizmo(t: TransformControls) {
   });
 }
 
+// Coming back from Google / Microsoft with a failure, Supabase puts the reason in the address (#error_description=...).
+// Read it once, tidy the address, and show it on the login card instead of leaving the user guessing.
+function takeAuthError(): string | undefined {
+  const q = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const s = new URLSearchParams(location.search);
+  const text = q.get('error_description') ?? s.get('error_description') ?? q.get('error') ?? s.get('error');
+  if (!text) return undefined;
+  history.replaceState(null, '', location.pathname + location.search.replace(/[?&](error|error_code|error_description)=[^&]*/g, '').replace(/^&/, '?'));
+  return `Accesso non riuscito: ${text.replace(/\+/g, ' ')}`;
+}
+
 // Entry for the PC: stage without AR, then the editor (the login box lives in its sidebar).
 export function createEditorPage(backend: Backend = createSupabaseBackend(), upload?: Deps['upload'], library?: Deps['library']) {
   const { renderer, scene, camera, controls } = createStage({ arButton: false });
@@ -1695,7 +1706,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   refreshToolbar();
   try {
     if (!(await backend.email())) {
-      ui.askLogin({ signIn: (e, p, up) => backend.signIn(e, p, up), signInWith: backend.signInWith?.bind(backend) });
+      ui.askLogin({ signIn: (e, p, up) => backend.signIn(e, p, up), signInWith: backend.signInWith?.bind(backend), notice: takeAuthError() });
       return ui.setStatus('Accedi per iniziare.');
     }
     [rooms, projects] = await withLoading('Carico i progetti', undefined, () => Promise.all([backend.listRooms(), backend.listProjects()]));
