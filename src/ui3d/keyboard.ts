@@ -82,15 +82,60 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
   parent.add(panel.mesh);
   host.add(panel);
   // 0.4 m in front of you and 0.38 m below the eyes, turned to face you, the top leaning away: where a hand rests to type.
+  // It stays put while you type and follows like the menu does: round when you turn far, up or down when you stand or sit.
+  const DIST = 0.4;
+  const DROP = 0.38;
+  let kYaw = 0;
+  let kPos = new Vector3();
+  let kY = 0;
+  let followYaw = false;
+  let followPos = false;
+  let followY = false;
+  const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  function apply(h: { pos: Vector3 }) {
+    panel.mesh.position.set(kPos.x, kY, kPos.z);
+    panel.mesh.rotation.set(-0.85, Math.atan2(h.pos.x - kPos.x, h.pos.z - kPos.z), 0, 'YXZ');
+    panel.mesh.updateMatrixWorld(true);
+  }
   function place() {
     const h = head();
     if (!h) return;
     const f = new Vector3(h.fwd.x, 0, h.fwd.z);
     if (f.length() < 0.2) f.set(0, 0, -1);
     f.normalize();
-    panel.mesh.position.set(h.pos.x + f.x * 0.4, h.pos.y - 0.38, h.pos.z + f.z * 0.4);
-    panel.mesh.rotation.set(-0.85, Math.atan2(h.pos.x - panel.mesh.position.x, h.pos.z - panel.mesh.position.z), 0, 'YXZ');
-    panel.mesh.updateMatrixWorld(true);
+    kYaw = Math.atan2(f.x, f.z);
+    kPos = new Vector3(h.pos.x + f.x * DIST, 0, h.pos.z + f.z * DIST);
+    kY = h.pos.y - DROP;
+    followYaw = followPos = followY = false;
+    apply(h);
+  }
+  function follow(h: { pos: Vector3; fwd: Vector3 }, dt: number) {
+    if (!panel.mesh.visible) return;
+    if (Math.hypot(h.fwd.x, h.fwd.z) > 0.3) {
+      const d = wrapAngle(Math.atan2(h.fwd.x, h.fwd.z) - kYaw);
+      if (Math.abs(d) > 0.75) followYaw = true;
+      if (followYaw) {
+        kYaw += d * Math.min(1, dt * 3);
+        if (Math.abs(wrapAngle(Math.atan2(h.fwd.x, h.fwd.z) - kYaw)) < 0.12) followYaw = false;
+      }
+    }
+    const tx = h.pos.x + Math.sin(kYaw) * DIST;
+    const tz = h.pos.z + Math.cos(kYaw) * DIST;
+    const err = Math.hypot(tx - kPos.x, tz - kPos.z);
+    if (err > 0.18) followPos = true;
+    if (followPos) {
+      const k = Math.min(1, dt * 3);
+      kPos.x += (tx - kPos.x) * k;
+      kPos.z += (tz - kPos.z) * k;
+      if (err < 0.04) followPos = false;
+    }
+    const dy = h.pos.y - DROP - kY;
+    if (Math.abs(dy) > 0.07) followY = true;
+    if (followY) {
+      kY += dy * Math.min(1, dt * 2);
+      if (Math.abs(dy) < 0.02) followY = false;
+    }
+    apply(h);
   }
 
   let req: KeyboardRequest | null = null;
@@ -158,7 +203,24 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
   function render() {
     const widgets: Widget[] = [
       { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: theme().headerSub },
-      { kind: 'row', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${req?.secret ? '•'.repeat(text.length) : text}│`, size: 40, fill: 'rgba(14,16,22,0.9)', hoverFill: 'rgba(14,16,22,0.9)', color: '#ffffff', glass: true },
+      { kind: 'row', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: req?.secret ? '•'.repeat(text.length) : text, caret: true, size: 40, fill: 'rgba(14,16,22,0.9)', hoverFill: 'rgba(14,16,22,0.9)', color: '#ffffff', glass: true },
+      ...(text
+        ? [
+            {
+              kind: 'iconbtn' as const,
+              icon: 'close' as const,
+              rect: { x: W - PAD - 190 - 58, y: 8 + 40 + 9, w: 52, h: 52 },
+              text: '',
+              fill: 'rgba(255,255,255,0.16)',
+              onClick: () => {
+                text = ''; // clears everything at once
+                if (req?.capital !== false) shift = 'once';
+                req?.onChange?.(text);
+                render();
+              },
+            },
+          ]
+        : []),
       { glass: true, rect: { x: W - PAD - 170, y: 48, w: 170, h: 70 }, text: 'Annulla', size: 28, color: '#ffffff', ...KEY, onClick: cancel },
     ];
     const unit = (W - 2 * PAD - 9 * GAP) / 10;
@@ -208,6 +270,7 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
       render();
     },
     close,
+    follow,
     panel,
     isOpen: () => panel.mesh.visible,
     // Test hook: what a typed sequence of keys would produce.

@@ -2429,6 +2429,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     tick(now: number, head: Head, dt: number) {
       void pollLink(now);
+      keyboard.follow(head, dt);
       lastHead = head;
       if (now - lastHere > 1000) {
         lastHere = now;
@@ -2579,6 +2580,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     pokeTips(tips: { id: string; pos: Vector3 | null }[]) {
       poke.update(tips);
     },
+    pokeActive: () => poke.active(),
+    // The keyboard's panel while it is open: the virtual hands rest on it instead of going through.
+    keyboardSurface: () => (keyboard.isOpen() ? keyboard.panel.mesh : null),
     aim,
     pinchDown,
     pinchUp,

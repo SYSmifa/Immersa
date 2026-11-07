@@ -34,6 +34,7 @@ export interface Widget {
   color?: string;
   fill?: string; // chip / iconbtn / pill fill
   downFill?: string; // the fill while it is pressed (instead of hoverFill)
+  caret?: boolean; // row: a text cursor right after the last character
   hoverFill?: string; // pill: the fill (with white text) while the ray is on it
   wrap?: boolean; // labels only
   icon?: IconName;
@@ -547,7 +548,14 @@ export class Panel {
       c.fillStyle = w.disabled ? T.textDisabled : accent ? 'rgba(255,255,255,0.85)' : T.sub;
       c.fillText(fit(c, w.sub, maxW), tx, y + h * 0.72);
     } else {
-      c.fillText(fit(c, w.text, w.icon ? ww - (tx - x) - pad : maxW), tx, y + h / 2 + 1);
+      const shown = fit(c, w.text, w.icon ? ww - (tx - x) - pad - (w.caret ? 8 : 0) : maxW - (w.caret ? 8 : 0));
+      c.fillText(shown, tx, y + h / 2 + 1);
+      if (w.caret && left) {
+        // the cursor is drawn, not typed: a character for it would come with a gap of its own in front
+        const cx = tx + c.measureText(shown).width + 3;
+        c.fillStyle = w.color ?? T.text;
+        c.fillRect(cx, y + h / 2 - size * 0.55, 3, size * 1.1);
+      }
     }
   }
 

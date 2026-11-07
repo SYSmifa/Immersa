@@ -33,7 +33,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   // Laser smoothing (exponential, time based): light while pointing, heavier while pinching (grabs) for precision.
-  createHands(renderer, scene);
+  createHands(renderer, scene, () => core.keyboardSurface());
   let smoothO: Vector3 | null = null;
   let smoothD: Vector3 | null = null;
   const TAU_POINT = 0.03;
@@ -264,7 +264,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
               laserHidden = laserHidden ? facing > 0.55 : facing > 0.75; // hysteresis: no flicker at the edge
             } else laserHidden = false;
           }
-          if (src.handedness === dominant && laserHidden) {
+          if (src.handedness === dominant && (laserHidden || core.pokeActive())) {
             core.host.setRay(id, null);
           } else if (src.handedness === dominant) {
             core.host.noCursor.add(id);

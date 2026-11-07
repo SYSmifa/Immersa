@@ -94,6 +94,11 @@ export function createPoke(host: UiHost, panel: Panel) {
   }
 
   return {
+    // A finger is near the keyboard (its halo or dot is showing): the laser steps aside.
+    active() {
+      for (const st of states.values()) if (st.dot.visible) return true;
+      return false;
+    },
     // Call every frame with the index fingertip of each tracked hand (null = lost).
     update(tips: { id: string; pos: Vector3 | null }[]) {
       for (const t of tips) one(t.id, t.pos);
