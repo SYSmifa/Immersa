@@ -101,7 +101,13 @@ function takeAuthError(): string | undefined {
   const text = q.get('error_description') ?? s.get('error_description') ?? q.get('error') ?? s.get('error');
   if (!text) return undefined;
   history.replaceState(null, '', location.pathname + location.search.replace(/[?&](error|error_code|error_description)=[^&]*/g, '').replace(/^&/, '?'));
-  return `Accesso non riuscito: ${text.replace(/\+/g, ' ')}`;
+  let clean = text.replace(/\+/g, ' ');
+  try {
+    clean = decodeURIComponent(clean); // Supabase sometimes encodes the message twice
+  } catch {
+    /* keep it as it is */
+  }
+  return `Accesso non riuscito: ${clean}`;
 }
 
 // Entry for the PC: stage without AR, then the editor (the login box lives in its sidebar).
