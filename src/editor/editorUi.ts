@@ -250,6 +250,18 @@ const CSS = `
 .ed-modal h3{margin:0;font-size:18px}
 .ed-modal .ed-card{gap:10px}
 .ed-warn{color:#b45309;font-size:12px;font-weight:500}
+.ed-modal .ed-login{width:420px;padding:30px 28px 24px;gap:14px}
+.ed-login .ed-brand{justify-content:center;font-size:22px}
+.ed-login h3{text-align:center;font-size:20px}
+.ed-login .ed-sub{text-align:center;color:#9aa4b8;font-size:13px;margin-top:-6px}
+.ed-login input{width:100%;padding:11px 12px;border-radius:12px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:15px}
+.ed-login input:focus{border-color:var(--acc)}
+.ed-login .ed-pill{width:100%;justify-content:center;padding:11px 14px;font-size:15px}
+.ed-login .ed-err{color:#fca5a5;font-size:13px;min-height:16px;text-align:center}
+.ed-or{display:flex;align-items:center;gap:10px;color:#7d879c;font-size:12px}
+.ed-or:before,.ed-or:after{content:"";flex:1;height:1px;background:#2a3140}
+.ed-login .ed-sso{background:#fff;color:#12151c;display:flex;gap:10px;align-items:center}
+.ed-login .ed-sso svg{width:20px;height:20px;flex:none}
 .ed-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;max-width:min(640px,50vw);padding:11px 20px;border-radius:999px;
   background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0008;color:#fff;text-align:center;white-space:pre-wrap;transition:opacity .2s}
 .ed-toast:empty{opacity:0}
@@ -1045,6 +1057,74 @@ export function createEditorUi(h: EditorHandlers) {
         root.append(overlay);
         refresh();
       });
+    },
+
+    // Not signed in: a card in the middle of the screen (email and password, or Google / Microsoft). Reloads the page when it works.
+    askLogin(h: {
+      signIn(email: string, password: string, signUp: boolean): Promise<{ ok: true } | { ok: false; message: string }>;
+      signInWith?(provider: 'google' | 'azure'): Promise<{ ok: true } | { ok: false; message: string }>;
+    }) {
+      const overlay = el('div', '', 'ed-modal');
+      const panel = el('div', '', 'ed-panel ed-login');
+      const brand = el('div', '', 'ed-brand');
+      brand.append(el('i'), document.createTextNode('Immersa'));
+      const err = el('div', '', 'ed-err');
+      const email = el('input');
+      email.type = 'email';
+      email.placeholder = 'Email';
+      email.autocomplete = 'username';
+      const password = el('input');
+      password.type = 'password';
+      password.placeholder = 'Password';
+      password.autocomplete = 'current-password';
+      const busy = (on: boolean) => panel.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = on));
+      const run = async (signUp: boolean) => {
+        if (!email.value.trim() || !password.value) {
+          err.textContent = 'Scrivi email e password.';
+          return;
+        }
+        err.textContent = '';
+        busy(true);
+        const res = await h.signIn(email.value, password.value, signUp);
+        if (res.ok) return location.reload();
+        busy(false);
+        err.textContent = res.message;
+      };
+      const sso = (label: string, icon: string, provider: 'google' | 'azure') => {
+        const b = el('button', '', 'ed-pill ed-sso');
+        b.innerHTML = `${icon}<span>${label}</span>`;
+        b.onclick = async () => {
+          err.textContent = '';
+          busy(true);
+          const res = await (h.signInWith?.(provider) ?? Promise.resolve({ ok: false as const, message: 'Accesso non disponibile.' }));
+          if (!res.ok) {
+            busy(false);
+            err.textContent = res.message;
+          }
+        };
+        return b;
+      };
+      const GOOGLE = '<svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.3c0-.8-.1-1.5-.2-2.2H12v4.2h5.9a5 5 0 0 1-2.2 3.3v2.7h3.5c2.1-1.9 3.3-4.7 3.3-8z"/><path fill="#34A853" d="M12 23c3 0 5.4-1 7.2-2.7l-3.5-2.7c-1 .7-2.2 1.1-3.7 1.1-2.9 0-5.3-1.9-6.2-4.6H2.2v2.8A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.2a11 11 0 0 0 0 9.8z"/><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.1-3.1A11 11 0 0 0 2.2 7.1l3.6 2.8C6.700 7.300 9.100 5.400 12 5.400z"/></svg>';
+      const MICROSOFT = '<svg viewBox="0 0 24 24"><path fill="#F25022" d="M2 2h9.500v9.500H2z"/><path fill="#7FBA00" d="M12.500 2H22v9.500h-9.500z"/><path fill="#00A4EF" d="M2 12.500h9.500V22H2z"/><path fill="#FFB900" d="M12.500 12.500H22V22h-9.500z"/></svg>';
+      const submit = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') void run(false);
+      };
+      email.onkeydown = password.onkeydown = submit;
+      panel.append(
+        brand,
+        el('h3', 'Accedi'),
+        el('div', "Usa lo stesso account del visore.", 'ed-sub'),
+        card(email, password),
+        err,
+        pill('Accedi', () => void run(false), 'acc'),
+        pill('Crea un account', () => void run(true)),
+        el('div', 'oppure', 'ed-or'),
+        sso('Continua con Google', GOOGLE, 'google'),
+        sso('Continua con Microsoft', MICROSOFT, 'azure'),
+      );
+      overlay.append(panel);
+      root.append(overlay);
+      email.focus();
     },
 
     askImport(info: { name: string; format: string; triangles: number; fixedUnit: boolean; unit: Unit; zUp: boolean; dims(unit: Unit, zUp: boolean): string }) {

@@ -4,7 +4,7 @@ import { createFakeBackend } from './fakeBackend';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // ?edittest: the PC editor with the in-memory backend and a fake upload (no Supabase needed).
 export function runEditTest() {
-  const backend = createFakeBackend();
+  const backend = createFakeBackend(new URLSearchParams(location.search).has('loggedout')); // ?loggedout: the login card
   (window as any).__backend = backend;
   let files = [
     { path: 'u/aaaa.glb', size: 3_400_000, createdAt: new Date().toISOString() },

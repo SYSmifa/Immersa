@@ -1689,7 +1689,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   ui.setStatus('Carico i progetti...');
   refreshToolbar();
   try {
-    if (!(await backend.email())) return ui.setStatus('Accedi (in basso a sinistra) con lo stesso account del visore.');
+    if (!(await backend.email())) {
+      ui.askLogin({ signIn: (e, p, up) => backend.signIn(e, p, up), signInWith: backend.signInWith?.bind(backend) });
+      return ui.setStatus('Accedi per iniziare.');
+    }
     [rooms, projects] = await withLoading('Carico i progetti', undefined, () => Promise.all([backend.listRooms(), backend.listProjects()]));
   } catch (e) {
     return ui.setStatus(`Caricamento FALLITO: ${errText(e)}`);

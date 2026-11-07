@@ -57,6 +57,12 @@ export function createSupabaseBackend(): Backend {
   return {
     email: currentUserEmail,
     signIn: authenticate,
+    async signInWith(provider) {
+      if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
+      const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${location.origin}${location.pathname}` } });
+      if (error) return { ok: false as const, message: /provider|unsupported|not enabled/i.test(error.message) ? 'Questo accesso non è ancora attivo (va abilitato in Supabase).' : error.message };
+      return { ok: true as const }; // the page is already on its way to the provider
+    },
     async signOut() {
       await supabase?.auth.signOut({ scope: 'local' }); // only this device: the default ('global') signs out every device of the account
     },

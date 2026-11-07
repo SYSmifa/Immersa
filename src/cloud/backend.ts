@@ -6,6 +6,8 @@ export interface Backend {
   email(): Promise<string | null>;
   signOut(): Promise<void>;
   signIn(email: string, password: string, signUp: boolean): Promise<{ ok: true } | { ok: false; message: string }>;
+  // Sign in through an identity provider (the page goes to its site and comes back signed in). Optional.
+  signInWith?(provider: 'google' | 'azure'): Promise<{ ok: true } | { ok: false; message: string }>;
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;
   renameRoom(id: string, name: string): Promise<void>;
