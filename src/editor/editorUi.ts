@@ -268,6 +268,9 @@ const CSS = `
 `;
 
 const svg = (body: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+// Sign-in providers shown on the login card. Microsoft ('azure') is ready but waits for an Entra tenant to register the app in.
+const SSO_ENABLED: ('google' | 'azure')[] = ['google'];
+
 const ICON = {
   folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
@@ -1119,8 +1122,7 @@ export function createEditorUi(h: EditorHandlers) {
         pill('Accedi', () => void run(false), 'acc'),
         pill('Crea un account', () => void run(true)),
         el('div', 'oppure', 'ed-or'),
-        sso('Continua con Google', GOOGLE, 'google'),
-        sso('Continua con Microsoft', MICROSOFT, 'azure'),
+        ...SSO_ENABLED.map((id) => (id === 'google' ? sso('Continua con Google', GOOGLE, 'google') : sso('Continua con Microsoft', MICROSOFT, 'azure'))),
       );
       overlay.append(panel);
       root.append(overlay);
