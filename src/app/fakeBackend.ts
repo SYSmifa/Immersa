@@ -102,6 +102,7 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       signedOut = false;
       return { ok: true as const };
     },
+    signInWith: async () => ({ ok: false as const, message: 'Google non è disponibile nella prova.' }),
     // The code flow, faked: the code is ABC234 and the headset is signed in after a few polls.
     deviceLogin: (() => {
       let polls = 0;

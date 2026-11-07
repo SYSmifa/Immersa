@@ -229,6 +229,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     loginEmail: '',
     loginPassLen: 0,
     canLink: !!backend.deviceLogin,
+    canGoogle: !!backend.signInWith,
     linkCode: null,
     roomName: null,
     candidate: null,
@@ -1089,6 +1090,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         view.loginPassLen = v.length;
       }
       render();
+    },
+    signInGoogle() {
+      // Google's page is a normal web page: the immersive session ends and the app must be opened again once signed in.
+      say('Ti porto su Google. Finito l\'accesso, riapri Immersa dalla Libreria.', 6000);
+      setTimeout(() => void backend.signInWith?.('google').then((r) => !r.ok && say(r.message, 9000)), 1500);
     },
     async startLink() {
       const res = await backend.deviceLogin!.start();

@@ -43,6 +43,7 @@ export interface MenuView {
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
   canLink: boolean; // the sign-in with a code from the PC is available
+  canGoogle: boolean; // the sign-in with Google is available
   linkCode: string | null; // the code being shown while it waits for the PC
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
@@ -74,6 +75,7 @@ export interface MenuActions {
   setTab(tab: Tab): void;
   selectProject(id: string): void;
   toggleVisit(): void;
+  signInGoogle(): void;
   startLink(): void;
   cancelLink(): void;
   askSearch(): void;
@@ -276,17 +278,24 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push(text('Aspetto la conferma dal PC…', M + 28, 372, W - 56, 30, 22, T.sub, { align: 'center' }));
         out.push({ kind: 'pill', rect: { x: M + 24, y: 432, w: W - 48, h: 60 }, text: 'Annulla', size: 26, onClick: a.cancelLink });
       } else {
-        let y = 148;
+        // Same card as on the PC: the code from the PC first, then email and password, then Google.
+        let y = 142;
         if (v.canLink) {
-          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 64 }, text: 'Accedi con un codice dal PC', size: 26, onClick: a.startLink });
-          out.push(text('oppure con email e password', M + 24, y + 74, W - 48, 26, 20, T.sub, { align: 'center' }));
-          y += 112;
+          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 60 }, text: 'Accedi con un codice dal PC', size: 25, onClick: a.startLink });
+          out.push(text('oppure con email e password', M + 24, y + 66, W - 48, 24, 19, T.sub, { align: 'center' }));
+          y += 98;
         }
-        const h = v.canLink ? 56 : 64;
-        out.push({ kind: 'row', rect: { x: M + 24, y, w: W - 48, h }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 25, align: 'left', onClick: a.askEmail });
-        out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 12, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 25, align: 'left', onClick: a.askPassword });
-        out.push({ kind: 'pill', primary: !v.canLink, rect: { x: M + 24, y: y + 2 * (h + 12), w: (W - 48 - 12) / 2, h }, text: 'Accedi', size: 26, disabled: !ready, onClick: () => a.signIn(false) });
-        out.push({ kind: 'pill', rect: { x: M + 24 + (W - 48 - 12) / 2 + 12, y: y + 2 * (h + 12), w: (W - 48 - 12) / 2, h }, text: 'Crea account', size: 24, disabled: !ready, onClick: () => a.signIn(true) });
+        const h = 52;
+        const half = (W - 48 - 12) / 2;
+        out.push({ kind: 'row', rect: { x: M + 24, y, w: W - 48, h }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 24, align: 'left', onClick: a.askEmail });
+        out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 10, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 24, align: 'left', onClick: a.askPassword });
+        out.push({ kind: 'pill', primary: !v.canLink, rect: { x: M + 24, y: y + 2 * (h + 10), w: half, h }, text: 'Accedi', size: 25, disabled: !ready, onClick: () => a.signIn(false) });
+        out.push({ kind: 'pill', rect: { x: M + 24 + half + 12, y: y + 2 * (h + 10), w: half, h }, text: 'Crea account', size: 23, disabled: !ready, onClick: () => a.signIn(true) });
+        if (v.canGoogle) {
+          const gy = y + 3 * (h + 10) + 2;
+          out.push(text('oppure', M + 24, gy, W - 48, 22, 19, T.sub, { align: 'center' }));
+          out.push({ kind: 'pill', icon: 'google', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Continua con Google', size: 24, onClick: a.signInGoogle });
+        }
       }
     }
     return out;

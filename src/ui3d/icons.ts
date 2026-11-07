@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search';
+  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search' | 'google';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -132,6 +132,7 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
   menu: (c) => {
     for (const y of [-0.6, 0, 0.6]) poly(c, [-0.85, y, 0.85, y]);
   },
+  google: () => undefined, // drawn in colour by drawIcon
   search: (c) => {
     c.arc(-0.2, -0.2, 0.58, 0, Math.PI * 2);
     c.moveTo(0.22, 0.22);
@@ -148,6 +149,28 @@ export function drawIcon(c: Ctx, name: IconName, cx: number, cy: number, size: n
   c.save();
   c.translate(cx, cy);
   c.scale(r, r);
+  if (name === 'google') {
+    // The "G" in its four colours: a ring open at the upper right, and the bar.
+    const arc = (col: string, a0: number, a1: number) => {
+      c.beginPath();
+      c.strokeStyle = col;
+      c.arc(0, 0, 0.62, (a0 * Math.PI) / 180, (a1 * Math.PI) / 180);
+      c.stroke();
+    };
+    c.lineWidth = 0.34;
+    c.lineCap = 'butt';
+    arc('#EA4335', 200, 315);
+    arc('#FBBC05', 125, 200);
+    arc('#34A853', 55, 125);
+    arc('#4285F4', 0, 55);
+    c.beginPath();
+    c.moveTo(0.04, 0);
+    c.lineTo(0.8, 0);
+    c.strokeStyle = '#4285F4';
+    c.stroke();
+    c.restore();
+    return;
+  }
   c.beginPath();
   c.strokeStyle = color;
   c.lineWidth = 0.2;
