@@ -58,7 +58,7 @@ export function createSupabaseBackend(): Backend {
     email: currentUserEmail,
     signIn: authenticate,
     async signOut() {
-      await supabase?.auth.signOut();
+      await supabase?.auth.signOut({ scope: 'local' }); // only this device: the default ('global') signs out every device of the account
     },
     async listRooms() {
       const res = await client().from('rooms').select(ROOM_COLS).order('updated_at', { ascending: false });

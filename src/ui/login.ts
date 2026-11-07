@@ -30,7 +30,7 @@ export async function createLogin(parent?: HTMLElement) {
     box.append(
       label,
       button('Esci', async () => {
-        await sb.auth.signOut();
+        await sb.auth.signOut({ scope: 'local' });
         location.reload();
       }),
     );
