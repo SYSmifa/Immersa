@@ -234,6 +234,16 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         else pl = pinchPoint(frame, src, ref);
       }
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
+      // The index fingertips, to type on the keyboard by touching the keys.
+      const tips: { id: string; pos: Vector3 | null }[] = [];
+      for (const src of frame.session.inputSources) {
+        const hand = (src as unknown as { hand?: XRHand }).hand;
+        if (!hand || src.handedness === 'none') continue;
+        const joint = hand.get('index-finger-tip');
+        const jp = joint && frame.getJointPose?.(joint, ref);
+        tips.push({ id: src.handedness, pos: jp ? new Vector3(jp.transform.position.x, jp.transform.position.y, jp.transform.position.z) : null });
+      }
+      core.pokeTips(tips);
       const seen = new Set<string>();
       let laserOn = false;
       for (const src of frame.session.inputSources) {

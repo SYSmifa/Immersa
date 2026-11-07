@@ -33,6 +33,7 @@ export interface Widget {
   bold?: boolean;
   color?: string;
   fill?: string; // chip / iconbtn / pill fill
+  downFill?: string; // the fill while it is pressed (instead of hoverFill)
   hoverFill?: string; // pill: the fill (with white text) while the ray is on it
   wrap?: boolean; // labels only
   icon?: IconName;
@@ -502,8 +503,8 @@ export class Panel {
     const accent = w.active || w.primary;
     let fill: string | CanvasGradient = T.surface;
     if (kind === 'field') fill = '#ffffff';
-    else if (w.disabled) fill = 'rgba(255,255,255,0.5)';
-    else if (w.fill) fill = hover || down ? (w.hoverFill ?? w.fill) : w.fill;
+    else if (w.disabled) fill = w.fill ?? 'rgba(255,255,255,0.5)';
+    else if (w.fill) fill = down && w.downFill ? w.downFill : hover || down ? (w.hoverFill ?? w.fill) : w.fill;
     else if (accent) fill = gradient(c, x, y, ww, hover ? T.accentHover : T.accent);
     else if (w.glass) fill = hover ? T.glassHover : T.glass;
     else if (down) fill = T.surfaceDown;

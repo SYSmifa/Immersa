@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
 import type { UiHost } from './host';
 import { theme } from './theme';
+import { Vector3 } from 'three';
 import { Panel, type Widget } from './panel';
 
 export interface KeyboardRequest {
@@ -64,21 +65,33 @@ function rows(mode: Mode): Key[][] {
   ];
 }
 
-const PX = 1200;
 const W = 1080;
 const H = 520;
 const PAD = 12;
 const GAP = 8;
 
-// On-screen keyboard as a tilted 3D panel under the menu. Pointed at with the same
-// rays as the menu (see UiHost), so names can be typed without leaving AR.
-export function createKeyboard(host: UiHost, parent: Object3D) {
-  const panel = new Panel(W / PX, H / PX, PX);
-  panel.mesh.position.set(0, -0.54, 0.12);
-  panel.mesh.rotation.x = -0.55; // top leans away, like a keyboard held in front of you
+// On-screen keyboard: a tilted panel that appears within arm's reach, below the eyes, and then stays where it is, so the
+// fingers can be put on the keys (see poke.ts). The laser works on it too. Dark keys like the system keyboard, in Immersa's
+// font; the OK key is turquoise.
+const SIZE = 0.54; // m, width of the panel
+const KEY = { fill: 'rgba(46,50,60,0.96)', hoverFill: 'rgba(84,92,108,0.98)', downFill: '#2dd4bf' };
+
+export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos: Vector3; fwd: Vector3 } | null) {
+  const panel = new Panel(SIZE, (SIZE * H) / W, W / SIZE);
   panel.mesh.visible = false;
   parent.add(panel.mesh);
   host.add(panel);
+  // 0.4 m in front of you and 0.38 m below the eyes, turned to face you, the top leaning away: where a hand rests to type.
+  function place() {
+    const h = head();
+    if (!h) return;
+    const f = new Vector3(h.fwd.x, 0, h.fwd.z);
+    if (f.length() < 0.2) f.set(0, 0, -1);
+    f.normalize();
+    panel.mesh.position.set(h.pos.x + f.x * 0.4, h.pos.y - 0.38, h.pos.z + f.z * 0.4);
+    panel.mesh.rotation.set(-0.85, Math.atan2(h.pos.x - panel.mesh.position.x, h.pos.z - panel.mesh.position.z), 0, 'YXZ');
+    panel.mesh.updateMatrixWorld(true);
+  }
 
   let req: KeyboardRequest | null = null;
   let text = '';
@@ -145,8 +158,8 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
   function render() {
     const widgets: Widget[] = [
       { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: theme().headerSub },
-      { kind: 'field', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${req?.secret ? '•'.repeat(text.length) : text}│`, size: 40 },
-      { rect: { x: W - PAD - 170, y: 48, w: 170, h: 70 }, text: 'Annulla', size: 28, onClick: cancel },
+      { kind: 'row', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: `${req?.secret ? '•'.repeat(text.length) : text}│`, size: 40, fill: 'rgba(14,16,22,0.9)', hoverFill: 'rgba(14,16,22,0.9)', color: '#ffffff', glass: true },
+      { glass: true, rect: { x: W - PAD - 170, y: 48, w: 170, h: 70 }, text: 'Annulla', size: 28, color: '#ffffff', ...KEY, onClick: cancel },
     ];
     const unit = (W - 2 * PAD - 9 * GAP) / 10;
     const keyH = 76;
@@ -166,6 +179,9 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
           size: k.ch || k.act === 'space' ? 38 : 30,
           primary: k.act === 'ok',
           active: isShift && shift !== 'off',
+          glass: true,
+          color: '#ffffff',
+          ...(k.act === 'ok' ? {} : KEY),
           disabled: k.act === 'ok' && !text.trim() && !req?.allowEmpty,
           onClick: () => press(k),
         });
@@ -187,6 +203,7 @@ export function createKeyboard(host: UiHost, parent: Object3D) {
       text = r.initial ?? '';
       mode = 'letters';
       shift = text || r.capital === false ? 'off' : 'once'; // names start with a capital
+      place(); // near you, and it stays there
       panel.mesh.visible = true;
       render();
     },

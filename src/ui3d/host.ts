@@ -11,6 +11,7 @@ interface Pointer {
   cursor: Mesh;
   hover: Hit | null;
   press: Hit | null;
+  flash: { panel: Panel; rect: { x: number; y: number }; until: number } | null; // a key tapped by a finger: shown pressed for a moment
   lastFx: number;
   lastFy: number;
 }
@@ -44,7 +45,7 @@ export class UiHost {
       cursor.renderOrder = 1001;
       cursor.visible = false;
       this.root.add(cursor);
-      p = { cursor, hover: null, press: null, lastFx: -1, lastFy: -1 };
+      p = { cursor, hover: null, press: null, flash: null, lastFx: -1, lastFy: -1 };
       this.pointers.set(id, p);
     }
     return p;
@@ -122,6 +123,16 @@ export class UiHost {
     hit?.widget?.onClick?.();
   }
 
+  // A finger touched what the pointer is on: it acts at once (a key types as the finger lands) and looks pressed for a moment.
+  tap(id: string): boolean {
+    const p = this.pointer(id);
+    const w = p.hover?.widget;
+    if (!p.hover || !w || w.disabled || !w.onClick) return false;
+    p.flash = { panel: p.hover.panel, rect: { x: w.rect.x, y: w.rect.y }, until: performance.now() + 130 };
+    w.onClick();
+    return true;
+  }
+
   cancel(id: string) {
     this.pointer(id).press = null;
   }
@@ -133,6 +144,15 @@ export class UiHost {
     for (const p of this.pointers.values()) {
       if (p.hover && (p.hover.widget || !hover.has(p.hover.panel))) hover.set(p.hover.panel, p.hover.widget);
       if (p.press) pressed.set(p.press.panel, p.press.widget);
+      if (p.flash) {
+        if (performance.now() > p.flash.until) p.flash = null;
+        else {
+          // the widgets may have been rebuilt by the tap: find the one in the same place
+          const f = p.flash;
+          const w = f.panel.widgets.find((x) => x.rect.x === f.rect.x && x.rect.y === f.rect.y);
+          if (w) pressed.set(f.panel, w);
+        }
+      }
     }
     for (const panel of this.panels) {
       panel.setHover(hover.get(panel) ?? null);

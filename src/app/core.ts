@@ -15,6 +15,7 @@ import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/rec
 import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
+import { createPoke } from '../ui3d/poke';
 import { projectTones, theme } from '../ui3d/theme';
 import { layersPreferred } from '../ui3d/layers';
 import { hexToHsv, hsvToHex, type Hsv } from '../ui3d/color';
@@ -143,7 +144,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const menu = new Panel(MENU_W / 1200, MENU_H / 1200, 1200);
   rig.add(menu.mesh);
   host.add(menu);
-  const keyboard = createKeyboard(host, rig);
+  const keyboard = createKeyboard(host, host.root, () => lastHead);
+  const poke = createPoke(host, keyboard.panel); // typing with the fingers
   // Floating loading card in front of you (not interactive): the animated logo, what is loading and, for a project, how
   // many of its models are in.
   const loading = new Panel(0.56, 0.34, 1200, 'ink');
@@ -2345,7 +2347,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, keyboard.panel, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, listLoader, loading, splashPanel, hud, objButton, notice],
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -2572,6 +2574,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       candidate = null;
       setRecognised(null);
+    },
+    // The index fingertips of the tracked hands (for typing on the keyboard); call every frame.
+    pokeTips(tips: { id: string; pos: Vector3 | null }[]) {
+      poke.update(tips);
     },
     aim,
     pinchDown,
