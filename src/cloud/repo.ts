@@ -44,6 +44,21 @@ const toProject = (r: ProjectRow): Project => {
   };
 };
 
+// Message of a failed Edge Function call (the function answers { error } with a status; no function at all = not deployed).
+async function fnMessage(error: unknown): Promise<string> {
+  const ctx = (error as { context?: Response } | null)?.context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const b = (await ctx.clone().json()) as { error?: string };
+      if (b?.error) return b.error;
+      if (ctx.status === 404) return 'Questa funzione non è ancora attiva: va pubblicata in Supabase (link-device).';
+    } catch {
+      /* not JSON */
+    }
+  }
+  return /not found|failed to send|fetch/i.test((error as Error)?.message ?? '') ? 'Questa funzione non è ancora attiva: va pubblicata in Supabase (link-device).' : ((error as Error)?.message ?? 'Errore');
+}
+
 function client() {
   if (!supabase) throw new Error('Supabase non configurato (.env.local)');
   return supabase;
@@ -54,9 +69,40 @@ function check(error: { message: string } | null) {
 const now = () => new Date().toISOString();
 
 export function createSupabaseBackend(): Backend {
+  let link: { code: string; secret: string } | null = null; // the code the headset is waiting on
   return {
     email: currentUserEmail,
     signIn: authenticate,
+    deviceLogin: {
+      async start() {
+        if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
+        const { data, error } = await supabase.functions.invoke('link-device', { body: { action: 'start' } });
+        if (error || !data?.code) return { ok: false as const, message: error ? await fnMessage(error) : 'Nessun codice ricevuto.' };
+        link = { code: data.code as string, secret: data.secret as string };
+        return { ok: true as const, code: link.code };
+      },
+      async poll() {
+        if (!supabase || !link) return 'expired' as const;
+        const { data, error } = await supabase.functions.invoke('link-device', { body: { action: 'poll', code: link.code, secret: link.secret } });
+        if (error) return { error: await fnMessage(error) };
+        if (data?.status === 'ok' && data.token_hash) {
+          link = null;
+          let r = await supabase.auth.verifyOtp({ token_hash: data.token_hash as string, type: 'magiclink' });
+          if (r.error) r = await supabase.auth.verifyOtp({ token_hash: data.token_hash as string, type: 'email' });
+          return r.error ? { error: r.error.message } : ('ok' as const);
+        }
+        if (data?.status === 'expired') link = null;
+        return data?.status === 'expired' ? ('expired' as const) : ('wait' as const);
+      },
+      cancel() {
+        link = null;
+      },
+    },
+    async approveDeviceLink(code) {
+      if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
+      const { error } = await supabase.functions.invoke('link-device', { body: { action: 'approve', code } });
+      return error ? { ok: false as const, message: await fnMessage(error) } : { ok: true as const };
+    },
     async signInWith(provider) {
       if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
       const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${location.origin}${location.pathname}` } });

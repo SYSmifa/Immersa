@@ -42,6 +42,8 @@ export interface MenuView {
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
+  canLink: boolean; // the sign-in with a code from the PC is available
+  linkCode: string | null; // the code being shown while it waits for the PC
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
@@ -72,6 +74,8 @@ export interface MenuActions {
   setTab(tab: Tab): void;
   selectProject(id: string): void;
   toggleVisit(): void;
+  startLink(): void;
+  cancelLink(): void;
   askSearch(): void;
   clearSearch(): void;
   setScroll(fraction: number): void;
@@ -264,10 +268,26 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       const ready = !!v.loginEmail && v.loginPassLen > 0;
       out.push(subtitle('Accedi al tuo account'));
       out.push(surface(M, 128, W, 390));
-      out.push({ kind: 'row', rect: { x: M + 24, y: 152, w: W - 48, h: 64 }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 26, align: 'left', onClick: a.askEmail });
-      out.push({ kind: 'row', rect: { x: M + 24, y: 232, w: W - 48, h: 64 }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 26, align: 'left', onClick: a.askPassword });
-      out.push({ kind: 'pill', primary: true, rect: { x: M + 24, y: 326, w: W - 48, h: 64 }, text: 'Accedi', size: 28, disabled: !ready, onClick: () => a.signIn(false) });
-      out.push({ kind: 'pill', rect: { x: M + 24, y: 406, w: W - 48, h: 64 }, text: 'Crea account', size: 26, disabled: !ready, onClick: () => a.signIn(true) });
+      if (v.linkCode) {
+        // Waiting for the PC: the code to type there.
+        const code = `${v.linkCode.slice(0, 3)} ${v.linkCode.slice(3)}`;
+        out.push(text('Sul PC apri Immersa, scegli "Collega un visore" e scrivi questo codice:', M + 28, 150, W - 56, 64, 24, T.text2, { wrap: true }));
+        out.push({ kind: 'label', rect: { x: M + 28, y: 240, w: W - 56, h: 110 }, text: code, size: 92, bold: true, color: T.accentText, align: 'center' });
+        out.push(text('Aspetto la conferma dal PC…', M + 28, 372, W - 56, 30, 22, T.sub, { align: 'center' }));
+        out.push({ kind: 'pill', rect: { x: M + 24, y: 432, w: W - 48, h: 60 }, text: 'Annulla', size: 26, onClick: a.cancelLink });
+      } else {
+        let y = 148;
+        if (v.canLink) {
+          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 64 }, text: 'Accedi con un codice dal PC', size: 26, onClick: a.startLink });
+          out.push(text('oppure con email e password', M + 24, y + 74, W - 48, 26, 20, T.sub, { align: 'center' }));
+          y += 112;
+        }
+        const h = v.canLink ? 56 : 64;
+        out.push({ kind: 'row', rect: { x: M + 24, y, w: W - 48, h }, text: v.loginEmail ? v.loginEmail : 'Tocca per scrivere la email', size: 25, align: 'left', onClick: a.askEmail });
+        out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 12, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 25, align: 'left', onClick: a.askPassword });
+        out.push({ kind: 'pill', primary: !v.canLink, rect: { x: M + 24, y: y + 2 * (h + 12), w: (W - 48 - 12) / 2, h }, text: 'Accedi', size: 26, disabled: !ready, onClick: () => a.signIn(false) });
+        out.push({ kind: 'pill', rect: { x: M + 24 + (W - 48 - 12) / 2 + 12, y: y + 2 * (h + 12), w: (W - 48 - 12) / 2, h }, text: 'Crea account', size: 24, disabled: !ready, onClick: () => a.signIn(true) });
+      }
     }
     return out;
   }

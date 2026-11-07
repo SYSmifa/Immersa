@@ -1131,6 +1131,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         r.name = name;
         refreshLists();
       }),
+    onLinkVisor: (code) =>
+      run(async () => {
+        const res = (await backend.approveDeviceLink?.(code)) ?? { ok: false as const, message: 'Collegamento non disponibile.' };
+        ui.setLinkResult(res.ok ? 'Fatto: il visore sta entrando nel tuo account.' : res.message, res.ok);
+      }),
     onOpenModels: () =>
       void run(async () => {
         ui.setLibrary(null);

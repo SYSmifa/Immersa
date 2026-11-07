@@ -228,6 +228,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
+    canLink: !!backend.deviceLogin,
+    linkCode: null,
     roomName: null,
     candidate: null,
     info: '',
@@ -1086,6 +1088,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         loginPassword = v;
         view.loginPassLen = v.length;
       }
+      render();
+    },
+    async startLink() {
+      const res = await backend.deviceLogin!.start();
+      if (!res.ok) return say(res.message, 9000);
+      view.linkCode = res.code;
+      linkPolledAt = 0;
+      render();
+    },
+    cancelLink() {
+      backend.deviceLogin?.cancel();
+      view.linkCode = null;
       render();
     },
     async signIn(signUp: boolean) {
@@ -2213,6 +2227,33 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
 
 
+  // Signing in with a code: while it waits for the PC the headset asks every 2 s whether it was approved.
+  let linkPolledAt = 0;
+  let linkBusy = false;
+  async function pollLink(now: number) {
+    if (!view.linkCode || linkBusy || now - linkPolledAt < 2000) return;
+    linkPolledAt = now;
+    linkBusy = true;
+    try {
+      const r = await backend.deviceLogin!.poll();
+      if (r === 'ok') {
+        view.linkCode = null;
+        await reloadRooms();
+        loadProjects();
+        view.tab = 'load';
+        render();
+      } else if (r === 'expired') {
+        view.linkCode = null;
+        say('Il codice è scaduto: premi di nuovo per averne uno nuovo.', 7000);
+      } else if (typeof r === 'object') {
+        view.linkCode = null;
+        say(r.error, 9000);
+      }
+    } finally {
+      linkBusy = false;
+    }
+  }
+
   async function reloadRooms() {
     try {
       view.email = await backend.email();
@@ -2344,6 +2385,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       recompute();
     },
     tick(now: number, head: Head, dt: number) {
+      void pollLink(now);
       lastHead = head;
       if (now - lastHere > 1000) {
         lastHere = now;

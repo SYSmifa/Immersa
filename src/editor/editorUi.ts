@@ -12,7 +12,7 @@ import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanU
 // centre-top toolbar, top-right outline of the scene with the details of the selection under it, toast at the bottom.
 export type BuildKind = 'floor' | 'wall';
 export type Gizmo = 'translate' | 'rotate' | 'scale';
-export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
+export type View = 'home' | 'projects' | 'rooms' | 'models' | 'link' | 'new' | 'project';
 
 // A file of the model library (the user's cloud storage) and where it is used.
 export interface LibraryItem {
@@ -55,6 +55,7 @@ export interface EditorHandlers {
   onRenameRoom(id: string): void;
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
+  onLinkVisor(code: string): void;
   onDeleteModel(path: string): void;
   onReplaceFromFile(oldPath: string, files: File[]): void;
   onMissingFromFile(files: File[]): void;
@@ -289,6 +290,7 @@ const ICON = {
   move: svg('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
   rotate: svg('<path d="M20 12a8 8 0 1 1-3-6.2M20 4v5h-5"/>'),
   scale: svg('<path d="M4 20L20 4M14 4h6v6M4 14v6h6"/>'),
+  visor: svg('<path d="M3 9a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-2.500l-1.500-2h-4l-1.500 2H6a3 3 0 0 1-3-3z"/><circle cx="8" cy="11.500" r="1"/><circle cx="16" cy="11.500" r="1"/>'),
   cube: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/>'),
   back: svg('<path d="M15 5l-7 7 7 7"/>'),
   eye: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
@@ -378,6 +380,7 @@ export function createEditorUi(h: EditorHandlers) {
       big(ICON.folder, 'Apri progetto', 'La lista dei tuoi progetti', () => setView('projects')),
       big(ICON.plus, 'Nuovo progetto', 'Nome e stanze', () => setView('new')),
       big(ICON.room, 'Le mie stanze', 'Stanze scansionate dal visore', () => setView('rooms')),
+      big(ICON.visor, 'Collega un visore', 'Accedi nel visore con un codice', () => setView('link')),
       big(ICON.cube, 'I miei modelli', 'File caricati nel cloud', () => {
         setView('models');
         h.onOpenModels();
@@ -456,6 +459,45 @@ export function createEditorUi(h: EditorHandlers) {
       el('div', 'Le mie stanze', 'ed-h'),
       ...(cards.length ? cards : [el('div', 'Nessuna stanza: scansionala e salvala dal visore (tab Scan).', 'ed-title')]),
     );
+  }
+
+  // Link a headset: the code it shows is typed here (on the signed-in PC) and the headset gets in.
+  let linkNote = { text: '', ok: false };
+  function renderLink() {
+    const code = el('input');
+    code.type = 'text';
+    code.placeholder = 'ABC 234';
+    code.maxLength = 7;
+    code.autocomplete = 'off';
+    code.style.cssText = 'text-transform:uppercase;letter-spacing:.25em;font-size:22px;text-align:center';
+    const note = el('div', linkNote.text, 'ed-meta');
+    note.style.color = linkNote.ok ? '#0d9488' : '#b45309';
+    const go = pill('Collega il visore', () => {
+      const v = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (v.length < 6) {
+        linkNote = { text: 'Il codice ha 6 caratteri.', ok: false };
+        note.textContent = linkNote.text;
+        note.style.color = '#b45309';
+        return code.focus();
+      }
+      linkNote = { text: 'Collego…', ok: true };
+      note.textContent = linkNote.text;
+      h.onLinkVisor(v);
+    }, 'acc');
+    code.onkeydown = (e) => {
+      if (e.key === 'Enter') go.click();
+    };
+    body.replaceChildren(
+      back('Indietro', goHome),
+      el('div', 'Collega un visore', 'ed-h'),
+      card(
+        el('div', 'Nel visore, nella schermata di accesso, scegli "Accedi con un codice dal PC": compare un codice. Scrivilo qui.', 'ed-meta'),
+        code,
+        note,
+        go,
+      ),
+    );
+    code.focus();
   }
 
   let libraryItems: LibraryItem[] | null = null; // null = loading
@@ -586,7 +628,7 @@ export function createEditorUi(h: EditorHandlers) {
   }
 
   function render() {
-    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, project: renderProject })[view]();
+    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, link: renderLink, project: renderProject })[view]();
   }
   function setView(v: View) {
     view = v;
@@ -1222,6 +1264,11 @@ export function createEditorUi(h: EditorHandlers) {
       libraryItems = items;
       libraryNote = note;
       if (view === 'models') renderModels();
+    },
+    // The answer to a headset code typed in the "Collega un visore" page.
+    setLinkResult(text: string, ok: boolean) {
+      linkNote = { text, ok };
+      if (view === 'link') renderLink();
     },
     setRooms(items: Option[]) {
       roomItems = items;

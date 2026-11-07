@@ -102,6 +102,16 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       signedOut = false;
       return { ok: true as const };
     },
+    // The code flow, faked: the code is ABC234 and the headset is signed in after a few polls.
+    deviceLogin: (() => {
+      let polls = 0;
+      return {
+        start: async () => ((polls = 0), { ok: true as const, code: 'ABC234' }),
+        poll: async () => (++polls >= 3 ? ((signedOut = false), 'ok' as const) : ('wait' as const)),
+        cancel: () => undefined,
+      };
+    })(),
+    approveDeviceLink: async (code: string) => (code === 'ABC234' ? { ok: true as const } : { ok: false as const, message: 'Codice non valido o scaduto.' }),
     listRooms: async () => rooms.map((r) => ({ ...r })),
     async createRoom(name: string, scan: RoomScan) {
       const room = { id: `r${rooms.length + 1}`, name, createdAt: now(), updatedAt: now(), scan };

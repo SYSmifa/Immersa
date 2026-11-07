@@ -8,6 +8,13 @@ export interface Backend {
   signIn(email: string, password: string, signUp: boolean): Promise<{ ok: true } | { ok: false; message: string }>;
   // Sign in through an identity provider (the page goes to its site and comes back signed in). Optional.
   signInWith?(provider: 'google' | 'azure'): Promise<{ ok: true } | { ok: false; message: string }>;
+  // Sign in the headset with a code approved on the PC (Edge Function "link-device"). Optional.
+  deviceLogin?: {
+    start(): Promise<{ ok: true; code: string } | { ok: false; message: string }>;
+    poll(): Promise<'wait' | 'ok' | 'expired' | { error: string }>; // 'ok' = signed in
+    cancel(): void;
+  };
+  approveDeviceLink?(code: string): Promise<{ ok: true } | { ok: false; message: string }>; // on the PC, signed in
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;
   renameRoom(id: string, name: string): Promise<void>;

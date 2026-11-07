@@ -99,5 +99,16 @@ create policy "models: owner delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'models' and (storage.foldername(name))[1] = (select auth.uid())::text);
 
+-- Codes that sign a headset in after the user approves them on the PC (used by the Edge Function "link-device", see
+-- supabase/functions/link-device). Row level security without policies: only the function (service role) can read or write.
+create table if not exists public.device_links (
+  code text primary key,
+  secret_hash text not null,
+  token_hash text,
+  user_id uuid references auth.users on delete cascade,
+  expires_at timestamptz not null
+);
+alter table public.device_links enable row level security;
+
 -- Make the API see the new tables right away.
 notify pgrst, 'reload schema';
