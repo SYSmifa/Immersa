@@ -229,6 +229,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     loginEmail: '',
     loginPassLen: 0,
     canLink: !!backend.deviceLogin,
+    canEmailCode: !!backend.emailCode,
+    codeFor: null,
+    loginCode: '',
     canGoogle: false, // Google's page ends the AR session: hidden in the headset (a code from the PC / phone does the job); `!!backend.signInWith` would show it again
     linkCode: null,
     roomName: null,
@@ -1089,6 +1092,37 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         loginPassword = v;
         view.loginPassLen = v.length;
       }
+      render();
+    },
+    async startEmailCode() {
+      const email = (view.codeFor ?? view.loginEmail).trim();
+      if (!email) return say('Scrivi prima la tua email, qui sopra.', 5000);
+      const res = await backend.emailCode!.send(email);
+      if (!res.ok) return say(res.message, 9000);
+      view.codeFor = email;
+      view.loginCode = '';
+      render();
+      say(`Codice inviato a ${email}`, 5000);
+    },
+    async askCode() {
+      const v = await ask('Codice dall\'email', view.loginCode, { max: 10, capital: false });
+      if (v !== null) view.loginCode = v.replace(/\s/g, '');
+      render();
+    },
+    async submitCode() {
+      if (!view.codeFor) return;
+      const res = await backend.emailCode!.verify(view.codeFor, view.loginCode);
+      if (!res.ok) return say(res.message, 9000);
+      view.codeFor = null;
+      view.loginCode = '';
+      await reloadRooms();
+      loadProjects();
+      view.tab = 'load';
+      render();
+    },
+    backFromCode() {
+      view.codeFor = null;
+      view.loginCode = '';
       render();
     },
     signInGoogle() {

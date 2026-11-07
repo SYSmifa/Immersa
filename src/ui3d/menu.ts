@@ -44,6 +44,9 @@ export interface MenuView {
   loginPassLen: number;
   canLink: boolean; // the sign-in with a code from the PC is available
   canGoogle: boolean; // the sign-in with Google is available
+  canEmailCode: boolean; // the sign-in with a code sent by email is available
+  codeFor: string | null; // the email a code was sent to (the code is being typed)
+  loginCode: string; // the code typed so far
   linkCode: string | null; // the code being shown while it waits for the PC
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
@@ -76,6 +79,10 @@ export interface MenuActions {
   selectProject(id: string): void;
   toggleVisit(): void;
   signInGoogle(): void;
+  startEmailCode(): void;
+  askCode(): void;
+  submitCode(): void;
+  backFromCode(): void;
   startLink(): void;
   cancelLink(): void;
   askSearch(): void;
@@ -270,7 +277,15 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       const ready = !!v.loginEmail && v.loginPassLen > 0;
       out.push(subtitle('Accedi al tuo account'));
       out.push(surface(M, 128, W, 390));
-      if (v.linkCode) {
+      if (v.codeFor) {
+        // A code was sent by email: type it here.
+        out.push(text(`Ti ho scritto a ${v.codeFor}. Apri l'email e scrivi qui il codice che trovi.`, M + 28, 150, W - 56, 80, 24, T.text2, { wrap: true }));
+        out.push({ kind: 'row', rect: { x: M + 24, y: 250, w: W - 48, h: 64 }, text: v.loginCode || 'Tocca per scrivere il codice', size: 28, align: 'left', onClick: a.askCode });
+        out.push({ kind: 'pill', primary: true, rect: { x: M + 24, y: 332, w: W - 48, h: 60 }, text: 'Accedi', size: 26, disabled: v.loginCode.length < 6, onClick: a.submitCode });
+        const half2 = (W - 48 - 12) / 2;
+        out.push({ kind: 'pill', rect: { x: M + 24, y: 408, w: half2, h: 56 }, text: 'Invia di nuovo', size: 23, onClick: a.startEmailCode });
+        out.push({ kind: 'pill', rect: { x: M + 24 + half2 + 12, y: 408, w: half2, h: 56 }, text: 'Indietro', size: 23, onClick: a.backFromCode });
+      } else if (v.linkCode) {
         // Waiting for the PC: the code to type there.
         const code = `${v.linkCode.slice(0, 3)} ${v.linkCode.slice(3)}`;
         out.push(text('Sul PC apri Immersa, scegli "Collega un visore" e scrivi questo codice:', M + 28, 150, W - 56, 64, 24, T.text2, { wrap: true }));
@@ -291,10 +306,11 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push({ kind: 'row', rect: { x: M + 24, y: y + h + 10, w: W - 48, h }, text: v.loginPassLen ? '•'.repeat(Math.min(v.loginPassLen, 16)) : 'Tocca per scrivere la password', size: 24, align: 'left', onClick: a.askPassword });
         out.push({ kind: 'pill', primary: !v.canLink, rect: { x: M + 24, y: y + 2 * (h + 10), w: half, h }, text: 'Accedi', size: 25, disabled: !ready, onClick: () => a.signIn(false) });
         out.push({ kind: 'pill', rect: { x: M + 24 + half + 12, y: y + 2 * (h + 10), w: half, h }, text: 'Crea account', size: 23, disabled: !ready, onClick: () => a.signIn(true) });
-        if (v.canGoogle) {
-          const gy = y + 3 * (h + 10) + 2;
+        const gy = y + 3 * (h + 10) + 2;
+        if (v.canEmailCode || v.canGoogle) {
           out.push(text('oppure', M + 24, gy, W - 48, 22, 19, T.sub, { align: 'center' }));
-          out.push({ kind: 'pill', icon: 'google', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Continua con Google', size: 24, onClick: a.signInGoogle });
+          if (v.canEmailCode) out.push({ kind: 'pill', icon: 'check', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Accedi con un codice via email', size: 24, onClick: a.startEmailCode });
+          else out.push({ kind: 'pill', icon: 'google', rect: { x: M + 24, y: gy + 26, w: W - 48, h: 54 }, text: 'Continua con Google', size: 24, onClick: a.signInGoogle });
         }
       }
     }

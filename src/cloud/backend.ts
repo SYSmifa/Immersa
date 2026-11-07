@@ -14,6 +14,11 @@ export interface Backend {
     poll(): Promise<'wait' | 'ok' | 'expired' | { error: string }>; // 'ok' = signed in
     cancel(): void;
   };
+  // Sign in with a code sent by email (for an account that already exists). Optional.
+  emailCode?: {
+    send(email: string): Promise<{ ok: true } | { ok: false; message: string }>;
+    verify(email: string, code: string): Promise<{ ok: true } | { ok: false; message: string }>;
+  };
   approveDeviceLink?(code: string): Promise<{ ok: true } | { ok: false; message: string }>; // on the PC, signed in
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;

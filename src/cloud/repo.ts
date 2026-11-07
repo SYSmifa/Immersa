@@ -98,6 +98,22 @@ export function createSupabaseBackend(): Backend {
         link = null;
       },
     },
+    emailCode: {
+      async send(email) {
+        if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
+        // Only for accounts that exist: typing a wrong address must not create a new account.
+        const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false } });
+        if (!error) return { ok: true as const };
+        if (/signups? not allowed|not found|otp/i.test(error.message)) return { ok: false as const, message: 'Non c\'è nessun account con questa email.' };
+        if (/rate|seconds|too many/i.test(error.message)) return { ok: false as const, message: 'Troppe richieste: aspetta un minuto e riprova.' };
+        return { ok: false as const, message: error.message };
+      },
+      async verify(email, code) {
+        if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
+        const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.replace(/\s/g, ''), type: 'email' });
+        return error ? { ok: false as const, message: /expired|invalid/i.test(error.message) ? 'Codice sbagliato o scaduto.' : error.message } : { ok: true as const };
+      },
+    },
     async approveDeviceLink(code) {
       if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
       const { error } = await supabase.functions.invoke('link-device', { body: { action: 'approve', code } });
