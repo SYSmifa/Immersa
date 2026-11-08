@@ -2405,6 +2405,28 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
     // The planes are gone (after a standby): say so on the floating card, and after a while what to do.
+    // After a long standby the headset hands over no planes. Meta's own scan window makes it read the room again: it is opened
+    // here (choose "Non ora" in it) without touching the saved scans (no pending name, so nothing is renewed).
+    async recoverRooms() {
+      if (!capture?.available || scanning) return;
+      scanning = true; // the standby logic waits while the system window is up
+      closeMenu();
+      searching = false;
+      loading.mesh.visible = false;
+      logEvent('finestra di scansione di Meta aperta per ritrovare le stanze');
+      try {
+        await capture.start();
+      } catch (e) {
+        scanning = false;
+        logEvent(`finestra di scansione: ${errText(e)}`);
+        return;
+      }
+      scanning = false;
+      lastTry = 0;
+      failedTries = 0;
+      readyAt = performance.now() + 1500; // let the planes arrive
+      logEvent('finestra di scansione chiusa');
+    },
     // stage 0: just looking; 1: after a few seconds the remedy that works (off and on again); 2: after a long time the last resort
     showSearching(stage: 0 | 1 | 2) {
       closeMenu();

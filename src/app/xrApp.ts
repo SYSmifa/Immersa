@@ -18,6 +18,7 @@ const NO_PLANES_MS = 1500;
 // Still no planes after this long: the card says what to do (the app does NOT restart itself: a relaunch from inside the app is
 // not treated like one from the Library and the headset then shows its own boundary again).
 const LOST_ROOM_MS = 25000;
+const RECOVER_MS = 2000; // after a standby, this long without planes: open Meta's scan window ("Non ora") to get them back
 const WAKE_HINT_MS = 5000; // after this long without planes the card says what is known to work: take the headset off and on again
 const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
@@ -96,6 +97,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let waiting: number | null = null; // since when the planes are gone and the app is waiting for them
   let hinted = false;
   let wakeHinted = false;
+  let recoverTried = false; // the system scan window was opened once since the last wake
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
@@ -106,6 +108,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     waiting = null;
     hinted = false;
     wakeHinted = false;
+    recoverTried = false;
     wakeStart = 0;
     seenPlanes = false;
     const s = session as any;
@@ -154,6 +157,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         probeAt = now + 3000;
         if (away >= AWAY_LOG_MS) {
           wakeStart = now;
+          recoverTried = false;
           wakeChecks.splice(0, wakeChecks.length, 5, 15, 30, 60, 120);
           core.logEvent(`ritorno dopo ${Math.round(away / 1000)} s`);
         }
@@ -200,6 +204,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             waiting = null;
             hinted = false;
             wakeHinted = false;
+            recoverTried = false;
             core.hideSearching();
           }
         } else if (seenPlanes && frame.session.visibilityState === 'visible' && !core.isScanning()) {
@@ -215,6 +220,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
             core.showSearching(0);
+          } else if (waiting !== null && !recoverTried && wakeStart && now - waiting > RECOVER_MS) {
+            recoverTried = true;
+            void core.recoverRooms(); // once per wake; if it does not bring the planes, the card tells to recenter
           } else if (waiting !== null && !hinted && now - waiting > LOST_ROOM_MS) {
             hinted = true;
             core.logEvent('piani non tornati: chiudere e riaprire dalla Libreria');
