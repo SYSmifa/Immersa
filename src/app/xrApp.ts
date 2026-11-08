@@ -19,6 +19,7 @@ const NO_PLANES_MS = 1500;
 // not treated like one from the Library and the headset then shows its own boundary again).
 const LOST_ROOM_MS = 25000;
 const RECOVER_MS = 2000; // after a standby, this long without planes: open Meta's scan window ("Non ora") to get them back
+const AUTO_SCAN_WINDOW = false; // off: opening Meta's scan window by itself was not liked (it starts a scan); the card tells to recenter instead
 const WAKE_HINT_MS = 5000; // after this long without planes the card says what is known to work: take the headset off and on again
 const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
@@ -220,7 +221,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
             core.showSearching(0);
-          } else if (waiting !== null && !recoverTried && wakeStart && now - waiting > RECOVER_MS) {
+          } else if (AUTO_SCAN_WINDOW && waiting !== null && !recoverTried && wakeStart && now - waiting > RECOVER_MS) {
             recoverTried = true;
             void core.recoverRooms(); // once per wake; if it does not bring the planes, the card tells to recenter
           } else if (waiting !== null && !hinted && now - waiting > LOST_ROOM_MS) {
