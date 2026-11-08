@@ -2409,7 +2409,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     showSearching(stage: 0 | 1 | 2) {
       closeMenu();
       searching = true;
-      setLoadingText('Cerco la stanza', stage === 0 ? 'Un attimo…' : stage === 1 ? 'Non la vedo. Togli e rimetti il visore per un attimo' : 'Ancora niente? Chiudi e riapri Immersa dalla Libreria');
+      setLoadingText('Cerco la stanza', stage === 0 ? 'Un attimo…' : stage === 1 ? 'Ricentra la vista: tieni premuto il tasto Meta' : 'Ancora niente? Chiudi e riapri Immersa dalla Libreria');
       loading.mesh.visible = true;
     },
     hideSearching() {

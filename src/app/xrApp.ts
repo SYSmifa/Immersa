@@ -221,7 +221,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.showSearching(2);
           } else if (waiting !== null && !wakeHinted && now - waiting > WAKE_HINT_MS) {
             wakeHinted = true;
-            core.logEvent('piani non tornati: suggerisco di togliere e rimettere il visore');
+            core.logEvent('piani non tornati: suggerisco di ricentrare la vista (tasto Meta tenuto premuto)');
             core.showSearching(1);
           }
         } else if (!planes.length) {
