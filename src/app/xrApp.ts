@@ -18,6 +18,7 @@ const NO_PLANES_MS = 1500;
 // Still no planes after this long: the card says what to do (the app does NOT restart itself: a relaunch from inside the app is
 // not treated like one from the Library and the headset then shows its own boundary again).
 const LOST_ROOM_MS = 25000;
+const WAKE_HINT_MS = 5000; // after this long without planes the card says what is known to work: take the headset off and on again
 const AWAY_LOG_MS = 2000; // diagnostics: a return after at least this long is logged with the plane count
 
 // How many planes the session reports, and for how many of them a pose is available in `ref` (diagnostics).
@@ -94,6 +95,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   let planesHidden = false; // rooms and models are hidden while the planes are gone
   let waiting: number | null = null; // since when the planes are gone and the app is waiting for them
   let hinted = false;
+  let wakeHinted = false;
   let seenPlanes = false; // the session has reported planes at least once
   let probeAt = 0; // one diagnostic line about the planes, a few seconds after the session starts
 
@@ -103,6 +105,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     planesHidden = false;
     waiting = null;
     hinted = false;
+    wakeHinted = false;
     wakeStart = 0;
     seenPlanes = false;
     const s = session as any;
@@ -196,6 +199,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.logEvent(`piani tornati dopo ${Math.round((now - waiting) / 1000)} s`);
             waiting = null;
             hinted = false;
+            wakeHinted = false;
             core.hideSearching();
           }
         } else if (seenPlanes && frame.session.visibilityState === 'visible' && !core.isScanning()) {
@@ -210,11 +214,15 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             waiting = now;
             core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
-            core.showSearching(false);
+            core.showSearching(0);
           } else if (waiting !== null && !hinted && now - waiting > LOST_ROOM_MS) {
             hinted = true;
             core.logEvent('piani non tornati: chiudere e riaprire dalla Libreria');
-            core.showSearching(true);
+            core.showSearching(2);
+          } else if (waiting !== null && !wakeHinted && now - waiting > WAKE_HINT_MS) {
+            wakeHinted = true;
+            core.logEvent('piani non tornati: suggerisco di togliere e rimettere il visore');
+            core.showSearching(1);
           }
         } else if (!planes.length) {
           zeroSince = 0; // hidden or scanning: do not count this time

@@ -2399,10 +2399,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // After a standby the session's frame has moved and the planes are gone: hide the rooms and models until the planes
     // come back and the rooms are found again (a wrong wireframe is worse than none).
     // The planes are gone (after a standby): say so on the floating card, and after a while what to do.
-    showSearching(hint: boolean) {
+    // stage 0: just looking; 1: after a few seconds the remedy that works (off and on again); 2: after a long time the last resort
+    showSearching(stage: 0 | 1 | 2) {
       closeMenu();
       searching = true;
-      setLoadingText('Cerco la stanza', hint ? 'Sei in un\'altra stanza? Chiudi e riapri Immersa dalla Libreria' : 'Un attimo…');
+      setLoadingText('Cerco la stanza', stage === 0 ? 'Un attimo…' : stage === 1 ? 'Non la vedo. Togli e rimetti il visore per un attimo' : 'Ancora niente? Chiudi e riapri Immersa dalla Libreria');
       loading.mesh.visible = true;
     },
     hideSearching() {
