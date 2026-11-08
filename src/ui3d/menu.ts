@@ -296,8 +296,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         // sign-in with a code sent by email (or Google, where it is on).
         let y = 142;
         if (v.canLink) {
-          out.push({ kind: 'pill', primary: true, icon: 'scan', rect: { x: M + 24, y, w: W - 48, h: 52 }, text: 'Accedi con un codice dal PC', size: 24, onClick: a.startLink });
-          y += 64;
+          out.push({ kind: 'pill', icon: 'scan', rect: { x: M + 8, y, w: W - 16, h: 52 }, text: 'Accedi con un codice dal PC', size: 24, onClick: a.startLink });
+          y += 74;
         }
         const h = 52;
         out.push({ kind: 'surface', rect: { x: M + 8, y: y - 8, w: W - 16, h: 2 * h + 10 + 32 }, text: '' });

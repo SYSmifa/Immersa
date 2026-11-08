@@ -230,7 +230,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
-    canLink: false, // the sign-in with a code from the PC is built (`!!backend.deviceLogin`) but not shown: the email code does the job
+    canLink: !!backend.deviceLogin, // the sign-in with a code approved on the PC
     canEmailCode: !!backend.emailCode,
     codeFor: null,
     loginCode: '',
