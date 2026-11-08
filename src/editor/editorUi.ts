@@ -56,6 +56,7 @@ export interface EditorHandlers {
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
+  listVisors(): Promise<{ code: string; ageSec: number }[]>; // headsets waiting on this network
   onDeleteModel(path: string): void;
   onReplaceFromFile(oldPath: string, files: File[]): void;
   onMissingFromFile(files: File[]): void;
@@ -260,6 +261,10 @@ const CSS = `
 .ed-login input:focus{border-color:var(--acc)}
 .ed-login .ed-pill{width:100%;justify-content:center;padding:11px 14px;font-size:15px}
 .ed-login .ed-err{color:#fca5a5;font-size:13px;min-height:16px;text-align:center}
+.ed-visor{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;background:#fff;color:#12151c;border-radius:14px;padding:10px 12px;font-weight:600}
+.ed-visor small{color:#6b7488;font-weight:500;grid-column:1}
+.ed-visor .ed-pill{grid-column:2;grid-row:1 / span 2;width:auto !important;padding:9px 16px !important}
+.ed-waiting{display:flex;flex-direction:column;gap:8px}
 .ed-or{display:flex;align-items:center;gap:10px;color:#7d879c;font-size:12px}
 .ed-or:before,.ed-or:after{content:"";flex:1;height:1px;background:#2a3140}
 .ed-login .ed-sso{background:#fff;color:#12151c;display:flex;gap:10px;align-items:center}
@@ -488,12 +493,37 @@ export function createEditorUi(h: EditorHandlers) {
     code.style.cssText = 'text-transform:uppercase;letter-spacing:.25em;font-size:24px;text-align:center';
     const note = el('div', '', 'ed-err');
     linkNoteEl = note;
+    // The headsets that are waiting on this network, found without typing anything: one click connects.
+    const waiting = el('div', '', 'ed-waiting');
+    const showWaiting = (items: { code: string; ageSec: number }[]) => {
+      waiting.replaceChildren();
+      if (!items.length) {
+        waiting.append(el('div', 'Nessun visore in attesa su questa rete. Nel visore premi "Accedi con un codice dal PC".', 'ed-sub'));
+        return;
+      }
+      for (const it of items) {
+        const row = el('div', '', 'ed-visor');
+        const spell = `${it.code.slice(0, 3)} ${it.code.slice(3)}`;
+        row.append(el('div', `Visore in attesa · codice ${spell}`), el('small', `chiesto ${it.ageSec < 60 ? `${it.ageSec} s` : `${Math.round(it.ageSec / 60)} min`} fa`));
+        const go = pill('Collega', () => {
+          showLinkNote('Collego…', true);
+          h.onLinkVisor(it.code);
+        }, 'acc');
+        row.append(go);
+        waiting.append(row);
+      }
+      waiting.append(el('div', 'Collega solo se hai appena premuto il pulsante nel tuo visore.', 'ed-sub'));
+    };
+    const refresh = () => void h.listVisors().then((items) => linkNoteEl && showWaiting(items));
+    refresh();
+    const timer = window.setInterval(refresh, 3000);
     const close = () => {
+      window.clearInterval(timer);
       window.removeEventListener('keydown', key, true);
       overlay.remove();
       linkNoteEl = null;
     };
-    const go = pill('Collega il visore', () => {
+    const go = pill('Collega con il codice', () => {
       const v = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (v.length < 6) {
         showLinkNote('Il codice ha 6 caratteri.', false);
@@ -501,17 +531,19 @@ export function createEditorUi(h: EditorHandlers) {
       }
       showLinkNote('Collego…', true);
       h.onLinkVisor(v);
-    }, 'acc');
+    });
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
-      else if (e.key === 'Enter') go.click();
+      else if (e.key === 'Enter' && document.activeElement === code) go.click();
       e.stopPropagation();
     };
     window.addEventListener('keydown', key, true);
     panel.append(
       brand,
       el('h3', 'Collega un visore'),
-      el('div', 'Nel visore, nella schermata di accesso, scegli "Accedi con un codice dal PC": compare un codice. Scrivilo qui.', 'ed-sub'),
+      waiting,
+      el('div', 'oppure scrivi il codice', 'ed-or'),
+      el('div', "Serve se il visore è su un'altra rete (per esempio l'hotspot del telefono).", 'ed-sub'),
       card(code),
       note,
       go,
@@ -519,7 +551,6 @@ export function createEditorUi(h: EditorHandlers) {
     );
     overlay.append(panel);
     root.append(overlay);
-    code.focus();
   }
 
   let libraryItems: LibraryItem[] | null = null; // null = loading

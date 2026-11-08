@@ -108,7 +108,15 @@ create table if not exists public.device_links (
   user_id uuid references auth.users on delete cascade,
   expires_at timestamptz not null
 );
+alter table public.device_links add column if not exists ip text; -- the public address the headset asked from (the PC lists the requests from its own)
 alter table public.device_links enable row level security;
+
+-- Wrong codes typed by a user: after a few the function stops that user for a while (same rules: no policies, service role only).
+create table if not exists public.device_link_failures (
+  user_id uuid not null references auth.users on delete cascade,
+  at timestamptz not null default now()
+);
+alter table public.device_link_failures enable row level security;
 
 -- Make the API see the new tables right away.
 notify pgrst, 'reload schema';

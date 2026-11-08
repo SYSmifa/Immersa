@@ -117,6 +117,7 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
         cancel: () => undefined,
       };
     })(),
+    pendingDeviceLinks: async () => [{ code: 'ABC234', ageSec: 12 }],
     approveDeviceLink: async (code: string) => (code === 'ABC234' ? { ok: true as const } : { ok: false as const, message: 'Codice non valido o scaduto.' }),
     listRooms: async () => rooms.map((r) => ({ ...r })),
     async createRoom(name: string, scan: RoomScan) {

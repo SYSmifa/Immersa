@@ -1148,6 +1148,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         r.name = name;
         refreshLists();
       }),
+    listVisors: async () => (await backend.pendingDeviceLinks?.()) ?? [],
     onLinkVisor: (code) =>
       run(async () => {
         const res = (await backend.approveDeviceLink?.(code)) ?? { ok: false as const, message: 'Collegamento non disponibile.' };

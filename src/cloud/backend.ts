@@ -20,6 +20,8 @@ export interface Backend {
     verify(email: string, code: string): Promise<{ ok: true } | { ok: false; message: string }>;
   };
   approveDeviceLink?(code: string): Promise<{ ok: true } | { ok: false; message: string }>; // on the PC, signed in
+  // The headsets waiting for approval that asked from the same network as this PC (so nothing has to be typed).
+  pendingDeviceLinks?(): Promise<{ code: string; ageSec: number }[]>;
   listRooms(): Promise<Room[]>;
   createRoom(name: string, scan: RoomScan): Promise<Room>;
   renameRoom(id: string, name: string): Promise<void>;

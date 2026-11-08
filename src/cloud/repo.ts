@@ -114,6 +114,12 @@ export function createSupabaseBackend(): Backend {
         return error ? { ok: false as const, message: /expired|invalid/i.test(error.message) ? 'Codice sbagliato o scaduto.' : error.message } : { ok: true as const };
       },
     },
+    async pendingDeviceLinks() {
+      if (!supabase) return [];
+      const { data, error } = await supabase.functions.invoke('link-device', { body: { action: 'pending' } });
+      if (error) return [];
+      return ((data?.items ?? []) as { code: string; ageSec: number }[]).slice(0, 5);
+    },
     async approveDeviceLink(code) {
       if (!supabase) return { ok: false as const, message: 'Supabase non configurato (.env.local)' };
       const { error } = await supabase.functions.invoke('link-device', { body: { action: 'approve', code } });
