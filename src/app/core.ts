@@ -252,6 +252,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     unsaved: false,
     canVisit: false,
     visit: false,
+    showLog: false,
     search: '',
     scroll: 0,
     outline: true,
@@ -1156,6 +1157,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     setTab(tab: Tab) {
       view.tab = tab;
+      view.showLog = false;
       autoTab = false;
       render();
     },
@@ -1175,6 +1177,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     toggleVisit() {
       if (visit) setVisit(false);
       else openVisitWarning();
+    },
+    toggleLog() {
+      view.showLog = !view.showLog;
+      render();
     },
     askSearch() {
       // The list is filtered after every key; OK or closing the keyboard keeps the filter.

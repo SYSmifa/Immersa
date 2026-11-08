@@ -63,6 +63,7 @@ export interface MenuView {
   unsaved: boolean; // models moved in the headset and not saved yet
   canVisit: boolean; // the open project is a plan without scanned rooms: it can be visited virtually
   visit: boolean; // the virtual visit is on
+  showLog: boolean; // the Account tab shows the long event log (to photograph it)
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
@@ -85,6 +86,7 @@ export interface MenuActions {
   backFromCode(): void;
   startLink(): void;
   cancelLink(): void;
+  toggleLog(): void;
   askSearch(): void;
   clearSearch(): void;
   setScroll(fraction: number): void;
@@ -426,10 +428,29 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(surface(M, top + 330, W, 50));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 336, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 357, W - 48, 18, 14, T.dim)));
+  } else if (v.showLog) {
+    // The event log in big, readable lines: the headset has no copy and paste, so it is meant to be photographed.
+    out.push(surface(M, top, W, 392));
+    // the newest lines that fit, shown oldest first
+    const shown: { line: string; rows: number }[] = [];
+    let used = 0;
+    for (const line of [...v.log].reverse()) {
+      const rows = line.length > 74 ? 2 : 1;
+      if (used + rows * 22 + 4 > 316) break;
+      shown.unshift({ line, rows });
+      used += rows * 22 + 4;
+    }
+    let y = top + 14;
+    for (const it of shown) {
+      out.push(text(it.line, M + 24, y, W - 48, it.rows * 22, 17, T.text2, { wrap: true }));
+      y += it.rows * 22 + 4;
+    }
+    out.push({ kind: 'pill', rect: { x: M + 24, y: top + 334, w: W - 48, h: 46 }, text: 'Indietro', size: 22, onClick: a.toggleLog });
   } else {
     out.push(surface(M, top, W, 380));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
-    out.push({ kind: 'pill', rect: { x: M + 28, y: top + 128, w: W - 56, h: 60 }, text: 'Esci', size: 25, color: T.bad, onClick: a.signOut });
+    out.push({ kind: 'pill', rect: { x: M + 28, y: top + 128, w: (W - 56) / 2 - 6, h: 60 }, text: 'Esci', size: 25, color: T.bad, onClick: a.signOut });
+    out.push({ kind: 'pill', rect: { x: M + 28 + (W - 56) / 2 + 6, y: top + 128, w: (W - 56) / 2 - 6, h: 60 }, text: 'Registro eventi', size: 23, onClick: a.toggleLog });
     out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 198, W - 56, 24, 16, T.dim));
     // The last events, kept across app restarts: what the session did around a standby.
     v.log.slice(-7).forEach((line, i) => out.push(text(line, M + 28, top + 230 + i * 20, W - 56, 20, 14, T.sub)));
