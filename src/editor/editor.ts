@@ -36,7 +36,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
-import { countTriangles, glbTrianglesAt, glbTrianglesOfFile, HEAVY_TRIANGLES, MAX_FILE_BYTES, simplifyGlb } from './simplify';
+import { countTriangles, glbTrianglesAt, describeGlb, glbTrianglesOfFile, HEAVY_TRIANGLES, MAX_FILE_BYTES, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelSize as localModelSize } from '../room/selection';
@@ -929,6 +929,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   // Files that are about to go up: the ones above the headset's triangle budget are offered for simplification (a dialog with
   // the choice per model); what comes back is what must be uploaded. null = the user cancelled.
+  const simplifiedKeys = new Set<string>(); // files that went through the simplifier (for the size message)
   async function lighten(entries: { key: string; name: string; file: File }[]): Promise<Map<string, File> | null> {
     const heavy: { id: string; name: string; triangles: number }[] = [];
     await withLoading('Controllo i modelli', undefined, async () => {
@@ -947,6 +948,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const entry = entries.find((e) => e.key === h.id)!;
       const res = await withLoading('Semplifico il modello', h.name, (progress) => simplifyGlb(entry.file, HEAVY_TRIANGLES, progress));
       out.set(h.id, res.file);
+      simplifiedKeys.add(h.id);
       ui.setStatus(`${h.name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}% (${res.after.toLocaleString('it-IT')} triangoli, ${(res.file.size / 1048576).toFixed(1)} MB).`);
     }
     return out;
@@ -964,7 +966,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const files = await lighten(entries);
       if (!files) return false;
       for (const e of entries) {
-        const { path } = await withLoading('Carico il modello', e.name, () => upload(files.get(e.key)!));
+        const f = files.get(e.key)!;
+        if (f.size > MAX_FILE_BYTES + 5 * 1048576) {
+          // Over the cloud's limit: say what is in the file, instead of sending hundreds of MB for nothing.
+          throw new Error(`${e.name}: il file da caricare (${simplifiedKeys.has(e.key) ? 'semplificato' : 'originale, non semplificato'}) pesa ${(f.size / 1048576).toFixed(0)} MB, il cloud accetta 50 MB per file. Contiene ${await describeGlb(f).catch(() => 'dati che non so leggere')}`);
+        }
+        const { path } = await withLoading('Carico il modello', e.name, () => upload(f));
         uploaded.set(e.key, path);
       }
     }

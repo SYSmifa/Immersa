@@ -295,6 +295,8 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
 // it is cheap, and only the first bytes of the file are fetched when the server honours a Range request.
 interface GltfJson {
   accessors?: { count: number }[];
+  images?: { bufferView?: number }[];
+  bufferViews?: { byteLength: number }[];
   meshes?: { primitives: { mode?: number; indices?: number; attributes: { POSITION?: number } }[] }[];
   nodes?: { mesh?: number }[];
 }
@@ -336,4 +338,13 @@ export async function glbTrianglesAt(url: string): Promise<number> {
     json = all.slice(20, 20 + len);
   }
   return trianglesOfJson(parseJson(json));
+}
+
+// A short description of a GLB for messages: triangles, meshes and how much of the file is images.
+export async function describeGlb(file: Blob): Promise<string> {
+  const len = new DataView(await file.slice(0, 20).arrayBuffer()).getUint32(12, true);
+  const g = parseJson(await file.slice(20, 20 + len).arrayBuffer());
+  const imageBytes = (g.images ?? []).reduce((n, i) => n + (i.bufferView !== undefined ? (g.bufferViews?.[i.bufferView]?.byteLength ?? 0) : 0), 0);
+  const mb = (n: number) => (n / 1048576).toFixed(0);
+  return `${trianglesOfJson(g).toLocaleString('it-IT')} triangoli in ${g.meshes?.length ?? 0} mesh, ${g.images?.length ?? 0} immagini (${mb(imageBytes)} MB), il resto ${mb(file.size - imageBytes)} MB`;
 }
