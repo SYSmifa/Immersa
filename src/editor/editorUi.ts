@@ -311,6 +311,7 @@ const ICON = {
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
+  rulerAll: svg('<path d="M3 13 13 3l3 3L6 16z"/><path d="M8 17 18 7l3 3L11 20z"/><path d="M6 9l1.5 1.5M9 6l1.5 1.5M11 14l1.5 1.5M14 11l1.5 1.5"/>'),
   ruler: svg('<path d="M3 17 17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'),
   local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
@@ -725,7 +726,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, measures: 'sel', gaps: false, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, measures: 'off', gaps: false, canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -737,7 +738,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
   const NEXT: Record<MeasureMode, MeasureMode> = { off: 'sel', sel: 'all', all: 'off' };
   const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto: spente / oggetto selezionato / dimensioni di tutto (clic per cambiare)', () => h.onMeasures(NEXT[state.measures]));
-  const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dagli oggetti e dalle pareti più vicini', () => h.onGaps(!state.gaps));
+  const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
@@ -1448,6 +1449,7 @@ export function createEditorUi(h: EditorHandlers) {
       on(bLocal, s.local);
       bLocal.innerHTML = s.local ? ICON.local : ICON.world;
       on(bMeasure, s.measures !== 'off');
+      bMeasure.innerHTML = s.measures === 'all' ? ICON.rulerAll : ICON.ruler; // two rulers: everything is measured
       on(bGaps, s.gaps);
       bMeasure.title = `Misure: ${s.measures === 'off' ? 'spente' : s.measures === 'sel' ? 'oggetto selezionato' : 'dimensioni di tutto'} (clic per cambiare)`;
       bUndo.disabled = !s.canUndo;

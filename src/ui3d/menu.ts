@@ -450,7 +450,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
     out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: v.measures === 'off' ? 'Dimensioni: nessuna' : v.measures === 'sel' ? 'Dimensioni dell\'oggetto' : 'Dimensioni di tutti', badge: v.measures === 'off' ? 'No' : v.measures === 'sel' ? 'Scelto' : 'Tutti', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
     out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 22, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
-    out.push(toggle(1, 4, 'Distanze', 'Dagli oggetti vicini', v.gaps, a.toggleGaps, 'room_plan'));
+    out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(surface(M, top + 5 * STEP + 4, W, 50));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 5 * STEP + 12, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));

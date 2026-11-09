@@ -33,7 +33,7 @@ import type { Backend } from '../cloud/backend';
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
-import { boxSolid, ceilingYOf, dimsOfSolid, dimsOfStructure, floorYOf, gapsOfSolid, modelSolid, planeSeg, roomAxes, solidSegs, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { dimsOfSolid, dimsOfStructure, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
@@ -157,21 +157,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const structLayer = createStructureLayer(structuresGroup);
 
   // ---- measures: sizes and free distances of the selected objects (or the sizes of everything), see room/measure.ts ----
-  let measureMode: MeasureMode = (() => {
-    try {
-      const v = localStorage.getItem('immersa.measures');
-      return v === 'off' || v === 'all' ? v : 'sel';
-    } catch {
-      return 'sel';
-    }
-  })();
-  let gapsOn = (() => {
-    try {
-      return localStorage.getItem('immersa.gaps') === '1';
-    } catch {
-      return false;
-    }
-  })();
+  // Both start off every time: they are for looking something up, not a permanent overlay.
+  let measureMode: MeasureMode = 'off';
+  let gapsOn = false;
   const measureGroup = new Group();
   scene.add(measureGroup);
   const lineMat = (color: number, width: number) => new LineMaterial({ color, linewidth: width, depthTest: false, transparent: true });
@@ -192,8 +180,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     const planes = room?.scan.planes ?? [];
     const walls: Seg[] = [...structures().flatMap(wallSegs), ...planes.map((p, i) => planeSeg(p, i)).filter((x): x is Seg => !!x)];
-    const obstacles = [...walls, ...(room?.scan.boxes ?? []).flatMap((b, i) => solidSegs(boxSolid(b, i))), ...[...solids.values()].flatMap(solidSegs)];
-    const ctx = { obstacles, axes: roomAxes(walls), ceilingY: room ? ceilingYOf(planes) : null, floorY: room ? floorYOf(planes) : 0 };
+    // Distances are from the object to the walls only (not to other objects or to the scan's furniture volumes).
+    const ctx = { obstacles: walls, axes: roomAxes(walls), ceilingY: null, floorY: 0, vertical: false };
     const picked = new Set(selModels().map((m) => m.id));
     const out: Measure[] = [];
     for (const [id, s] of solids) {
@@ -1454,23 +1442,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     },
     onMeasures(mode) {
       measureMode = mode;
-      try {
-        localStorage.setItem('immersa.measures', mode);
-      } catch {
-        /* kept for this session only */
-      }
       refreshToolbar();
       ui.setStatus(mode === 'off' ? 'Misure spente.' : mode === 'sel' ? 'Misure: dimensioni dell\'oggetto selezionato.' : 'Misure: dimensioni di tutti gli oggetti.');
     },
     onGaps(on) {
       gapsOn = on;
-      try {
-        localStorage.setItem('immersa.gaps', on ? '1' : '0');
-      } catch {
-        /* kept for this session only */
-      }
       refreshToolbar();
-      ui.setStatus(on ? 'Distanze: dell\'oggetto selezionato dagli oggetti e dalle pareti più vicini.' : 'Distanze spente.');
+      ui.setStatus(on ? 'Distanze: dell\'oggetto selezionato dalle pareti.' : 'Distanze spente.');
     },
     onLocal(on) {
       local = on;

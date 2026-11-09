@@ -44,6 +44,7 @@ export interface MeasureContext {
   ceilingY: number | null;
   floorY: number;
   maxRange?: number; // free distances farther than this are not shown
+  vertical?: boolean; // false: no distance up to the ceiling or down to the floor (default true)
 }
 
 const SAMPLES = 9; // rays across an object's side
@@ -192,14 +193,14 @@ function cast(o: P2, d: P2, segs: Seg[], y0: number, y1: number, skip: string): 
 
 // ---- what to show ----
 
-// Width, depth and height of a solid, drawn along its bottom edges and one vertical edge.
+// Width, depth and height of a solid, drawn along two bottom edges and the vertical edge at the corner where they meet.
 export function dimsOfSolid(s: Solid): Measure[] {
   const v = perp(s.u);
   const at = (a: number, b: number, y: number): Vec3 => v3(s.c[0] + s.u[0] * a * s.hu + v[0] * b * s.hv, y, s.c[1] + s.u[1] * a * s.hu + v[1] * b * s.hv);
   return [
     { kind: 'dim', a: at(-1, -1, s.y0), b: at(1, -1, s.y0), text: formatLength(2 * s.hu), owner: s.id },
     { kind: 'dim', a: at(1, -1, s.y0), b: at(1, 1, s.y0), text: formatLength(2 * s.hv), owner: s.id },
-    { kind: 'dim', a: at(-1, 1, s.y0), b: at(-1, 1, s.y1), text: formatLength(s.y1 - s.y0), owner: s.id },
+    { kind: 'dim', a: at(1, -1, s.y0), b: at(1, -1, s.y1), text: formatLength(s.y1 - s.y0), owner: s.id }, // where width and depth meet
   ];
 }
 
@@ -267,10 +268,10 @@ export function gapsOfSolid(s: Solid, ctx: MeasureContext): Measure[] {
       out.push({ kind: 'gap', a: v3(best.from[0], yMid, best.from[1]), b: v3(best.from[0] + d[0] * best.t, yMid, best.from[1] + d[1] * best.t), text: formatLength(best.t), owner: s.id });
     }
   }
-  if (ctx.ceilingY !== null) {
+  if (ctx.vertical !== false && ctx.ceilingY !== null) {
     const h = ctx.ceilingY - s.y1;
     if (h > 0.01 && h <= range) out.push({ kind: 'gap', a: v3(s.c[0], s.y1, s.c[1]), b: v3(s.c[0], ctx.ceilingY, s.c[1]), text: formatLength(h), owner: s.id });
   }
-  if (s.y0 - ctx.floorY > 0.02) out.push({ kind: 'gap', a: v3(s.c[0], ctx.floorY, s.c[1]), b: v3(s.c[0], s.y0, s.c[1]), text: formatLength(s.y0 - ctx.floorY), owner: s.id });
+  if (ctx.vertical !== false && s.y0 - ctx.floorY > 0.02) out.push({ kind: 'gap', a: v3(s.c[0], ctx.floorY, s.c[1]), b: v3(s.c[0], s.y0, s.c[1]), text: formatLength(s.y0 - ctx.floorY), owner: s.id });
   return out;
 }

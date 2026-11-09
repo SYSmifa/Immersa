@@ -68,3 +68,12 @@ near(bs.hu, 1);
 near(bs.hv, 0.5);
 near(bs.y1, 0.8);
 console.log('measure: all checks passed');
+
+// the height line stands where the width and the depth meet
+const [w, d, h] = dimsOfSolid(a);
+assert.deepEqual(w.b, d.a);
+assert.deepEqual(h.a, d.a);
+// walls only, no vertical distances
+const wallsOnly = gapsOfSolid(a, ctx({ vertical: false, ceilingY: null }));
+assert.deepEqual(wallsOnly.map((m) => m.text).sort(), ['1,20 m', '1,45 m', '2,20 m', '2,45 m'].sort());
+console.log('measure: corner and walls-only ok');
