@@ -6,8 +6,8 @@ import { createGltfLoader } from '../scene/gltf';
 
 // Triangle budget for one model on the headset. Above it the editor offers to simplify when the project is saved.
 export const HEAVY_TRIANGLES = 300000;
-// Targets offered in the dialog (only those below the model's own count are shown).
-export const SIMPLIFY_TARGETS = [300000, 150000, 75000, 30000];
+// How far a geometry may drift from the original in the first, "lossless" pass: a fraction of the part's size.
+const LOSSLESS_ERROR = 0.001;
 
 const MAX_TEXTURE = 2048;
 const SMALL = 100; // geometries with so few triangles are left as they are
@@ -46,7 +46,7 @@ function floats(a: Attr, size: number): Float32Array {
 
 // One geometry down to about `targetTris` triangles: edge collapses that keep the normals and the UVs close to the original
 // (meshoptimizer), then the vertices no triangle uses any more are dropped, which is where most of the file size goes.
-function simplifyGeometry(source: BufferGeometry, targetTris: number): BufferGeometry {
+function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean): BufferGeometry {
   const g = source.index ? source : mergeVertices(source);
   const position = g.getAttribute('position') as Attr;
   const pos = floats(position, 3);
@@ -62,9 +62,9 @@ function simplifyGeometry(source: BufferGeometry, targetTris: number): BufferGeo
   const weights = [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [0.5, 0.5] : [])];
   const idx = Uint32Array.from(g.index!.array as ArrayLike<number>);
   const target = Math.max(8, targetTris) * 3;
-  let [out] = stride ? MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, attr, stride, weights, null, target, 1) : MeshoptSimplifier.simplify(idx, pos, 3, target, 1);
+  let [out] = stride ? MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, attr, stride, weights, null, target, maxError) : MeshoptSimplifier.simplify(idx, pos, 3, target, maxError);
   // Topology can stop the careful pass early (many separate shells): finish with the coarse one, which ignores the attributes.
-  if (out.length > target * 1.3) out = MeshoptSimplifier.simplifySloppy(out, pos, 3, null, target, 1)[0];
+  if (coarseFallback && out.length > target * 1.3) out = MeshoptSimplifier.simplifySloppy(out, pos, 3, null, target, 1)[0];
 
   // Keep only the vertices still used, in the order they first appear.
   const remap = new Map<number, number>();
@@ -96,36 +96,53 @@ export interface Simplified {
   after: number;
 }
 
-// A GLB brought down to about `target` triangles in total (spread over its parts in proportion), written back as a GLB with
-// the same node tree, so that the components and the materials keep their places.
-export async function simplifyGlb(file: File, target: number): Promise<Simplified> {
+// A GLB made lighter in two steps. First everything that can go without changing the shape (flat areas cut into many
+// triangles, details far finer than a millimetre): the model keeps its look. If that is still above `budget` triangles in
+// total, it goes on until it fits (the parts share the cut in proportion). Written back as a GLB with the same node tree,
+// so that the components and the materials keep their places.
+export async function simplifyGlb(file: File, budget: number): Promise<Simplified> {
   await MeshoptSimplifier.ready;
   const scene = await readGlb(file);
   const all = meshes(scene);
-  const before = all.reduce((n, m) => n + trianglesOf(m.geometry), 0);
-  if (before <= target) return { file, before, after: before };
-  // Each geometry once, however many nodes share it.
-  const uses = new Map<BufferGeometry, number>();
-  for (const m of all) uses.set(m.geometry, (uses.get(m.geometry) ?? 0) + 1);
-  const canDo = new Set(all.filter(eligible).map((m) => m.geometry));
-  let fixed = 0;
-  let free = 0;
-  for (const [g, n] of uses) (canDo.has(g) ? (free += trianglesOf(g) * n) : (fixed += trianglesOf(g) * n));
-  const ratio = free ? Math.min(1, Math.max(0.02, (target - fixed) / free)) : 1;
-  const done = new Map<BufferGeometry, BufferGeometry>();
-  for (const g of canDo) {
-    done.set(g, simplifyGeometry(g, Math.round(trianglesOf(g) * ratio)));
+  const count = () => all.reduce((n, m) => n + trianglesOf(m.geometry), 0);
+  const before = count();
+  if (before <= budget) return { file, before, after: before };
+  const swap = (done: Map<BufferGeometry, BufferGeometry>) => {
+    for (const m of all) {
+      const g = done.get(m.geometry);
+      if (g) m.geometry = g;
+    }
+  };
+  // Step 1: as far as it goes within the tolerance.
+  const step1 = new Map<BufferGeometry, BufferGeometry>();
+  for (const g of new Set(all.filter(eligible).map((m) => m.geometry))) {
+    step1.set(g, simplifyGeometry(g, 8, LOSSLESS_ERROR, false));
     await tick();
   }
-  for (const m of all) {
-    const s = done.get(m.geometry);
-    if (s) m.geometry = s;
+  swap(step1);
+  // Step 2: still too many, so spread the cut that is missing over the parts that can take it.
+  let after = count();
+  if (after > budget) {
+    const uses = new Map<BufferGeometry, number>();
+    for (const m of all) uses.set(m.geometry, (uses.get(m.geometry) ?? 0) + 1);
+    const canDo = new Set(all.filter(eligible).map((m) => m.geometry));
+    let fixed = 0;
+    let free = 0;
+    for (const [g, n] of uses) (canDo.has(g) ? (free += trianglesOf(g) * n) : (fixed += trianglesOf(g) * n));
+    const ratio = free ? Math.min(1, Math.max(0.02, (budget - fixed) / free)) : 1;
+    const step2 = new Map<BufferGeometry, BufferGeometry>();
+    for (const g of canDo) {
+      step2.set(g, simplifyGeometry(g, Math.round(trianglesOf(g) * ratio), 1, true));
+      await tick();
+    }
+    swap(step2);
+    after = count();
   }
   const out = new Scene();
   for (const c of [...scene.children]) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
   await tick();
   const buffer = (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
-  return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after: all.reduce((n, m) => n + trianglesOf(m.geometry), 0) };
+  return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after };
 }
 
 // Triangles of a GLB read from its JSON chunk alone (accessor counts x nodes that use each mesh): no geometry is decoded, so

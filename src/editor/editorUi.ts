@@ -1231,40 +1231,34 @@ export function createEditorUi(h: EditorHandlers) {
       email.focus();
     },
 
-    // Before saving: the models too heavy for the headset. No triangle counts: each model says how heavy it is in words and
-    // offers a few levels of "lighten by N %", the first one being the smallest cut that brings it within budget.
-    // Resolves with the chosen target (triangles) per model id (null = keep as it is), or null if the user cancels.
+    // Before saving: the models too heavy for the headset. For each one: simplify it (the default) or keep it as it is. How much
+    // is decided by the editor. With `intro` (the library's single model) there is nothing to choose: OK or cancel.
+    // Resolves with true = simplify, per model id, or null if the user cancels.
     askSimplify(items: { id: string; name: string; triangles: number }[], limit: number, intro?: { title: string; text: string; ok: string }) {
-      return new Promise<Map<string, number | null> | null>((resolve) => {
-        const levels = (tri: number): number[] => {
-          const rec = Math.min(90, Math.max(10, Math.ceil(((1 - limit / tri) * 100) / 5) * 5)); // % to cut, in steps of 5
-          const more = (k: number) => Math.min(95, Math.round((rec + (100 - rec) * k) / 5) * 5);
-          return [...new Set([rec, more(0.5), more(0.75)])];
-        };
-        const chosen = new Map<string, number | null>(items.map((i) => [i.id, Math.round(i.triangles * (1 - levels(i.triangles)[0] / 100))]));
+      return new Promise<Map<string, boolean> | null>((resolve) => {
+        const chosen = new Map<string, boolean>(items.map((i) => [i.id, true]));
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel');
-        const cards = items.map((it) => {
-          const opts = new Map<number | null, HTMLButtonElement>();
-          const refresh = () => {
-            for (const [v, b] of opts) b.classList.toggle('acc', v === chosen.get(it.id));
-          };
-          const choices = row();
-          const cuts = levels(it.triangles);
-          for (const cut of [...cuts, null]) {
-            const target = cut === null ? null : Math.round(it.triangles * (1 - cut / 100));
-            const b = pill(cut === null ? 'Non alleggerire' : `Alleggerisci del ${cut}%${cut === cuts[0] ? ' (consigliato)' : ''}`, () => {
-              chosen.set(it.id, target);
+        const cards = intro
+          ? []
+          : items.map((it) => {
+              const yes = pill('Semplifica', () => {
+                chosen.set(it.id, true);
+                refresh();
+              });
+              const no = pill('Mantieni originale', () => {
+                chosen.set(it.id, false);
+                refresh();
+              });
+              const refresh = () => {
+                yes.classList.toggle('acc', chosen.get(it.id) === true);
+                no.classList.toggle('acc', chosen.get(it.id) === false);
+              };
               refresh();
+              const heavy = it.triangles > limit * 3;
+              return card(el('div', it.name), el('div', heavy ? 'Molto pesante: nel visore andrebbe a scatti' : 'Pesante: nel visore potrebbe rallentare', heavy ? 'ed-warn' : 'ed-meta'), row(yes, no));
             });
-            opts.set(target, b);
-            choices.append(b);
-          }
-          refresh();
-          const heavy = it.triangles > limit * 3;
-          return card(el('div', it.name), el('div', heavy ? 'Molto pesante: nel visore andrebbe a scatti' : 'Pesante: nel visore potrebbe rallentare', heavy ? 'ed-warn' : 'ed-meta'), choices);
-        });
-        const done = (v: Map<string, number | null> | null) => {
+        const done = (v: Map<string, boolean> | null) => {
           window.removeEventListener('keydown', key, true);
           overlay.remove();
           resolve(v);
@@ -1276,7 +1270,7 @@ export function createEditorUi(h: EditorHandlers) {
         window.addEventListener('keydown', key, true);
         panel.append(
           el('h3', intro?.title ?? 'Modelli troppo pesanti per il visore'),
-          el('div', intro?.text ?? 'Questi modelli sono particolarmente pesanti e potrebbero rallentare le prestazioni del visore.', 'ed-meta'),
+          el('div', intro?.text ?? 'Questi modelli sono particolarmente pesanti e potrebbero rallentare le prestazioni del visore: semplificali per alleggerirli senza perderne la qualità.', 'ed-meta'),
           ...cards,
           row(pill(intro?.ok ?? 'Salva', () => done(chosen), 'acc'), pill('Annulla', () => done(null))),
         );

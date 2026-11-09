@@ -935,12 +935,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const choice = await ui.askSimplify(heavy, HEAVY_TRIANGLES);
     if (!choice) return null;
     for (const h of heavy) {
-      const target = choice.get(h.id);
-      if (!target) continue;
+      if (!choice.get(h.id)) continue; // kept as it is
       const entry = entries.find((e) => e.key === h.id)!;
-      const res = await withLoading('Alleggerisco il modello', h.name, () => simplifyGlb(entry.file, target));
+      const res = await withLoading('Semplifico il modello', h.name, () => simplifyGlb(entry.file, HEAVY_TRIANGLES));
       out.set(h.id, res.file);
-      ui.setStatus(`${h.name}: alleggerito del ${Math.round((1 - res.after / res.before) * 100)}%.`);
+      ui.setStatus(`${h.name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);
     }
     return out;
   }
@@ -1282,15 +1281,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (triangles <= HEAVY_TRIANGLES) return ui.setStatus(`${name} è già abbastanza leggero per il visore.`);
         const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, {
           title: 'Semplifica il modello',
-          text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione alleggerita (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
-          ok: 'Alleggerisci',
+          text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione semplificata (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
+          ok: 'Semplifica',
         });
-        const target = choice?.get(path);
-        if (!target) return ui.setStatus('Semplificazione annullata.');
-        const res = await withLoading('Alleggerisco il modello', name, () => simplifyGlb(file, target));
+        if (!choice) return ui.setStatus('Semplificazione annullata.');
+        const res = await withLoading('Semplifico il modello', name, () => simplifyGlb(file, HEAVY_TRIANGLES));
         const { path: newPath } = await withLoading('Carico il modello', name, () => upload(res.file));
         await replaceModel(path, newPath, undefined, true);
-        await loadLibrary(`${name}: alleggerito del ${Math.round((1 - res.after / res.before) * 100)}%.`);
+        await loadLibrary(`${name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);
       }),
     onReplaceFromLibrary: (oldPath, newPath) =>
       run(async () => {
