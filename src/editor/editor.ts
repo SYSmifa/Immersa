@@ -165,6 +165,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return 'sel';
     }
   })();
+  let gapsOn = (() => {
+    try {
+      return localStorage.getItem('immersa.gaps') === '1';
+    } catch {
+      return false;
+    }
+  })();
   const measureGroup = new Group();
   scene.add(measureGroup);
   const lineMat = (color: number, width: number) => new LineMaterial({ color, linewidth: width, depthTest: false, transparent: true });
@@ -176,7 +183,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const mv = new Vector3();
 
   function computeMeasures(): Measure[] {
-    if (measureMode === 'off' || !project) return [];
+    if ((measureMode === 'off' && !gapsOn) || !project) return [];
     const solids = new Map<string, Solid>();
     for (const m of models()) {
       const h = layer.holders.get(m.id);
@@ -190,11 +197,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const picked = new Set(selModels().map((m) => m.id));
     const out: Measure[] = [];
     for (const [id, s] of solids) {
-      if (picked.has(id) || measureMode === 'all') out.push(...dimsOfSolid(s));
-      if (picked.has(id)) out.push(...gapsOfSolid(s, ctx));
+      if (measureMode === 'all' || (measureMode === 'sel' && picked.has(id))) out.push(...dimsOfSolid(s));
+      if (gapsOn && picked.has(id)) out.push(...gapsOfSolid(s, ctx));
     }
     const pickedS = new Set(selStructs().map((x) => x.id));
-    for (const st of structures()) if (pickedS.has(st.id) || measureMode === 'all') out.push(...dimsOfStructure(st));
+    for (const st of structures()) if (measureMode === 'all' || (measureMode === 'sel' && pickedS.has(st.id))) out.push(...dimsOfStructure(st));
     return out;
   }
 
@@ -612,7 +619,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
 
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, measures: measureMode, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, measures: measureMode, gaps: gapsOn, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
   }
 
   function refreshLists() {
@@ -1453,7 +1460,17 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         /* kept for this session only */
       }
       refreshToolbar();
-      ui.setStatus(mode === 'off' ? 'Misure spente.' : mode === 'sel' ? 'Misure: dimensioni e distanze dell\'oggetto selezionato.' : 'Misure: dimensioni di tutti gli oggetti, distanze del selezionato.');
+      ui.setStatus(mode === 'off' ? 'Misure spente.' : mode === 'sel' ? 'Misure: dimensioni dell\'oggetto selezionato.' : 'Misure: dimensioni di tutti gli oggetti.');
+    },
+    onGaps(on) {
+      gapsOn = on;
+      try {
+        localStorage.setItem('immersa.gaps', on ? '1' : '0');
+      } catch {
+        /* kept for this session only */
+      }
+      refreshToolbar();
+      ui.setStatus(on ? 'Distanze: dell\'oggetto selezionato dagli oggetti e dalle pareti più vicini.' : 'Distanze spente.');
     },
     onLocal(on) {
       local = on;

@@ -97,6 +97,14 @@ export const fpsPreferred = () => {
     return false;
   }
 };
+const GAPS_KEY = 'immersa.gaps';
+const readGaps = () => {
+  try {
+    return localStorage.getItem(GAPS_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
 const MEASURE_KEY = 'immersa.measures';
 const readMeasure = (): 'off' | 'sel' | 'all' => {
   try {
@@ -234,6 +242,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const occluderMaterial = createOccluderMaterial();
   const houses = new Map<string, House>();
 
+  const gapOverride = new Map<string, boolean>(); // 'm:<id>' -> its distances shown or not, whatever Options say
   const measureOverride = new Map<string, boolean>(); // 'm:<id>' / 's:<id>' -> its measures shown or not, whatever Options say
   let measureAt = 0;
   let measureList: Measure[] = [];
@@ -272,6 +281,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     scroll: 0,
     outline: true,
     measures: readMeasure(),
+    gaps: readGaps(),
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
@@ -423,6 +433,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function structureView(st: Structure): ObjectView {
     return {
       measures: measureOverride.get(`s:${st.id}`) ?? view.measures !== 'off',
+      gaps: false,
       name: structName(st),
       yawDeg: 0,
       scale: 1,
@@ -454,6 +465,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const color = e?.color ?? m.color ?? info?.color ?? '#ffffff';
     return {
       measures: false,
+      gaps: false,
       name: partName(node),
       yawDeg: ((Math.round(((e?.yaw ?? 0) * 180) / Math.PI) % 360) + 360) % 360,
       scale: e?.scale ?? 1,
@@ -489,6 +501,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (typeof colorTarget === 'number' && colorTarget >= mats.length) colorTarget = 'all';
     return {
       measures: measureOverride.get(`m:${m.id}`) ?? view.measures !== 'off',
+      gaps: gapOverride.get(`m:${m.id}`) ?? view.gaps,
       name: m.name,
       yawDeg: ((Math.round((m.yaw * 180) / Math.PI) % 360) + 360) % 360,
       scale: m.scale,
@@ -587,6 +600,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   function closeCurrent() {
     measureOverride.clear();
+    gapOverride.clear();
     pendingTp = null;
     warnOpen = false;
     warn.mesh.visible = false;
@@ -1506,6 +1520,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       measureAt = 0;
       refreshView();
     },
+    toggleGaps() {
+      view.gaps = !view.gaps;
+      try {
+        localStorage.setItem(GAPS_KEY, view.gaps ? '1' : '0');
+      } catch {
+        /* kept for this session only */
+      }
+      measureAt = 0;
+      refreshView();
+    },
+    objGaps() {
+      if (!selectedId) return;
+      const key = `m:${selectedId}`;
+      gapOverride.set(key, !(gapOverride.get(key) ?? view.gaps));
+      measureAt = 0;
+      refreshView();
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);
@@ -1821,7 +1852,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const sel = selectedId === id;
         const ov = measureOverride.get(`m:${id}`);
         if (ov ?? (mode === 'all' || (mode === 'sel' && sel))) local.push(...dimsOfSolid(s));
-        if (ov ?? (mode !== 'off' && sel)) local.push(...gapsOfSolid(s, ctx));
+        if (gapOverride.get(`m:${id}`) ?? (view.gaps && sel)) local.push(...gapsOfSolid(s, ctx));
       }
       for (const st of structs) {
         const ov = measureOverride.get(`s:${st.id}`);
@@ -1834,7 +1865,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return out;
   }
   function updateMeasures(head: Head) {
-    if (!current || (view.measures === 'off' && !measureOverride.size)) {
+    if (!current || (view.measures === 'off' && !view.gaps && !measureOverride.size && !gapOverride.size)) {
       measureList = [];
       measureView.hide();
       return;

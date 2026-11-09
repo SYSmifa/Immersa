@@ -19,7 +19,8 @@ export interface ObjectView {
   matPage: number;
   hsv: Hsv; // the colour in the picker
   finish: { roughness: number; metalness: number }; // of the target, as shown now
-  measures: boolean; // its sizes and distances are shown now
+  measures: boolean; // its sizes are shown now
+  gaps: boolean; // its distances to the nearest things are shown now (models only)
   // Set when the selection is one component of a model.
   part?: { model: string; moved: boolean };
   // Set when the selection is a wall or a floor instead of a model.
@@ -68,7 +69,8 @@ export interface MenuView {
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
-  measures: 'off' | 'sel' | 'all'; // Options: sizes and distances shown for nothing / the selection / everything
+  measures: 'off' | 'sel' | 'all'; // Options: sizes shown for nothing / the selection / everything
+  gaps: boolean; // Options: distances of the selected object to the nearest things
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
   dominant: 'left' | 'right'; // the hand that points with the laser
@@ -101,6 +103,8 @@ export interface MenuActions {
   toggleOutline(): void;
   toggleMeasures(): void;
   objMeasures(): void;
+  toggleGaps(): void;
+  objGaps(): void;
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
@@ -265,7 +269,9 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
     out.push({ kind: 'pill', rect: { x: M + 28, y: 508, w: bw, h: 56 }, text: 'Annulla', size: 24, onClick: a.objDeleteNo });
     out.push({ kind: 'pill', icon: 'trash', primary: true, rect: { x: M + 28 + bw + 14, y: 508, w: bw, h: 56 }, text: 'Sì, elimina', size: 24, onClick: a.objDeleteYes });
   } else {
-    out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 404, w: W, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 26, onClick: a.objMeasures });
+    const bw2 = (W - 14) / 2;
+    out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 404, w: bw2, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 24, onClick: a.objMeasures });
+    out.push({ kind: 'pill', icon: 'room_plan', primary: o.gaps, rect: { x: M + bw2 + 14, y: 404, w: bw2, h: 64 }, text: o.gaps ? 'Distanze: sì' : 'Distanze: no', size: 24, onClick: a.objGaps });
     out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 480, w: W, h: 64 }, text: 'Elimina oggetto', size: 26, color: theme().bad, onClick: a.objDelete });
   }
   return out;
@@ -442,8 +448,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 1, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
     out.push(toggle(0, 2, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
     out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
-    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: v.measures === 'off' ? 'Nessuna' : v.measures === 'sel' ? 'Dell\'oggetto scelto' : 'Di tutti gli oggetti', badge: v.measures === 'off' ? 'No' : v.measures === 'sel' ? 'Scelto' : 'Tutti', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
+    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: v.measures === 'off' ? 'Dimensioni: nessuna' : v.measures === 'sel' ? 'Dimensioni dell\'oggetto' : 'Dimensioni di tutti', badge: v.measures === 'off' ? 'No' : v.measures === 'sel' ? 'Scelto' : 'Tutti', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
     out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 22, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
+    out.push(toggle(1, 4, 'Distanze', 'Dagli oggetti vicini', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(surface(M, top + 5 * STEP + 4, W, 50));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 5 * STEP + 12, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
