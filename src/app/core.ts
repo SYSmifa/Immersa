@@ -15,7 +15,7 @@ import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { createPoke } from '../ui3d/poke';
@@ -1615,6 +1615,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const structRay = new Raycaster();
   const partRay = new Raycaster();
   let lastPress: { id: string; t: number } | null = null; // for the double pinch
+  const hoverAnnotPt = new Map<string, 'a' | 'b'>(); // pointer id -> which point of the annotation it aims at
   const hoverPoint = new Map<string, Vector3>(); // pointer id -> where its ray meets the wall / floor it hovers
   let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
   let looked: { key: string; node: Object3D } | null = null;
@@ -1682,6 +1683,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const panelDist = host.setRay(id, origin, dir);
     hovered.delete(id);
     hoverPoint.delete(id);
+    hoverAnnotPt.delete(id);
     rays.set(id, { origin: origin.clone(), dir: dir.clone() });
     if (partGrab && partGrab.pointer === id) {
       partGrab.seen = true;
@@ -1690,6 +1692,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (structGrab && structGrab.pointer === id) {
       structGrab.seen = true;
       return { length: grabLaser, target: 'model' };
+    }
+    if (annotGrab && annotGrab.pointer === id) {
+      annotGrab.seen = true;
+      const an = annotOf(annotGrab.id);
+      const house = an && houses.get(an.roomId);
+      const q = an?.[annotGrab.pt];
+      if (house && q) return { length: Math.max(0.1, new Vector3(...q).applyMatrix4(house.root.matrix).distanceTo(origin)), target: 'model' }; // the laser ends on the point
     }
     if (grab && grab.pointer === id) {
       grab.seen = true;
@@ -1725,19 +1734,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Notes and rulers: a small sphere at each point; one just behind the surface it sits on still wins.
     if (current?.annotations.length && view.annotations) {
       const limit = panelDist ?? (visit ? 30 : 5);
-      let near: { id: string; d: number } | null = null;
+      let near: { id: string; d: number; pt: 'a' | 'b' } | null = null;
       for (const an of current.annotations) {
         const house = houses.get(an.roomId);
         if (!house?.root.visible) continue;
-        for (const p of an.kind === 'ruler' && an.b ? [an.a, an.b] : [an.a]) {
+        for (const [pi, p] of (an.kind === 'ruler' && an.b ? [an.a, an.b] : [an.a]).entries()) {
           const c = new Vector3(...p).applyMatrix4(house.root.matrix);
           const along = c.clone().sub(origin).dot(dir);
           if (along < 0.05 || along > limit) continue;
           const miss = c.distanceTo(origin.clone().addScaledVector(dir, along));
-          if (miss <= Math.max(0.06, along * 0.025) && (!near || along < near.d)) near = { id: `a:${an.id}`, d: along };
+          if (miss <= Math.max(0.06, along * 0.025) && (!near || along < near.d)) near = { id: `a:${an.id}`, d: along, pt: pi === 0 ? 'a' : 'b' };
         }
       }
-      if (near && (!best || near.d <= best.d + 0.08)) best = near;
+      if (near && (!best || near.d <= best.d + 0.08)) {
+        best = near;
+        hoverAnnotPt.set(id, near.pt);
+      }
     }
     if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
     if (best) {
@@ -1804,7 +1816,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
     }
     if (target?.startsWith('a:')) {
-      selectAnnot(target.slice(2)); // a quick pinch: it is chosen, its button shows (nothing to drag in the headset yet)
+      selectAnnot(target.slice(2)); // chosen, its button shows; held and pulled, the pinched point follows the ray over the surfaces
+      annotGrab = { pointer: id, id: target.slice(2), pt: hoverAnnotPt.get(id) ?? 'a', phase: 'pending', seen: true };
       return;
     }
     if (target?.startsWith('s:')) {
@@ -1953,7 +1966,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return;
     }
     const now = performance.now();
-    const carrying = (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab;
+    const carrying = (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move';
     if (carrying || now - measureAt > 150) {
       measureAt = now;
       measureList = computeMeasures();
@@ -2025,7 +2038,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         top.copy(head.pos).addScaledVector(away, 2.4 / far);
       }
     }
-    objButton.mesh.visible = !!top && !grab && !partGrab && !structGrab && !rig.visible;
+    objButton.mesh.visible = !!top && !grab && !partGrab && !structGrab && annotGrab?.phase !== 'move' && !rig.visible;
     if (!top) return;
     objButton.mesh.position.copy(top).y += 0.17;
     objButton.mesh.rotation.set(0, Math.atan2(head.pos.x - top.x, head.pos.z - top.z), 0);
@@ -2046,6 +2059,47 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     two: { refDist: number; refAcc: number; refYaw: number; refScale: number; yaw0: number; scale0: number; prevAng: number; acc: number; yaw: number; scale: number; mode: 'none' | 'turn' | 'scale'; dead: number } | null;
   }
   let structGrab: StructGrab | null = null;
+  // ---- dragging a note, or one end of a ruler: the point goes where the ray meets a model, wall or floor. ----
+  let annotGrab: { pointer: string; id: string; pt: 'a' | 'b'; phase: 'pending' | 'move'; seen: boolean } | null = null;
+  const surfRay = new Raycaster();
+  function endAnnotGrab() {
+    annotGrab = null;
+  }
+  function updateAnnotGrab() {
+    const g = annotGrab;
+    if (!g) return;
+    const an = annotOf(g.id);
+    const house = an && houses.get(an.roomId);
+    const ray = rays.get(g.pointer);
+    if (!an || !house || !house.root.visible || !g.seen || !ray) return endAnnotGrab();
+    g.seen = false;
+    // What the ray meets first: models and walls / floors of the project (not the scan).
+    const targets: Object3D[] = [];
+    for (const m of current?.models ?? []) {
+      const h = houses.get(m.roomId);
+      const holder = h?.root.visible ? h.layer.holders.get(m.id) : null;
+      if (holder) targets.push(holder);
+    }
+    for (const st of current?.structures ?? []) {
+      const mesh = houses.get(st.roomId)?.root.visible ? structMesh(st) : null;
+      if (mesh) targets.push(mesh);
+    }
+    surfRay.set(ray.origin, ray.dir);
+    surfRay.far = visit ? 30 : 8;
+    const hit = surfRay.intersectObjects(targets, true)[0];
+    if (!hit) return; // nothing there: it stays where it is
+    house.root.updateWorldMatrix(true, false);
+    const local = house.root.worldToLocal(hit.point.clone());
+    const cur = an[g.pt] ?? an.a;
+    if (g.phase === 'pending') {
+      if (new Vector3(...cur).distanceTo(local) < 0.05) return; // a pinch that only selects: not moved by a hand's tremor
+      g.phase = 'move';
+    }
+    const next: Vec3 = [local.x, local.y, local.z];
+    if (g.pt === 'a') an.a = next;
+    else an.b = next;
+    markUnsaved();
+  }
   function startStructGrab(pointer: string, st: Structure) {
     const house = houses.get(st.roomId);
     if (!house || !house.root.visible) return;
@@ -2352,6 +2406,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (grab?.pointer === id) endGrab();
       if (partGrab?.pointer === id) endPartGrab();
       if (structGrab?.pointer === id) endStructGrab();
+      if (annotGrab?.pointer === id) endAnnotGrab();
     }
   }
   // Magnetic snaps, only for the gesture that is engaged. Rotation: first the room's walls (the model's sides parallel
@@ -2609,7 +2664,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     layerPanels: () => [menu, menuToast, warn, listLoader, loading, splashPanel, hud, objButton, notice],
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
-    moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab,
+    moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },
@@ -2816,6 +2871,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       updateGrab(dt);
       updatePartGrab(dt);
       updateStructGrab(dt);
+      updateAnnotGrab();
       placeObjectButton(head);
       updateMeasures(head);
       syncOutline();
