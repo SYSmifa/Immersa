@@ -48,7 +48,7 @@ export interface EditorHandlers {
   projectNameError(name: string, exceptId?: string): string; // '' when the name is free (names are unique, caps and edge spaces ignored)
   onCloseProject(): void;
   onRenameProject(): void;
-  onDuplicateProject(): void;
+  onDuplicateProject(id: string): void; // from the list of projects
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
   onRoomVisible(id: string): void;
@@ -194,6 +194,9 @@ const CSS = `
 .ed-big:hover{background:var(--tint)}
 .ed-big svg{width:24px;height:24px;color:var(--acc)}
 .ed-big small{display:block;font-weight:500;color:#667085;font-size:12px;margin-top:2px}
+.ed-prow{display:flex;gap:6px;align-items:stretch}
+.ed-prow .ed-item{flex:1;min-width:0}
+.ed-prow .ed-pill{flex:none;padding:0 12px;font-size:12px;border-radius:12px}
 .ed-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:#fff;color:#12151c;cursor:pointer;border:2px solid transparent;
   text-align:left;width:100%;font-weight:500;transition:.12s}
 .ed-item:hover{background:var(--tint)}
@@ -432,7 +435,12 @@ export function createEditorUi(h: EditorHandlers) {
       ini.style.background = `linear-gradient(135deg,${tone[0]},${tone[1]})`;
       b.querySelector('span')!.textContent = p.name;
       b.onclick = () => h.onOpenProject(p.id);
-      return b;
+      // next to the project, a button that makes a copy of it without opening it
+      const dup = pill('Duplica', () => h.onDuplicateProject(p.id));
+      dup.title = 'Crea una copia di questo progetto';
+      const line = el('div', '', 'ed-prow');
+      line.append(b, dup);
+      return line;
     });
     body.replaceChildren(
       back('Indietro', goHome),
@@ -695,7 +703,7 @@ export function createEditorUi(h: EditorHandlers) {
     fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
     body.replaceChildren(
       back('Chiudi progetto', h.onCloseProject),
-      card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
+      card(name, row(pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       title('Stanze del progetto'),
       ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),
