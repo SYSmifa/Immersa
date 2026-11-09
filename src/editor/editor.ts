@@ -820,11 +820,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (pending > 0) ui.setLoading({ title: 'Carico i modelli', sub: `Modelli ${batchTotal - pending} / ${batchTotal}`, value: (batchTotal - pending) / batchTotal });
     else ui.setLoading(null);
   }
-  async function withLoading<T>(title: string, sub: string | undefined, what: () => Promise<T>): Promise<T> {
+  // `what` may call the function it gets to change the line under the title (progress).
+  async function withLoading<T>(title: string, sub: string | undefined, what: (progress: (text: string) => void) => Promise<T>): Promise<T> {
     manualLoad = { title, sub };
     refreshLoading();
     try {
-      return await what();
+      return await what((text) => {
+        manualLoad = { title, sub: sub ? `${sub} · ${text}` : text };
+        refreshLoading();
+      });
     } finally {
       manualLoad = null;
       refreshLoading();
@@ -937,7 +941,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     for (const h of heavy) {
       if (!choice.get(h.id)) continue; // kept as it is
       const entry = entries.find((e) => e.key === h.id)!;
-      const res = await withLoading('Semplifico il modello', h.name, () => simplifyGlb(entry.file, HEAVY_TRIANGLES));
+      const res = await withLoading('Semplifico il modello', h.name, (progress) => simplifyGlb(entry.file, HEAVY_TRIANGLES, progress));
       out.set(h.id, res.file);
       ui.setStatus(`${h.name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);
     }
@@ -1285,7 +1289,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           ok: 'Semplifica',
         });
         if (!choice) return ui.setStatus('Semplificazione annullata.');
-        const res = await withLoading('Semplifico il modello', name, () => simplifyGlb(file, HEAVY_TRIANGLES));
+        const res = await withLoading('Semplifico il modello', name, (progress) => simplifyGlb(file, HEAVY_TRIANGLES, progress));
         const { path: newPath } = await withLoading('Carico il modello', name, () => upload(res.file));
         await replaceModel(path, newPath, undefined, true);
         await loadLibrary(`${name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);

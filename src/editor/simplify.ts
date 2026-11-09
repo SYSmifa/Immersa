@@ -1,7 +1,6 @@
 import { BufferAttribute, BufferGeometry, type InterleavedBufferAttribute, Mesh, Object3D, Scene, SkinnedMesh } from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MeshoptSimplifier } from 'meshoptimizer';
+import type { Job } from './simplifyWorker';
 import { createGltfLoader } from '../scene/gltf';
 
 // Triangle budget for one model on the headset. Above it the editor offers to simplify when the project is saved.
@@ -35,21 +34,111 @@ export async function countTriangles(file: File): Promise<number> {
 // Only plain static geometry is simplified: skinned or morphed meshes and multi-material groups keep their triangles.
 const eligible = (m: Mesh) => !(m as SkinnedMesh).isSkinnedMesh && !m.geometry.morphAttributes.position && !m.geometry.groups.length && trianglesOf(m.geometry) > SMALL;
 
-type Attr = BufferAttribute | InterleavedBufferAttribute;
 
-// `size` components of every vertex as plain floats (the file may hold interleaved or normalised integers).
+// Workers that run the simplifier, one job each at a time; a few at most (memory: every job holds its own copy of the mesh).
+const MAX_WORKERS = 4;
+const idle: Worker[] = [];
+const waiting: (() => void)[] = [];
+let spawned = 0;
+async function takeWorker(): Promise<Worker> {
+  for (;;) {
+    const w = idle.pop();
+    if (w) return w;
+    if (spawned < Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency ?? 4) - 1))) {
+      spawned++;
+      return new Worker(new URL('./simplifyWorker.ts', import.meta.url), { type: 'module' });
+    }
+    await new Promise<void>((r) => waiting.push(r));
+  }
+}
+let jobId = 0;
+async function runJob(job: Omit<Job, 'id'>): Promise<Uint32Array> {
+  const w = await takeWorker();
+  const id = ++jobId;
+  try {
+    return await new Promise<Uint32Array>((resolve, reject) => {
+      w.onmessage = (e: MessageEvent<{ id: number; out?: Uint32Array; error?: string }>) => (e.data.out ? resolve(e.data.out) : reject(new Error(e.data.error ?? 'worker')));
+      w.onerror = (e) => reject(new Error(e.message || 'worker'));
+      const t = [job.idx.buffer, job.pos.buffer, job.attr.buffer];
+      w.postMessage({ ...job, id }, t);
+    });
+  } finally {
+    w.onmessage = w.onerror = null;
+    idle.push(w);
+    waiting.shift()?.();
+  }
+}
+
+type Attr = BufferAttribute | InterleavedBufferAttribute;
+const plain = (a: Attr): a is BufferAttribute => !(a as InterleavedBufferAttribute).isInterleavedBufferAttribute;
+
+// `size` components of every vertex as plain floats (the file may hold interleaved or normalised integers). A plain float
+// array is only copied.
 function floats(a: Attr, size: number): Float32Array {
+  if (plain(a) && a.array instanceof Float32Array && a.itemSize === size) return a.array.slice();
   const out = new Float32Array(a.count * size);
   for (let i = 0; i < a.count; i++) for (let k = 0; k < size; k++) out[i * size + k] = a.getComponent(i, k);
   return out;
 }
 
+// A geometry without an index (STL, OBJ, FBX come like that): equal vertices (all attributes bit for bit) are welded into one
+// so that the simplifier sees which triangles share an edge. A hash table over the raw bits, much faster than going through
+// strings.
+function weld(g: BufferGeometry): BufferGeometry {
+  const names = Object.keys(g.attributes);
+  const attrs = names.map((n) => g.getAttribute(n) as Attr);
+  const n = attrs[0].count;
+  const width = attrs.reduce((w, a) => w + a.itemSize, 0);
+  const bits = new Uint32Array(n * width);
+  const f = new Float32Array(bits.buffer);
+  for (let i = 0; i < n; i++) {
+    let o = i * width;
+    for (const a of attrs) for (let k = 0; k < a.itemSize; k++) f[o++] = a.getComponent(i, k);
+  }
+  let size = 1;
+  while (size < n * 2) size <<= 1;
+  const table = new Int32Array(size).fill(-1);
+  const remap = new Uint32Array(n);
+  const keep: number[] = [];
+  for (let i = 0; i < n; i++) {
+    let h = 2166136261;
+    const o = i * width;
+    for (let k = 0; k < width; k++) h = Math.imul(h ^ bits[o + k], 16777619);
+    let slot = (h ^ (h >>> 15)) & (size - 1);
+    for (;;) {
+      const j = table[slot];
+      if (j < 0) {
+        table[slot] = i;
+        remap[i] = keep.length;
+        keep.push(i);
+        break;
+      }
+      let same = true;
+      for (let k = 0; k < width; k++) if (bits[j * width + k] !== bits[o + k]) { same = false; break; }
+      if (same) {
+        remap[i] = remap[j];
+        break;
+      }
+      slot = (slot + 1) & (size - 1);
+    }
+  }
+  const out = new BufferGeometry();
+  names.forEach((name, ai) => {
+    const a = attrs[ai];
+    const arr = new Float32Array(keep.length * a.itemSize);
+    for (let i = 0; i < keep.length; i++) for (let k = 0; k < a.itemSize; k++) arr[i * a.itemSize + k] = a.getComponent(keep[i], k);
+    out.setAttribute(name, new BufferAttribute(arr, a.itemSize));
+  });
+  out.setIndex(new BufferAttribute(remap, 1));
+  return out;
+}
+
 // One geometry down to about `targetTris` triangles: edge collapses that keep the normals and the UVs close to the original
-// (meshoptimizer), then the vertices no triangle uses any more are dropped, which is where most of the file size goes.
-function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean): BufferGeometry {
-  const g = source.index ? source : mergeVertices(source);
+// (meshoptimizer, in a worker), then the vertices no triangle uses any more are dropped, which is where most of the file
+// size goes.
+async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean): Promise<BufferGeometry> {
+  const g = source.index ? source : weld(source);
   const position = g.getAttribute('position') as Attr;
-  const pos = floats(position, 3);
   const nor = g.getAttribute('normal') as Attr | undefined;
   const uv = g.getAttribute('uv') as Attr | undefined;
   const stride = (nor ? 3 : 0) + (uv ? 2 : 0);
@@ -59,22 +148,26 @@ function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: 
     if (nor) for (let k = 0; k < 3; k++) attr[o++] = nor.getComponent(i, k);
     if (uv) for (let k = 0; k < 2; k++) attr[o++] = uv.getComponent(i, k);
   }
-  const weights = [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [0.5, 0.5] : [])];
-  const idx = Uint32Array.from(g.index!.array as ArrayLike<number>);
-  const target = Math.max(8, targetTris) * 3;
-  let [out] = stride ? MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, attr, stride, weights, null, target, maxError) : MeshoptSimplifier.simplify(idx, pos, 3, target, maxError);
-  // Topology can stop the careful pass early (many separate shells): finish with the coarse one, which ignores the attributes.
-  if (coarseFallback && out.length > target * 1.3) out = MeshoptSimplifier.simplifySloppy(out, pos, 3, null, target, 1)[0];
+  const out = await runJob({
+    idx: Uint32Array.from(g.index!.array as ArrayLike<number>),
+    pos: floats(position, 3),
+    attr,
+    stride,
+    weights: [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [0.5, 0.5] : [])],
+    target: Math.max(8, targetTris) * 3,
+    error: maxError,
+    fallback: coarseFallback,
+  });
 
   // Keep only the vertices still used, in the order they first appear.
-  const remap = new Map<number, number>();
+  const remap = new Int32Array(position.count).fill(-1);
   const used: number[] = [];
   const index = new Uint32Array(out.length);
   for (let i = 0; i < out.length; i++) {
-    let r = remap.get(out[i]);
-    if (r === undefined) {
+    let r = remap[out[i]];
+    if (r < 0) {
       r = used.length;
-      remap.set(out[i], r);
+      remap[out[i]] = r;
       used.push(out[i]);
     }
     index[i] = r;
@@ -100,8 +193,9 @@ export interface Simplified {
 // triangles, details far finer than a millimetre): the model keeps its look. If that is still above `budget` triangles in
 // total, it goes on until it fits (the parts share the cut in proportion). Written back as a GLB with the same node tree,
 // so that the components and the materials keep their places.
-export async function simplifyGlb(file: File, budget: number): Promise<Simplified> {
-  await MeshoptSimplifier.ready;
+export async function simplifyGlb(file: File, budget: number, onStep: (text: string) => void = () => undefined): Promise<Simplified> {
+  onStep('Leggo il modello');
+  await tick();
   const scene = await readGlb(file);
   const all = meshes(scene);
   const count = () => all.reduce((n, m) => n + trianglesOf(m.geometry), 0);
@@ -113,13 +207,21 @@ export async function simplifyGlb(file: File, budget: number): Promise<Simplifie
       if (g) m.geometry = g;
     }
   };
+  // Every part (geometry) goes to a worker; they run side by side. `what` says what the parts are doing, with how many are done.
+  const run = async (geos: BufferGeometry[], what: string, target: (g: BufferGeometry) => number, error: number, fallback: boolean) => {
+    const done = new Map<BufferGeometry, BufferGeometry>();
+    let n = 0;
+    onStep(`${what} (0 di ${geos.length})`);
+    await Promise.all(
+      geos.map(async (g) => {
+        done.set(g, await simplifyGeometry(g, target(g), error, fallback));
+        onStep(`${what} (${++n} di ${geos.length})`);
+      }),
+    );
+    swap(done);
+  };
   // Step 1: as far as it goes within the tolerance.
-  const step1 = new Map<BufferGeometry, BufferGeometry>();
-  for (const g of new Set(all.filter(eligible).map((m) => m.geometry))) {
-    step1.set(g, simplifyGeometry(g, 8, LOSSLESS_ERROR, false));
-    await tick();
-  }
-  swap(step1);
+  await run([...new Set(all.filter(eligible).map((m) => m.geometry))], 'Tolgo i triangoli inutili', () => 8, LOSSLESS_ERROR, false);
   // Step 2: still too many, so spread the cut that is missing over the parts that can take it.
   let after = count();
   if (after > budget) {
@@ -130,17 +232,13 @@ export async function simplifyGlb(file: File, budget: number): Promise<Simplifie
     let free = 0;
     for (const [g, n] of uses) (canDo.has(g) ? (free += trianglesOf(g) * n) : (fixed += trianglesOf(g) * n));
     const ratio = free ? Math.min(1, Math.max(0.02, (budget - fixed) / free)) : 1;
-    const step2 = new Map<BufferGeometry, BufferGeometry>();
-    for (const g of canDo) {
-      step2.set(g, simplifyGeometry(g, Math.round(trianglesOf(g) * ratio), 1, true));
-      await tick();
-    }
-    swap(step2);
+    await run([...canDo], 'Semplifico ancora per il visore', (g) => Math.round(trianglesOf(g) * ratio), 1, true);
     after = count();
   }
+  onStep('Scrivo il file');
+  await tick();
   const out = new Scene();
   for (const c of [...scene.children]) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
-  await tick();
   const buffer = (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
   return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after };
 }
