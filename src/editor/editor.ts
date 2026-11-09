@@ -185,11 +185,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const picked = new Set(selModels().map((m) => m.id));
     const out: Measure[] = [];
     for (const [id, s] of solids) {
-      if (measureMode === 'all' || (measureMode === 'sel' && picked.has(id))) out.push(...dimsOfSolid(s));
+      if (measureMode === 'sel' && picked.has(id)) out.push(...dimsOfSolid(s));
       if (gapsOn && picked.has(id)) out.push(...gapsOfSolid(s, ctx));
     }
     const pickedS = new Set(selStructs().map((x) => x.id));
-    for (const st of structures()) if (measureMode === 'all' || (measureMode === 'sel' && pickedS.has(st.id))) out.push(...dimsOfStructure(st));
+    for (const st of structures()) if (measureMode === 'sel' && pickedS.has(st.id)) out.push(...dimsOfStructure(st));
     return out;
   }
 
@@ -1444,7 +1444,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onMeasures(mode) {
       measureMode = mode;
       refreshToolbar();
-      ui.setStatus(mode === 'off' ? 'Misure spente.' : mode === 'sel' ? 'Misure: dimensioni dell\'oggetto selezionato.' : 'Misure: dimensioni di tutti gli oggetti.');
+      ui.setStatus(mode === 'off' ? 'Misure spente.' : 'Misure: dimensioni dell\'oggetto selezionato.');
     },
     onGaps(on) {
       gapsOn = on;

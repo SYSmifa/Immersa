@@ -136,8 +136,8 @@ export type Details =
       moved: boolean; // not where / as it is in the file
     }
   | { kind: 'structure'; key: string; count?: number; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
-// What the measure button shows: nothing, the selected objects only, or the sizes of everything.
-export type MeasureMode = 'off' | 'sel' | 'all';
+// What the measure button shows: nothing, or the sizes of the selected objects.
+export type MeasureMode = 'off' | 'sel';
 export interface MeasureLabel {
   x: number; // px, in the page
   y: number;
@@ -311,7 +311,6 @@ const ICON = {
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
-  rulerAll: svg('<path d="M3 13 13 3l3 3L6 16z"/><path d="M8 17 18 7l3 3L11 20z"/><path d="M6 9l1.5 1.5M9 6l1.5 1.5M11 14l1.5 1.5M14 11l1.5 1.5"/>'),
   ruler: svg('<path d="M3 17 17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'),
   local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
@@ -736,8 +735,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bGrid = ib(ICON.grid, 'Snap alla griglia (5 cm, rotazione a 15°)', () => h.onSnapGrid(!state.grid));
   const bVertex = ib(ICON.magnet, 'Snap ai vertici di pareti e pavimenti', () => h.onSnapVertex(!state.vertex));
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
-  const NEXT: Record<MeasureMode, MeasureMode> = { off: 'sel', sel: 'all', all: 'off' };
-  const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto: spente / oggetto selezionato / dimensioni di tutto (clic per cambiare)', () => h.onMeasures(NEXT[state.measures]));
+  const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto selezionato (acceso / spento)', () => h.onMeasures(state.measures === 'off' ? 'sel' : 'off'));
   const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
@@ -1449,9 +1447,8 @@ export function createEditorUi(h: EditorHandlers) {
       on(bLocal, s.local);
       bLocal.innerHTML = s.local ? ICON.local : ICON.world;
       on(bMeasure, s.measures !== 'off');
-      bMeasure.innerHTML = s.measures === 'all' ? ICON.rulerAll : ICON.ruler; // two rulers: everything is measured
       on(bGaps, s.gaps);
-      bMeasure.title = `Misure: ${s.measures === 'off' ? 'spente' : s.measures === 'sel' ? 'oggetto selezionato' : 'dimensioni di tutto'} (clic per cambiare)`;
+      bMeasure.title = `Misure dell'oggetto selezionato: ${s.measures === 'off' ? 'spente' : 'accese'} (clic per cambiare)`;
       bUndo.disabled = !s.canUndo;
       bRedo.disabled = !s.canRedo;
       hint.style.display = s.build ? 'block' : 'none';

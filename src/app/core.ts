@@ -1487,7 +1487,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       refreshView();
     },
     toggleMeasures() {
-      view.measures = view.measures === 'off' ? 'sel' : view.measures === 'sel' ? 'all' : 'off';
+      view.measures = view.measures === 'off' ? 'sel' : 'off';
       measureAt = 0;
       refreshView();
     },
@@ -1824,12 +1824,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       for (const [id, s] of solids) {
         const sel = selectedId === id;
         const ov = measureOverride.get(`m:${id}`);
-        if (ov ?? (mode === 'all' || (mode === 'sel' && sel))) local.push(...dimsOfSolid(s));
+        if (ov ?? (mode === 'sel' && sel)) local.push(...dimsOfSolid(s));
         if (gapOverride.get(`m:${id}`) ?? (view.gaps && sel)) local.push(...gapsOfSolid(s, ctx));
       }
       for (const st of structs) {
         const ov = measureOverride.get(`s:${st.id}`);
-        if (ov ?? (mode === 'all' || (mode === 'sel' && selectedStructId === st.id))) local.push(...dimsOfStructure(st));
+        if (ov ?? (mode === 'sel' && selectedStructId === st.id)) local.push(...dimsOfStructure(st));
       }
       const mtx = house.root.matrix; // the room's place in the world
       const world = (p: [number, number, number]) => new Vector3(...p).applyMatrix4(mtx).toArray() as [number, number, number];

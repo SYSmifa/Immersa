@@ -69,7 +69,7 @@ export interface MenuView {
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
-  measures: 'off' | 'sel' | 'all'; // Options: sizes shown for nothing / the selection / everything
+  measures: 'off' | 'sel'; // Options: the selected object's sizes shown or not
   gaps: boolean; // Options: distances of the selected object to the nearest things
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
@@ -448,7 +448,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 1, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
     out.push(toggle(0, 2, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
     out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
-    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: v.measures === 'off' ? 'Dimensioni: nessuna' : v.measures === 'sel' ? 'Dimensioni dell\'oggetto' : 'Dimensioni di tutti', badge: v.measures === 'off' ? 'No' : v.measures === 'sel' ? 'Scelto' : 'Tutti', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
+    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: 'Dell\'oggetto scelto', badge: v.measures === 'off' ? 'No' : 'Sì', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
     out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 22, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
