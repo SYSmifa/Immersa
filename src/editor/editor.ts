@@ -946,7 +946,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const entry = entries.find((e) => e.key === h.id)!;
       const res = await withLoading('Semplifico il modello', h.name, (progress) => simplifyGlb(entry.file, HEAVY_TRIANGLES, progress));
       out.set(h.id, res.file);
-      ui.setStatus(`${h.name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);
+      ui.setStatus(`${h.name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}% (${res.after.toLocaleString('it-IT')} triangoli, ${(res.file.size / 1048576).toFixed(1)} MB).`);
     }
     return out;
   }
@@ -1295,7 +1295,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const res = await withLoading('Semplifico il modello', name, (progress) => simplifyGlb(file, HEAVY_TRIANGLES, progress));
         const { path: newPath } = await withLoading('Carico il modello', name, () => upload(res.file));
         await replaceModel(path, newPath, undefined, true);
-        await loadLibrary(`${name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}%.`);
+        await loadLibrary(`${name}: semplificato del ${Math.round((1 - res.after / res.before) * 100)}% (${res.after.toLocaleString('it-IT')} triangoli, ${(res.file.size / 1048576).toFixed(1)} MB).`);
       }),
     onReplaceFromLibrary: (oldPath, newPath) =>
       run(async () => {

@@ -7,6 +7,7 @@ import { createGltfLoader } from '../scene/gltf';
 export const HEAVY_TRIANGLES = 300000;
 // How far a geometry may drift from the original in the first, "lossless" pass: a fraction of the part's size.
 const LOSSLESS_ERROR = 0.001;
+export const MAX_FILE_BYTES = 45 * 1024 * 1024; // under the cloud's 50 MB per file
 
 const MAX_TEXTURE = 2048;
 const SMALL = 100; // geometries with so few triangles are left as they are
@@ -216,15 +217,15 @@ export interface Simplified {
 // triangles, details far finer than a millimetre): the model keeps its look. If that is still above `budget` triangles in
 // total, it goes on until it fits (the parts share the cut in proportion). Written back as a GLB with the same node tree,
 // so that the components and the materials keep their places.
-export async function simplifyGlb(file: File, budget: number, onStep: (text: string) => void = () => undefined): Promise<Simplified> {
+export async function simplifyGlb(file: File, budget: number, onStep: (text: string) => void = () => undefined, maxBytes = MAX_FILE_BYTES): Promise<Simplified> {
   try {
-    return await simplifyAll(file, budget, onStep);
+    return await simplifyAll(file, budget, onStep, maxBytes);
   } finally {
     endWorkers();
   }
 }
 
-async function simplifyAll(file: File, budget: number, onStep: (text: string) => void): Promise<Simplified> {
+async function simplifyAll(file: File, budget: number, onStep: (text: string) => void, maxBytes: number): Promise<Simplified> {
   const stop = { stopped: false };
   onStep('Leggo il modello');
   await tick();
@@ -260,24 +261,34 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
   // Step 1: as far as it goes within the tolerance.
   await run([...new Set(all.filter(eligible).map((m) => m.geometry))], 'Tolgo i triangoli inutili', () => 8, LOSSLESS_ERROR, false);
   // Step 2: still too many, so spread the cut that is missing over the parts that can take it.
-  let after = count();
-  if (after > budget) {
+  const squeeze = async (goal: number, what: string) => {
     const uses = new Map<BufferGeometry, number>();
     for (const m of all) uses.set(m.geometry, (uses.get(m.geometry) ?? 0) + 1);
     const canDo = new Set(all.filter(eligible).map((m) => m.geometry));
     let fixed = 0;
     let free = 0;
     for (const [g, n] of uses) (canDo.has(g) ? (free += trianglesOf(g) * n) : (fixed += trianglesOf(g) * n));
-    const ratio = free ? Math.min(1, Math.max(0.02, (budget - fixed) / free)) : 1;
-    await run([...canDo], 'Semplifico ancora per il visore', (g) => Math.round(trianglesOf(g) * ratio), 1, true);
-    after = count();
+    const ratio = free ? Math.min(1, Math.max(0.02, (goal - fixed) / free)) : 1;
+    await run([...canDo], what, (g) => Math.round(trianglesOf(g) * ratio), 1, true);
+  };
+  if (count() > budget) await squeeze(budget, 'Semplifico ancora per il visore');
+  // The cloud takes files up to a limit (50 MB by default): if the file is still bigger, go on until it fits.
+  const top = [...scene.children];
+  const write = async () => {
+    onStep('Scrivo il file');
+    await tick();
+    const out = new Scene();
+    for (const c of top) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
+    return (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
+  };
+  let buffer = await write();
+  let goal = budget;
+  for (let round = 1; buffer.byteLength > maxBytes && round <= 3; round++) {
+    goal = Math.round(Math.min(goal, count()) * 0.6);
+    await squeeze(goal, `Il file è ancora grande: semplifico di più (${round})`);
+    buffer = await write();
   }
-  onStep('Scrivo il file');
-  await tick();
-  const out = new Scene();
-  for (const c of [...scene.children]) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
-  const buffer = (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
-  return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after };
+  return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after: count() };
 }
 
 // Triangles of a GLB read from its JSON chunk alone (accessor counts x nodes that use each mesh): no geometry is decoded, so

@@ -43,6 +43,7 @@ export async function uploadModel(file: File): Promise<{ path: string; name: str
   const hash = await fileHash(file);
   const path = hash ? `${uid}/${hash}.glb` : `${uid}/${Date.now()}-${file.name.replace(/[^\w.-]+/g, '_')}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: 'model/gltf-binary', upsert: false });
+  if (error && /exceeded the maximum allowed size/i.test(error.message)) throw new Error(`il modello pesa ${(file.size / 1048576).toFixed(0)} MB e supera il limite del cloud (50 MB per file): semplificalo, oppure alza il limite in Supabase → Storage → Settings`);
   if (error && !(hash && /already exists|duplicate/i.test(error.message))) throw new Error(error.message);
   return { path, name: file.name };
 }
