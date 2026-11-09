@@ -1,4 +1,4 @@
-import type { Project, Room, RoomModel, RoomScan, Structure } from '../room/types';
+import type { Annotation, Project, Room, RoomModel, RoomScan, Structure } from '../room/types';
 
 // Everything the app needs from the cloud. Supabase implements it (repo.ts);
 // the UI test harness uses an in-memory one.
@@ -28,7 +28,8 @@ export interface Backend {
   updateRoomScan(id: string, scan: RoomScan, previous: RoomScan): Promise<void>; // keeps `previous` as a backup
   deleteRoom(id: string): Promise<void>; // also deletes its projects
   listProjects(): Promise<Project[]>;
-  createProject(name: string, roomIds: string[], models: RoomModel[], structures?: Structure[], tone?: number): Promise<Project>;
-  saveProject(id: string, patch: { name?: string; roomIds?: string[]; models?: RoomModel[]; structures?: Structure[]; tone?: number }): Promise<void>;
+  createProject(name: string, roomIds: string[], models: RoomModel[], structures?: Structure[], tone?: number, annotations?: Annotation[]): Promise<Project>;
+  // `skipped`: what could not be saved because the cloud's schema is older (supabase/schema.sql has to be run again).
+  saveProject(id: string, patch: { name?: string; roomIds?: string[]; models?: RoomModel[]; structures?: Structure[]; annotations?: Annotation[]; tone?: number }): Promise<{ skipped?: string[] } | void>;
   deleteProject(id: string): Promise<void>;
 }

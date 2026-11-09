@@ -30,12 +30,15 @@ export interface Solid {
 }
 
 // `dim`: a line with its size. `gap`: a free distance to the next thing. `label`: only a text at a point (a === b).
+// Annotations (room/annotations.ts) are drawn through the same renderers: `ruler` a line with its text, `note` a text at a point,
+// `pin` a small cross marking a point (no text); they carry their own `color`.
 export interface Measure {
-  kind: 'dim' | 'gap' | 'label';
+  kind: 'dim' | 'gap' | 'label' | 'ruler' | 'note' | 'pin';
   a: Vec3;
   b: Vec3;
   text: string;
   owner: string;
+  color?: string; // '#rrggbb', annotations only
 }
 
 export interface MeasureContext {

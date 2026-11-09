@@ -83,6 +83,18 @@ export interface Structure {
   xf?: { d?: [number, number]; yaw?: number; scale?: number };
 }
 
+// A note or a ruler left in a room (the PC editor and the headset both show them). Points are in the room's frame, like models.
+// note: one point `a` with a short text. ruler: two points `a` and `b`; its length is shown, `text` is an optional label.
+export interface Annotation {
+  id: string;
+  roomId: string; // the room whose frame the points are in ('' = free space)
+  kind: 'note' | 'ruler';
+  a: Vec3;
+  b?: Vec3; // rulers only
+  text: string;
+  color: string; // '#rrggbb'
+}
+
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.
 export interface Project {
   id: string;
@@ -91,5 +103,6 @@ export interface Project {
   roomIds: string[];
   models: RoomModel[];
   structures: Structure[]; // walls and floors built in the editor
+  annotations: Annotation[]; // notes and rulers
   tone?: number; // tile colour (index in the theme's tones), kept so that no two projects look alike
 }

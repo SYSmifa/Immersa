@@ -33,7 +33,8 @@ import type { Backend } from '../cloud/backend';
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
-import { dimsOfSolid, dimsOfStructure, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { ANNOTATION_COLORS, annotationLength, annotationMeasures, annotationName, copyAnnotation, newAnnotation, DEFAULT_COLOR } from '../room/annotations';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
@@ -45,7 +46,7 @@ import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
-import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -132,6 +133,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let sel: string[] = []; // selected keys: 'm:<model id>' / 's:<structure id>'
   let dirty = false;
   let lastDrag = 0;
+  // annotations: the tool in use, the first point of a ruler, where the pointer is, the selected one (apart from `sel`)
+  let annotMode: 'note' | 'ruler' | null = null;
+  let annotFirst: Vec3 | null = null;
+  let annotCursor: Vec3 | null = null;
+  let selAnnotId: string | null = null;
   // toolbar state
   let build: BuildKind | null = null;
   let gizmo: Gizmo = 'translate';
@@ -170,7 +176,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let measureSig = '';
   const mv = new Vector3();
 
-  function computeMeasures(): Measure[] {
+  // The measures of the selection (sizes, distances), then the annotations, then what is being drawn right now.
+  function computeSizeMeasures(): Measure[] {
     if ((measureMode === 'off' && !gapsOn) || !project) return [];
     const solids = new Map<string, Solid>();
     for (const m of models()) {
@@ -193,13 +200,59 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return out;
   }
 
+  function computeAnnotMeasures(): Measure[] {
+    const out = annotations().flatMap(annotationMeasures);
+    // While a tool is in use: where the pointer would put the point, and the ruler as far as it goes.
+    if (annotMode && annotCursor) {
+      const color = DEFAULT_COLOR;
+      if (annotMode === 'ruler' && annotFirst) out.push(...annotationMeasures({ id: 'draft', roomId: spaceId(), kind: 'ruler', a: annotFirst, b: annotCursor, text: '', color }));
+      else out.push(...annotationMeasures({ id: 'draft', roomId: spaceId(), kind: 'note', a: annotCursor, text: '', color }).filter((m) => m.kind === 'pin'));
+    }
+    if (annotMode === 'ruler' && annotFirst && !annotCursor) out.push(...annotationMeasures({ id: 'draft', roomId: spaceId(), kind: 'note', a: annotFirst, text: '', color: DEFAULT_COLOR }).filter((m) => m.kind === 'pin'));
+    return out;
+  }
+
+  // Small spheres at the points of the annotations: invisible, for clicking and dragging them; a white dot on the selected one.
+  const annotPickGroup = new Group();
+  scene.add(annotPickGroup);
+  const annotSphereGeo = new SphereGeometry(1, 12, 8);
+  const annotPickMat = new MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  const annotSelMat = new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false });
+  const annotSpheres: Mesh[] = [];
+  function syncAnnotSpheres() {
+    const pts: { id: string; pt: 'a' | 'b'; pos: Vec3 }[] = [];
+    for (const a of annotations()) {
+      pts.push({ id: a.id, pt: 'a', pos: a.a });
+      if (a.kind === 'ruler' && a.b) pts.push({ id: a.id, pt: 'b', pos: a.b });
+    }
+    while (annotSpheres.length < pts.length) {
+      const m = new Mesh(annotSphereGeo, annotPickMat);
+      m.renderOrder = 1000;
+      annotPickGroup.add(m);
+      annotSpheres.push(m);
+    }
+    annotSpheres.forEach((m, i) => {
+      const q = pts[i];
+      m.visible = !!q;
+      if (!q) return;
+      m.position.set(...q.pos);
+      const d = camera.position.distanceTo(m.position);
+      const chosen = q.id === selAnnotId;
+      m.scale.setScalar(Math.min(0.3, Math.max(0.04, d * (chosen ? 0.009 : 0.016)))); // the same size on screen at any distance
+      m.material = chosen ? annotSelMat : annotPickMat;
+      m.userData = { annotId: q.id, pt: q.pt };
+    });
+  }
+
+  const annotMats = new Map<string, LineMaterial>(); // a line material per annotation colour
+  let annotLines: LineSegments2[] = [];
   function updateMeasures() {
-    const list = computeMeasures();
-    const sig = list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
+    const list = [...computeSizeMeasures(), ...computeAnnotMeasures()];
+    const sig = list.map((m) => `${m.kind}${m.color ?? ''}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
     if (sig !== measureSig) {
       measureSig = sig;
-      for (const l of [dimLines, gapLines]) if (l) (measureGroup.remove(l), l.geometry.dispose());
-      const flat = (kind: Measure['kind']) => list.filter((m) => m.kind === kind).flatMap((m) => [...m.a, ...m.b]);
+      for (const l of [dimLines, gapLines, ...annotLines]) if (l) (measureGroup.remove(l), l.geometry.dispose());
+      const flat = (match: (m: Measure) => boolean) => list.filter(match).flatMap((m) => [...m.a, ...m.b]);
       const make = (pos: number[], mat: LineMaterial) => {
         if (!pos.length) return null;
         const l = new LineSegments2(new LineSegmentsGeometry().setPositions(pos), mat);
@@ -208,17 +261,25 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         measureGroup.add(l);
         return l;
       };
-      dimLines = make(flat('dim'), dimMat);
-      gapLines = make(flat('gap'), gapMat);
+      dimLines = make(flat((m) => m.kind === 'dim'), dimMat);
+      gapLines = make(flat((m) => m.kind === 'gap'), gapMat);
+      annotLines = [];
+      for (const color of new Set(list.filter((m) => m.color).map((m) => m.color!))) {
+        let mat = annotMats.get(color);
+        if (!mat) annotMats.set(color, (mat = lineMat(new Color(color).getHex(), 2.5)));
+        const l = make(flat((m) => m.color === color && (m.kind === 'pin' || m.kind === 'ruler')), mat);
+        if (l) annotLines.push(l);
+      }
     }
-    dimMat.resolution.set(window.innerWidth, window.innerHeight);
-    gapMat.resolution.set(window.innerWidth, window.innerHeight);
+    for (const mat of [dimMat, gapMat, ...annotMats.values()]) mat.resolution.set(window.innerWidth, window.innerHeight);
+    syncAnnotSpheres();
     camera.updateMatrixWorld(); // the labels follow this frame's camera, not the one the last render used (they lagged one frame behind)
     const labels = [];
     for (const m of list) {
+      if (m.kind === 'pin' || !m.text) continue;
       mv.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).project(camera);
       if (mv.z > 1 || Math.abs(mv.x) > 1.2 || Math.abs(mv.y) > 1.2) continue;
-      labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind });
+      labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind, color: m.color });
     }
     ui.setMeasureLabels(labels);
   }
@@ -286,6 +347,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const structures = () => project?.structures.filter((s) => s.roomId === spaceId()) ?? [];
   const findModel = (id: string) => models().find((m) => m.id === id) ?? null;
   const findStructure = (id: string) => structures().find((s) => s.id === id) ?? null;
+  const annotations = () => project?.annotations.filter((a) => a.roomId === spaceId()) ?? [];
+  const findAnnot = (id: string | null) => (id ? (annotations().find((a) => a.id === id) ?? null) : null);
   const floorY = () => (room ? floorCentre(room.scan.planes)[1] : 0);
   const selModels = () => sel.filter((k) => k[0] === 'm').map((k) => findModel(k.slice(2))).filter((m): m is RoomModel => !!m);
   const selStructs = () => sel.filter((k) => k[0] === 's').map((k) => findStructure(k.slice(2))).filter((s): s is Structure => !!s);
@@ -297,7 +360,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   // ---- history (undo / redo): snapshots of the project's models and structures ----
   let hist: string[] = [];
   let hi = -1;
-  const snapshot = () => JSON.stringify({ m: project?.models ?? [], s: project?.structures ?? [] });
+  const snapshot = () => JSON.stringify({ m: project?.models ?? [], s: project?.structures ?? [], n: project?.annotations ?? [] });
   function resetHistory() {
     hist = project ? [snapshot()] : [];
     hi = hist.length - 1;
@@ -316,9 +379,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function jump(i: number) {
     if (!project || i < 0 || i >= hist.length) return;
     hi = i;
-    const d = JSON.parse(hist[hi]) as { m: RoomModel[]; s: Structure[] };
+    const d = JSON.parse(hist[hi]) as { m: RoomModel[]; s: Structure[]; n?: Annotation[] };
     project.models = d.m;
     project.structures = d.s;
+    project.annotations = d.n ?? [];
+    if (selAnnotId && !findAnnot(selAnnotId)) selAnnotId = null;
     layer.sync(models());
     structLayer.sync(structures());
     sel = sel.filter((k) => (k[0] === 'm' ? findModel(k.slice(2)) : findStructure(k.slice(2))));
@@ -420,6 +485,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   function setSelection(keys: string[]) {
     sel = keys;
+    selAnnotId = null; // an annotation is selected with selectAnnot, after this
     partSel = null;
     if (keys.length && !build) {
       refreshPivot();
@@ -429,7 +495,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     refreshAll();
   }
 
+  function selectAnnot(id: string | null) {
+    setSelection([]);
+    selAnnotId = id;
+    refreshAll();
+  }
+
   function pick(key: string | null, additive: boolean) {
+    if (key?.startsWith('a:')) return selectAnnot(key.slice(2));
     if (!key) return additive ? undefined : setSelection([]);
     if (!additive) return setSelection([key]);
     setSelection(sel.includes(key) ? sel.filter((k) => k !== key) : [...sel, key]);
@@ -607,8 +680,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   // ---- sidebar / outline / details data ----
   const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
 
+  const annotStepText = () => (annotMode === 'note' ? 'Nota: clic su un punto di un modello, di una parete o del pavimento' : annotMode === 'ruler' ? (annotFirst ? 'Metro: clic sul secondo punto' : 'Metro: clic sul primo punto') : '');
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, measures: measureMode, gaps: gapsOn, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
   }
 
   function refreshLists() {
@@ -632,8 +706,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         ...models().map((m) => ({ key: `m:${m.id}`, name: m.name, kind: 'model' as const })),
         ...walls.map((s, i) => ({ key: `s:${s.id}`, name: `Parete ${i + 1}`, kind: 'wall' as const })),
         ...floors.map((s, i) => ({ key: `s:${s.id}`, name: `Pavimento ${i + 1}`, kind: 'floor' as const })),
+        ...annotations().map((a) => ({ key: `a:${a.id}`, name: annotationName(a), kind: a.kind })),
       ],
-      new Set(sel),
+      new Set(selAnnotId ? [...sel, `a:${selAnnotId}`] : sel),
     );
   }
 
@@ -644,6 +719,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   function detailsInfo(): Details | null {
+    const an = findAnnot(selAnnotId);
+    if (an) {
+      const len = annotationLength(an);
+      return { kind: 'annotation', key: `a:${an.id}`, type: an.kind, text: an.text, color: an.color, colors: ANNOTATION_COLORS, length: len === null ? null : formatLength(len) };
+    }
     const pn = partNode();
     const pm = partModel();
     if (pn && pm && partSel) {
@@ -811,6 +891,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   // ---- rooms and projects ----
   function showRoom(r: Room | null) {
     room = r;
+    annotMode = null;
+    annotFirst = null;
+    annotCursor = null;
+    selAnnotId = null;
     planesGroup.clear();
     gridGroup.clear();
     setOrtho(false);
@@ -1060,9 +1144,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setStatus('Salvo...');
     try {
       if (!(await uploadPending())) return ui.setStatus('Salvataggio annullato.');
-      await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures }));
+      const res = await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures, annotations: project!.annotations }));
       markDirty(false);
-      ui.setStatus(`Progetto "${project.name}" salvato`);
+      // An older cloud schema cannot keep the notes and rulers: say so instead of letting them vanish silently.
+      if (res?.skipped?.includes('annotations') && project.annotations.length) ui.setStatus(`Salvato, ma le annotazioni NON si salvano: riesegui supabase/schema.sql nel pannello di Supabase (SQL Editor).`);
+      else ui.setStatus(`Progetto "${project.name}" salvato`);
       void prune();
     } catch (e) {
       ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
@@ -1070,6 +1156,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   function deleteSelection() {
+    if (project && selAnnotId) {
+      project.annotations = project.annotations.filter((a) => a.id !== selAnnotId);
+      selectAnnot(null);
+      markDirty();
+      commit();
+      return;
+    }
     if (!project || !sel.length) return;
     const mk = new Set(selModels().map((m) => m.id));
     const sk = new Set(selStructs().map((s) => s.id));
@@ -1285,7 +1378,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         }
         const models = saved.models.map((m, i) => ({ ...structuredClone(m), id: `${newId()}${i}` }));
         const structs = saved.structures.map((x, i) => ({ ...structuredClone(x), id: `${newId()}s${i}` }));
-        const copy = await withLoading('Duplico il progetto', saved.name, () => backend.createProject(name!, [...saved.roomIds], models, structs, newTone(projects)));
+        const notes = saved.annotations.map((a, i) => copyAnnotation(a, i));
+        const copy = await withLoading('Duplico il progetto', saved.name, () => backend.createProject(name!, [...saved.roomIds], models, structs, newTone(projects), notes));
         projects.unshift(copy);
         if (dirty) {
           refreshLists();
@@ -1440,7 +1534,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           p.roomIds = p.roomIds.filter((x) => x !== id);
           p.models = p.models.filter((m) => m.roomId !== id);
           p.structures = p.structures.filter((x) => x.roomId !== id);
-          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models.filter((m) => !isPendingModel(m.path)), structures: p.structures }); // models not uploaded yet stay out of the cloud
+          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models.filter((m) => !isPendingModel(m.path)), structures: p.structures, annotations: p.annotations }); // models not uploaded yet stay out of the cloud
         }
         void prune();
         if (room === r) showRoom(projectRoomsList()[0] ?? null);
@@ -1451,6 +1545,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onSave: save,
     onBuild(kind) {
       build = kind;
+      if (kind) {
+        annotMode = null;
+        annotFirst = null;
+      }
       keepBuild = false;
       if (kind) {
         transform.detach();
@@ -1482,6 +1580,36 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       gapsOn = on;
       refreshToolbar();
       ui.setStatus(on ? 'Distanze: dell\'oggetto selezionato dalle pareti.' : 'Distanze spente.');
+    },
+    // The annotation tools: a note (one click, then its text) or a ruler (two clicks). Clicking the tool again, or Esc, leaves it.
+    onAnnot(mode) {
+      annotMode = mode;
+      annotFirst = null;
+      annotCursor = null;
+      build = null;
+      if (mode) {
+        setSelection([]);
+        transform.detach();
+      }
+      refreshToolbar();
+    },
+    onAnnotText(text, doCommit) {
+      const a = findAnnot(selAnnotId);
+      if (!a) return;
+      a.text = text;
+      markDirty();
+      if (doCommit) {
+        commit();
+        refreshOutline();
+      }
+    },
+    onAnnotColor(color) {
+      const a = findAnnot(selAnnotId);
+      if (!a) return;
+      a.color = color;
+      markDirty();
+      commit();
+      refreshAll();
     },
     onLocal(on) {
       local = on;
@@ -1635,6 +1763,109 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     void importFiles([...e.dataTransfer.files]);
   });
 
+  // ---- annotations: where a click lands, creating them with a click or two, dragging their points ----
+  // The point of a model / wall / floor under the pointer (a vertex of the face when one is near), else of the floor plane.
+  const SNAP_VERT = 0.06; // m
+  function surfacePoint(e: PointerEvent): Vector3 | null {
+    ray.setFromCamera(ndcOf(e), camera);
+    const firstMesh = (objs: Object3D[]) => ray.intersectObjects(objs, true).find((h) => (h.object as Mesh).isMesh && h.object.visible);
+    const hit = firstMesh([...layer.holders.values(), ...structLayer.meshes.values()]) ?? firstMesh([planesGroup]);
+    if (hit) {
+      const p = hit.point.clone();
+      const mesh = hit.object as Mesh;
+      const pos = mesh.geometry.getAttribute('position');
+      if (snapVertex && hit.face && pos) {
+        let best: Vector3 | null = null;
+        let bd = SNAP_VERT;
+        for (const i of [hit.face.a, hit.face.b, hit.face.c]) {
+          const v = new Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+          const d = v.distanceTo(p);
+          if (d < bd) {
+            bd = d;
+            best = v;
+          }
+        }
+        if (best) return best;
+      }
+      return p;
+    }
+    const f = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -floorY()), new Vector3());
+    if (!f) return null;
+    return snapGrid ? new Vector3(Math.round(f.x / GRID_STEP) * GRID_STEP, f.y, Math.round(f.z / GRID_STEP) * GRID_STEP) : f;
+  }
+  const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
+
+  function annotClick(e: PointerEvent) {
+    const p = surfacePoint(e);
+    if (!p || !project || !annotMode) return;
+    const keep = e.shiftKey; // Shift: stay in the tool for the next one
+    let made: Annotation | null = null;
+    if (annotMode === 'note') {
+      const text = prompt('Testo della nota', '');
+      if (text === null) return; // cancelled: nothing is put down
+      made = newAnnotation('note', spaceId(), toVec3(p), undefined, text.trim());
+    } else if (!annotFirst) {
+      annotFirst = toVec3(p);
+      refreshToolbar();
+      return;
+    } else {
+      const from = annotFirst;
+      if (p.distanceTo(new Vector3(...from)) < 0.01) return ui.setStatus('I due punti coincidono: scegli un altro punto.');
+      made = newAnnotation('ruler', spaceId(), from, toVec3(p));
+    }
+    project.annotations.push(made);
+    annotFirst = null;
+    annotCursor = null;
+    if (!keep) annotMode = null;
+    selectAnnot(made.id);
+    markDirty();
+    commit();
+    refreshToolbar();
+    ui.setStatus(made.kind === 'note' ? 'Nota aggiunta. Ricorda di salvare.' : `Metro: ${formatLength(annotationLength(made) ?? 0)}. Ricorda di salvare.`);
+  }
+
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (annotMode) {
+      const c = surfacePoint(e);
+      annotCursor = c ? toVec3(c) : null;
+      return;
+    }
+    if (!annotDrag) return;
+    const a = findAnnot(annotDrag.id);
+    const p = surfacePoint(e);
+    if (!a || !p) return;
+    a[annotDrag.pt] = toVec3(p);
+    markDirty();
+  });
+  let annotDrag: { id: string; pt: 'a' | 'b' } | null = null;
+  // Dragging one of the selected annotation's points (capture phase, so that the camera does not take the click).
+  renderer.domElement.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.button !== 0 || annotMode || build || !selAnnotId) return;
+      ray.setFromCamera(ndcOf(e), camera);
+      const hit = ray.intersectObjects(annotSpheres.filter((m) => m.visible && m.userData.annotId === selAnnotId), false)[0];
+      if (!hit) return;
+      annotDrag = { id: selAnnotId, pt: hit.object.userData.pt as 'a' | 'b' };
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture(e.pointerId);
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
+  renderer.domElement.addEventListener(
+    'pointerup',
+    (e) => {
+      if (!annotDrag) return;
+      annotDrag = null;
+      controls.enabled = true;
+      commit();
+      refreshAll();
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
+
   // ---- 3D view: left click selects (Shift adds); with a Build button on, a drag on the floor draws ----
   const ray = new Raycaster();
   let down: { x: number; y: number } | null = null;
@@ -1726,10 +1957,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       refreshToolbar();
       return;
     }
+    if (annotMode) {
+      if (e.button === 0 && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5) annotClick(e);
+      return;
+    }
     if (build) return;
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
     if (Date.now() - lastDrag < 300 || transform.axis) return;
     ray.setFromCamera(ndcOf(e), camera);
+    const annotHit = ray.intersectObjects(annotSpheres.filter((m) => m.visible), false)[0];
+    if (annotHit) return pick(`a:${annotHit.object.userData.annotId}`, false);
     const targets: Object3D[] = [...layer.holders.values(), ...structLayer.meshes.values()];
     const hit = ray.intersectObjects(targets, true)[0];
     let o: Object3D | null = hit?.object ?? null;
@@ -1923,6 +2160,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     } else if (e.key === 'Escape') {
       dropPreview();
       build = null;
+      annotMode = null;
+      annotFirst = null;
+      annotCursor = null;
+      refreshToolbar();
       if (partSel) setPart(partSel.modelId, null); // leave the component, keep the model
       else setSelection([]);
     } else if (!mod && k === 'f' && project) {

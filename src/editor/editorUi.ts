@@ -77,6 +77,9 @@ export interface EditorHandlers {
   onSnapVertex(on: boolean): void;
   onLocal(on: boolean): void;
   onMeasures(mode: MeasureMode): void;
+  onAnnot(mode: 'note' | 'ruler' | null): void;
+  onAnnotText(text: string, commit: boolean): void;
+  onAnnotColor(color: string): void;
   onGaps(on: boolean): void;
   onUndo(): void;
   onRedo(): void;
@@ -98,9 +101,9 @@ export interface EditorHandlers {
 }
 
 export interface OutlineItem {
-  key: string; // 'm:<id>' model, 's:<id>' structure
+  key: string; // 'm:<id>' model, 's:<id>' structure, 'a:<id>' annotation
   name: string;
-  kind: 'model' | BuildKind;
+  kind: 'model' | BuildKind | 'note' | 'ruler';
 }
 export interface MaterialRow {
   name: string;
@@ -110,6 +113,7 @@ export interface MaterialRow {
 }
 export type Details =
   | { kind: 'multi'; count: number }
+  | { kind: 'annotation'; key: string; type: 'note' | 'ruler'; text: string; color: string; colors: string[]; length: string | null }
   | {
       kind: 'model';
       key: string;
@@ -143,7 +147,8 @@ export interface MeasureLabel {
   x: number; // px, in the page
   y: number;
   text: string;
-  kind: 'dim' | 'gap' | 'label';
+  kind: 'dim' | 'gap' | 'label' | 'note' | 'ruler';
+  color?: string; // annotations
 }
 
 export interface ToolbarState {
@@ -153,6 +158,8 @@ export interface ToolbarState {
   grid: boolean;
   vertex: boolean;
   local: boolean;
+  annot: 'note' | 'ruler' | null; // the annotation tool in use
+  annotStep: string; // what to do next with it ('' when none)
   measures: MeasureMode;
   gaps: boolean; // distances from the selected object to the nearest things
   canUndo: boolean;
@@ -216,17 +223,19 @@ const CSS = `
 .ed-h{font-weight:700;font-size:16px;padding:0 4px}
 .ed-top{position:fixed;top:12px;left:340px;right:324px;z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 .ed-top>*{pointer-events:auto}
-.ed-tools{display:flex;gap:2px;align-items:center;padding:6px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
-.ed-ib{width:40px;height:40px;border:0;border-radius:50%;background:transparent;color:#cfd6e4;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
-.ed-ib svg{width:21px;height:21px}
+.ed-tools{display:flex;flex-wrap:wrap;justify-content:center;max-width:100%;gap:2px;align-items:center;padding:6px;border-radius:24px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
+.ed-ib{width:35px;height:35px;border:0;border-radius:50%;background:transparent;color:#cfd6e4;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
+.ed-ib svg{width:19px;height:19px}
 .ed-ib:hover:not(:disabled){background:#ffffff1f}
 .ed-ib:disabled{opacity:.3;cursor:default}
 .ed-measures{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
 .ed-mlabel{position:absolute;left:0;top:0;will-change:transform;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0006}
+.ed-sw-pick{width:28px;height:28px;border-radius:50%;border:3px solid transparent;cursor:pointer}
+.ed-sw-pick.on{border-color:#12151c}
 .ed-mlabel.gap{background:#14b8a6;color:#04211d}
 .ed-ib.on,.ed-ib.on:hover:not(:disabled){background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d}
-.ed-sep{width:1px;height:24px;background:#ffffff26;margin:0 6px}
-.ed-save{padding:0 16px;height:40px;margin-left:4px;background:#ffffff14;color:#cfd6e4;border-radius:999px;border:0;cursor:pointer;font-weight:500}
+.ed-sep{width:1px;height:22px;background:#ffffff26;margin:0 4px}
+.ed-save{padding:0 14px;height:35px;margin-left:4px;background:#ffffff14;color:#cfd6e4;border-radius:999px;border:0;cursor:pointer;font-weight:500}
 .ed-save.dirty{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d;font-weight:700}
 .ed-save:disabled{opacity:.4}
 .ed-hint{padding:7px 16px;border-radius:999px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007;color:#cfd6e4;font-size:13px;display:none}
@@ -312,6 +321,8 @@ const ICON = {
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
+  note: svg('<path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>'),
+  tape: svg('<circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/><path d="M7.2 12h9.6M5 8.5V6M19 8.5V6"/>'),
   ruler: svg('<path d="M3 17 17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'),
   local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
@@ -737,7 +748,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, measures: 'off', gaps: false, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -749,11 +760,13 @@ export function createEditorUi(h: EditorHandlers) {
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
   const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto selezionato (acceso / spento)', () => h.onMeasures(state.measures === 'off' ? 'sel' : 'off'));
   const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
+  const bNote = ib(ICON.note, 'Nota: clic su un punto per lasciare un commento', () => h.onAnnot(state.annot === 'note' ? null : 'note'));
+  const bTape = ib(ICON.tape, 'Metro: clic su due punti per misurare e lasciare la misura', () => h.onAnnot(state.annot === 'ruler' ? null : 'ruler'));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
   save.onclick = h.onSave;
-  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, sep(), bUndo, bRedo, save);
+  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, sep(), bNote, bTape, sep(), bUndo, bRedo, save);
   const hint = el('div', '', 'ed-hint');
   top.append(tools, hint);
 
@@ -972,6 +985,29 @@ export function createEditorUi(h: EditorHandlers) {
     const del = pill('Elimina', h.onDeleteSelection, 'bad');
     if (d.kind === 'multi') {
       details.replaceChildren(el('div', `${d.count} oggetti selezionati`, 'ed-h'), card(el('div', 'Il gizmo li muove e li ruota insieme.', 'ed-meta'), del));
+      return;
+    }
+    if (d.kind === 'annotation') {
+      const text = el('input');
+      text.type = 'text';
+      text.value = d.text;
+      text.maxLength = 120;
+      text.placeholder = d.type === 'note' ? 'Scrivi la nota…' : 'Etichetta (facoltativa)';
+      text.oninput = () => h.onAnnotText(text.value, false);
+      text.onchange = () => h.onAnnotText(text.value, true);
+      const swatches = row(
+        ...d.colors.map((c) => {
+          const b = el('button', '', `ed-sw-pick${c === d.color ? ' on' : ''}`);
+          b.style.background = c;
+          b.title = c;
+          b.onclick = () => h.onAnnotColor(c);
+          return b;
+        }),
+      );
+      details.replaceChildren(
+        el('div', d.type === 'note' ? 'Nota' : 'Metro', 'ed-h'),
+        card(...(d.length ? [el('div', `Lunghezza ${d.length}`, 'ed-meta')] : []), text, swatches, del),
+      );
       return;
     }
     if (d.key !== lastKey) {
@@ -1443,6 +1479,8 @@ export function createEditorUi(h: EditorHandlers) {
         if (!l) return;
         if (d.textContent !== l.text) d.textContent = l.text;
         d.className = `ed-mlabel ${l.kind}`;
+        d.style.background = l.color ?? '';
+        d.style.color = l.color ? '#1a1205' : '';
         d.style.transform = `translate(-50%,-50%) translate(${l.x.toFixed(1)}px,${l.y.toFixed(1)}px)`;
       });
     },
@@ -1462,20 +1500,22 @@ export function createEditorUi(h: EditorHandlers) {
       bLocal.innerHTML = s.local ? ICON.local : ICON.world;
       on(bMeasure, s.measures !== 'off');
       on(bGaps, s.gaps);
+      on(bNote, s.annot === 'note');
+      on(bTape, s.annot === 'ruler');
       bMeasure.title = `Misure dell'oggetto selezionato: ${s.measures === 'off' ? 'spente' : 'accese'} (clic per cambiare)`;
       bUndo.disabled = !s.canUndo;
       bRedo.disabled = !s.canRedo;
-      hint.style.display = s.build ? 'block' : 'none';
-      hint.textContent =
-        (s.build === 'wall' ? 'Parete: trascina sul pavimento' : 'Pavimento: trascina sul pavimento') +
-        ' · tieni premuto Maiusc per crearne altri: rilasciandolo si esce · Esc per uscire';
+      hint.style.display = s.build || s.annot ? 'block' : 'none';
+      hint.textContent = s.annot
+        ? `${s.annotStep} · Esc per uscire`
+        : (s.build === 'wall' ? 'Parete: trascina sul pavimento' : 'Pavimento: trascina sul pavimento') + ' · tieni premuto Maiusc per crearne altri: rilasciandolo si esce · Esc per uscire';
     },
     setOutline(items: OutlineItem[], selected: Set<string>) {
       outlineList.replaceChildren(
         ...(items.length
           ? items.map((it) => {
               const b = el('button', '', `ed-item${selected.has(it.key) ? ' on' : ''}`);
-              b.innerHTML = `${it.kind === 'model' ? ICON.cube : ICON[it.kind]}<span></span>`;
+              b.innerHTML = `${it.kind === 'model' ? ICON.cube : it.kind === 'note' ? ICON.note : it.kind === 'ruler' ? ICON.tape : ICON[it.kind]}<span></span>`;
               b.querySelector('span')!.textContent = it.name;
               b.onclick = (e) => h.onPick(it.key, e.shiftKey || e.ctrlKey || e.metaKey);
               return b;

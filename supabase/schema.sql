@@ -50,6 +50,9 @@ create policy "projects: owner only" on public.projects
 -- Walls and floors built in the PC editor (JSON list of structures; safe to re-run).
 alter table public.projects add column if not exists structures jsonb not null default '[]'::jsonb;
 
+-- Notes and rulers left in a project (JSON list of annotations; safe to re-run).
+alter table public.projects add column if not exists annotations jsonb not null default '[]'::jsonb;
+
 -- Migration to multi-room projects (safe to re-run).
 -- The tile colour of each project (safe to re-run).
 alter table public.projects add column if not exists tone smallint;

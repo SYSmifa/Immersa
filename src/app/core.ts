@@ -1537,7 +1537,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!current || !unsaved) return;
     const p = current;
     try {
-      await backend.saveProject(p.id, { models: p.models, structures: p.structures });
+      await backend.saveProject(p.id, { models: p.models, structures: p.structures, annotations: p.annotations });
       if (current === p) unsaved = false;
       refreshView();
       say('Modifiche salvate', 3000);

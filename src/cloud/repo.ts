@@ -1,4 +1,4 @@
-import type { Project, Room, RoomModel, RoomScan, Structure } from '../room/types';
+import type { Annotation, Project, Room, RoomModel, RoomScan, Structure } from '../room/types';
 import type { Backend } from './backend';
 import { authenticate } from './auth';
 import { currentUserEmail, supabase } from './supabase';
@@ -17,16 +17,17 @@ interface ProjectRow {
   name: string;
   models: RoomModel[];
   structures: Structure[] | null;
+  annotations?: Annotation[] | null;
   tone?: number | null;
   updated_at: string;
 }
 
 const ROOM_COLS = 'id,name,data,created_at,updated_at';
-const PROJECT_COLS = 'id,room_id,room_ids,name,models,structures,tone,updated_at';
-const PROJECT_COLS_NOTONE = 'id,room_id,room_ids,name,models,structures,updated_at';
 // Until supabase/schema.sql has been re-run the newer columns do not exist: read (and write) without them instead of failing.
+// The lists go from the newest schema to the oldest; each step drops the most recent column.
+const PROJECT_BASE = 'id,room_id,room_ids,name,models,updated_at';
+const PROJECT_COLS = [`${PROJECT_BASE},structures,tone,annotations`, `${PROJECT_BASE},structures,tone`, `${PROJECT_BASE},structures`, PROJECT_BASE];
 const ROOM_COLS_OLD = 'id,name,data,updated_at';
-const PROJECT_COLS_OLD = 'id,room_id,room_ids,name,models,updated_at';
 const missingColumn = (e: { message?: string } | null) => !!e && /column|schema cache/i.test(e.message ?? '');
 
 const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, createdAt: r.created_at ?? r.updated_at, updatedAt: r.updated_at, scan: r.data });
@@ -40,6 +41,7 @@ const toProject = (r: ProjectRow): Project => {
     // Projects saved before multi-room had no roomId on their models.
     models: (r.models ?? []).map((m) => ({ ...m, roomId: m.roomId ?? roomIds[0] ?? '' })),
     structures: r.structures ?? [],
+    annotations: r.annotations ?? [],
     tone: r.tone ?? undefined,
   };
 };
@@ -161,21 +163,32 @@ export function createSupabaseBackend(): Backend {
       check(error);
     },
     async listProjects() {
-      const res = await client().from('projects').select(PROJECT_COLS).order('updated_at', { ascending: false });
-      let { data, error } = res;
-      if (missingColumn(error)) ({ data, error } = (await client().from('projects').select(PROJECT_COLS_NOTONE).order('updated_at', { ascending: false })) as unknown as typeof res);
-      if (missingColumn(error)) ({ data, error } = (await client().from('projects').select(PROJECT_COLS_OLD).order('updated_at', { ascending: false })) as unknown as typeof res);
-      check(error);
-      return (data as ProjectRow[]).map(toProject);
+      let last: { message: string } | null = null;
+      for (const cols of PROJECT_COLS) {
+        const { data, error } = await client().from('projects').select(cols).order('updated_at', { ascending: false });
+        if (!missingColumn(error)) {
+          check(error);
+          return (data as unknown as ProjectRow[]).map(toProject);
+        }
+        last = error;
+      }
+      check(last);
+      return [];
     },
-    async createProject(name, roomIds, models, structures = [], tone) {
+    async createProject(name, roomIds, models, structures = [], tone, annotations = []) {
       const row = { name, room_id: roomIds[0] ?? null, room_ids: roomIds, models };
-      const res = await client().from('projects').insert({ ...row, structures, tone: tone ?? null }).select(PROJECT_COLS).single();
-      let { data, error } = res;
-      if (missingColumn(error)) ({ data, error } = (await client().from('projects').insert({ ...row, structures }).select(PROJECT_COLS_NOTONE).single()) as unknown as typeof res);
-      if (missingColumn(error)) ({ data, error } = (await client().from('projects').insert(row).select(PROJECT_COLS_OLD).single()) as unknown as typeof res);
-      check(error);
-      return toProject(data as ProjectRow);
+      const payloads: Record<string, unknown>[] = [{ ...row, structures, tone: tone ?? null, annotations }, { ...row, structures, tone: tone ?? null }, { ...row, structures }, row];
+      let last: { message: string } | null = null;
+      for (let i = 0; i < payloads.length; i++) {
+        const { data, error } = await client().from('projects').insert(payloads[i]).select(PROJECT_COLS[i]).single();
+        if (!missingColumn(error)) {
+          check(error);
+          return toProject(data as unknown as ProjectRow);
+        }
+        last = error;
+      }
+      check(last);
+      throw new Error('createProject');
     },
     async saveProject(id, patch) {
       // Only the colour changing is not an edit of the project: its "last modified" stays.
@@ -184,20 +197,22 @@ export function createSupabaseBackend(): Backend {
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.models !== undefined) row.models = patch.models;
       if (patch.structures !== undefined) row.structures = patch.structures;
+      if (patch.annotations !== undefined) row.annotations = patch.annotations;
       if (patch.roomIds !== undefined) {
         row.room_ids = patch.roomIds;
         row.room_id = patch.roomIds[0] ?? null;
       }
+      const skipped: string[] = [];
       let { error } = await client().from('projects').update(row).eq('id', id);
-      if (missingColumn(error) && 'tone' in row) {
-        delete row.tone; // the colour column does not exist yet
+      // An older schema lacks some columns: save the rest and say what was left out.
+      for (const col of ['annotations', 'tone', 'structures']) {
+        if (!missingColumn(error) || !(col in row)) continue;
+        delete row[col];
+        skipped.push(col);
         ({ error } = Object.keys(row).length ? await client().from('projects').update(row).eq('id', id) : { error: null });
       }
-      if (missingColumn(error) && 'structures' in row) {
-        delete row.structures; // schema not updated yet: the rest is still saved
-        ({ error } = await client().from('projects').update(row).eq('id', id));
-      }
       check(error);
+      return skipped.length ? { skipped } : undefined;
     },
     async deleteProject(id) {
       const { error } = await client().from('projects').delete().eq('id', id);
