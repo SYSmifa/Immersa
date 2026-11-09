@@ -1917,7 +1917,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), axis: null, dir0: startDir(an, pt, house.root.matrix) };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), mode: 0, axis: null, dir0: startDir(an, pt, house.root.matrix) };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -2050,7 +2050,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (view.annotations) {
         for (const x of (current.annotations ?? []).filter((y) => y.roomId === roomId)) {
           // the chosen one gets the azure outline of selected objects
-          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true, ...(annotGrab?.axis && annotGrab.id === x.id ? { color: '#2dd4bf' } : {}) } : m)));
+          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true, ...(annotGrab?.mode && annotGrab.id === x.id ? { color: '#2dd4bf' } : {}) } : m)));
         }
       }
       const mtx = house.root.matrix; // the room's place in the world
@@ -2170,11 +2170,36 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     phase: 'pending' | 'move';
     seen: boolean;
     now: Vector3; // where the point is now, in the world
-    axis: Vector3 | null; // ruler only, other pinch held: the line the point is kept on (unit, world)
+    mode: number; // ruler only: 0 free, 1 along its old line, 2 same height as the other end, 3 vertical (the other hand's taps go round)
+    axis: Vector3 | null; // mode 1: the line (unit, world)
     dir0: Vector3 | null; // ruler only: its direction before the pinch moved anything (from the other end to this one, unit, world)
   }
   let annotGrab: AnnotGrab | null = null;
   const SNAP_RELEASE = 0.05; // m
+  const MODE_NAMES = ['Libero', "Sull'asse del metro", 'Stessa altezza', 'Verticale'];
+  let leftDownAt = 0;
+  // The direction of the room's longest wall in the world (horizontal, unit), for the snap of a locked ruler; null without walls.
+  function roomAxisWorld(roomId: string): Vector3 | null {
+    const house = houses.get(roomId);
+    if (!house || !current) return null;
+    const room = rooms.find((r) => r.id === roomId);
+    const walls: Seg[] = [...(current.structures?.filter((x) => x.roomId === roomId) ?? []).flatMap(wallSegs), ...(room?.scan.planes ?? []).map((pl, i) => planeSeg(pl, i)).filter((x): x is Seg => !!x)];
+    const ax = roomAxes(walls);
+    if (!ax) return null;
+    house.root.updateWorldMatrix(true, false);
+    const d = new Vector3(ax[0], 0, ax[1]).transformDirection(house.root.matrixWorld);
+    d.y = 0;
+    return d.lengthSq() > 1e-6 ? d.normalize() : null;
+  }
+  // A tap of the other hand while a ruler's end is held: the next mode.
+  function cycleAnnotMode() {
+    const g = annotGrab;
+    const an = g && annotOf(g.id);
+    if (!g || !an || an.kind !== 'ruler') return;
+    g.mode = (g.mode + 1) % MODE_NAMES.length;
+    g.axis = null;
+    notify(MODE_NAMES[g.mode], 1500);
+  }
   // A ruler's direction as it is when grabbed (null for a note, or while both ends are still the same point).
   function startDir(an: Annotation, pt: 'a' | 'b', mtx: Matrix4): Vector3 | null {
     const other = pt === 'a' ? an.b : an.a;
@@ -2235,22 +2260,28 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // It glides to the hand (the first moments show the flight) and then follows it, lightly smoothed against the tracking's jitter.
     let goal: Vector3 = hand;
     const other = an.kind === 'ruler' ? (g.pt === 'a' ? an.b : an.a) : null;
-    if (other && leftHeld) {
-      // The other pinch is held: the point stays on the line through the other end, in the direction the ruler had when it was
-      // pressed (or the nearest axis of the world, if it is within a few degrees), so it can only be lengthened or shortened.
+    if (other && g.mode) {
       const o = new Vector3(...other).applyMatrix4(house.root.matrix);
-      if (!g.axis) {
-        // the line the ruler had before the hand moved it; a ruler that had no length yet takes where it is now
-        const d = g.now.clone().sub(o);
-        const dir = g.dir0 ? g.dir0.clone() : d.lengthSq() > 1e-8 ? d.normalize() : hand.clone().sub(o).normalize();
-        for (const ax of [new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1)]) {
-          if (Math.abs(dir.dot(ax)) > Math.cos(AXIS_SNAP)) dir.copy(ax).multiplyScalar(Math.sign(dir.dot(ax)));
+      if (g.mode === 1) {
+        // Along the line the ruler had before the hand moved it (a ruler that had no length yet: where it is now); close to a wall's
+        // direction or to the vertical it is made exactly parallel. It can only be lengthened or shortened.
+        if (!g.axis) {
+          const d = g.now.clone().sub(o);
+          const dir = g.dir0 ? g.dir0.clone() : d.lengthSq() > 1e-8 ? d.normalize() : hand.clone().sub(o).normalize();
+          const wall = roomAxisWorld(an.roomId);
+          const cands = [new Vector3(0, 1, 0)];
+          if (wall) cands.push(wall, new Vector3(-wall.z, 0, wall.x));
+          for (const ax of cands) if (Math.abs(dir.dot(ax)) > Math.cos(AXIS_SNAP)) dir.copy(ax).multiplyScalar(Math.sign(dir.dot(ax)));
+          g.axis = dir;
         }
-        g.axis = dir;
-        logEvent('metro: in asse');
+        goal = o.clone().addScaledVector(g.axis, Math.max(0.01, hand.clone().sub(o).dot(g.axis))); // never through the other end
+      } else if (g.mode === 2) {
+        goal = new Vector3(hand.x, o.y, hand.z); // the same height as the other end
+      } else {
+        const dy = hand.y - o.y;
+        goal = new Vector3(o.x, o.y + (Math.abs(dy) < 0.01 ? 0.01 : dy), o.z); // straight above / below the other end
       }
-      goal = o.clone().addScaledVector(g.axis, Math.max(0.01, hand.clone().sub(o).dot(g.axis))); // never through the other end
-    } else g.axis = null;
+    }
     g.now.lerp(goal, 1 - Math.exp(-dt * ANNOT_FOLLOW));
     house.root.updateWorldMatrix(true, false);
     const l = house.root.worldToLocal(g.now.clone());
@@ -2549,6 +2580,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let mainHeld = false;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
     if (hand === 'left') {
+      leftDownAt = performance.now();
       leftHeld = !consumedByUi;
       if (leftHeld && !mainHeld && !grab) (rig.visible ? closeMenu : openMenu)();
     } else {
@@ -2557,7 +2589,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
   }
   function pinchUp(hand: 'left' | 'right', id: string) {
-    if (hand === 'left') leftHeld = false;
+    if (hand === 'left') {
+      leftHeld = false;
+      if (annotGrab && performance.now() - leftDownAt < 450) cycleAnnotMode(); // a tap, not a hold
+    }
     else {
       mainHeld = false;
       if (grab?.pointer === id) endGrab();
