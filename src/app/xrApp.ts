@@ -298,9 +298,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             const hit = core.aim(id, origin, dir);
             laser.meshReticle = !layers.active;
             laser.meshBeam = !layers.active;
-            layers.showBeam(origin, dir, hit.length, head().pos);
-            const end = laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos);
-            if (end) layers.showReticle(end.pos, head().pos, end.radius);
+            const moving = core.moving();
+            layers.showBeam(origin, dir, hit.length, head().pos, moving);
+            const end = laser.show(origin, dir, hit.length, hit.target !== 'none', rightPinching, head().pos, moving);
+            if (end) layers.showReticle(end.pos, head().pos, end.radius, moving);
             laserOn = true;
           } else {
             core.host.setRay(id, null); // the other hand does not point at panels

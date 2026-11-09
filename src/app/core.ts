@@ -9,7 +9,7 @@ import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder, worldTop } from '../room/selection';
+import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
@@ -1757,16 +1757,48 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     openMenu();
     refreshView();
   }
+  let btnAnchor: { key: string; pos: Vector3 } | null = null;
+  let btnHidden = true;
+  // A spot in front of the object's near side, at head height: 0.3 m before the box, between 0.6 and 2.4 m from you.
+  function headHeightSpot(box: Box3, head: Head): Vector3 {
+    const c = box.getCenter(new Vector3());
+    const len = Math.hypot(c.x - head.pos.x, c.z - head.pos.z) || 1e-6;
+    const ux = (c.x - head.pos.x) / len;
+    const uz = (c.z - head.pos.z) / len;
+    let tIn = -Infinity;
+    let tOut = Infinity;
+    for (const [u, h, lo, hi] of [[ux, head.pos.x, box.min.x, box.max.x], [uz, head.pos.z, box.min.z, box.max.z]] as const) {
+      if (Math.abs(u) < 1e-6) continue;
+      const t1 = (lo - h) / u;
+      const t2 = (hi - h) / u;
+      tIn = Math.max(tIn, Math.min(t1, t2));
+      tOut = Math.min(tOut, Math.max(t1, t2));
+    }
+    const near = tIn > 0 && tIn < tOut ? tIn : 0; // inside the footprint: right here
+    const t = Math.min(2.4, Math.max(0.6, near - 0.3));
+    return new Vector3(head.pos.x + ux * t, head.pos.y, head.pos.z + uz * t);
+  }
   function placeObjectButton(head: Head) {
     const m = selectedModel();
     const st = selectedStruct();
     const holder = m && houses.get(m.roomId)?.layer.holders.get(m.id);
-    let top: Vector3 | null = holder && houses.get(m!.roomId)?.root.visible ? worldTop(holder) : null;
+    // The button of a model or component floats between you and it, at the height of your eyes: always within reach of the
+    // laser, however tall the object is. It stays where it was put (it would run away from the hand if it followed the head)
+    // until the selection changes, the object has been moved, or you walk too far from it or into it.
+    let box: Box3 | null = null;
+    if (holder && houses.get(m!.roomId)?.root.visible) box = new Box3().setFromObject(holder);
     const pn = selectedPart ? partNodeOf() : null;
-    if (pn && houses.get(selectedPart!.modelId ? (partModelOf()?.roomId ?? '') : '')?.root.visible) {
-      const box = new Box3().setFromObject(pn);
-      top = box.isEmpty() ? null : new Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
-    }
+    if (pn && houses.get(selectedPart!.modelId ? (partModelOf()?.roomId ?? '') : '')?.root.visible) box = new Box3().setFromObject(pn);
+    let top: Vector3 | null = null;
+    if (box && !box.isEmpty()) {
+      const key = selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : `m:${m?.id}`;
+      const moved = grab || partGrab || structGrab || rig.visible; // hidden: put again where it is when it comes back
+      const far = btnAnchor ? Math.hypot(btnAnchor.pos.x - head.pos.x, btnAnchor.pos.z - head.pos.z) : 0;
+      if (!btnAnchor || btnAnchor.key !== key || btnHidden || far > 3 || far < 0.35) btnAnchor = { key, pos: headHeightSpot(box, head) };
+      btnHidden = !!moved;
+      top = btnAnchor.pos.clone();
+      top.y -= 0.17; // the button sits 0.17 above this point
+    } else btnHidden = true;
     // A wall's top is out of reach: the button floats where it was pinched, a little towards you and up, within arm's reach.
     if (st && structHit && houses.get(st.roomId)?.root.visible) {
       const toHead = new Vector3(head.pos.x - structHit.x, 0, head.pos.z - structHit.z).normalize();
@@ -2354,6 +2386,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
     layerPanels: () => [menu, menuToast, warn, listLoader, loading, splashPanel, hud, objButton, notice],
+    // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
+    moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab,
     keyboard,
     panels: { menu, keyboard: keyboard.panel },
     menu: { open: openMenu, close: closeMenu, toggle: () => (rig.visible ? closeMenu() : openMenu()), isOpen: () => rig.visible },

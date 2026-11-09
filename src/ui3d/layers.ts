@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3, type WebGLRenderer } from 'three';
-import { FADE, LASER_OPACITY, RADIUS } from './laser';
+import { FADE, LASER_OPACITY, MOVING_COLOR, RADIUS } from './laser';
 import type { Panel } from './panel';
 
 // Panels as WebXR quad layers (the equivalent of Unreal's stereo layers). The headset's compositor samples the panel's
@@ -54,12 +54,13 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
   const quat = new Quaternion();
   const scl = new Vector3();
 
-  // The laser's end circle.
+  // The laser's end circle (grey; turquoise while something is being moved).
   const dot = document.createElement('canvas');
   dot.width = dot.height = 128;
-  {
+  function drawDot(moving: boolean) {
     const c = dot.getContext('2d')!;
-    c.fillStyle = 'rgba(184,184,184,0.92)';
+    c.clearRect(0, 0, 128, 128);
+    c.fillStyle = moving ? MOVING_COLOR : 'rgba(184,184,184,0.92)';
     c.beginPath();
     c.arc(64, 64, 58, 0, 2 * Math.PI);
     c.fill();
@@ -69,17 +70,18 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     c.arc(64, 64, 58, 0, 2 * Math.PI);
     c.stroke();
   }
+  drawDot(false);
   // The laser beam: a flat ribbon turned towards the eye, its image redrawn every frame (the fades are in metres).
   const ribbon = document.createElement('canvas');
   ribbon.width = 256;
   ribbon.height = 16;
   const ribbonCtx = ribbon.getContext('2d')!;
-  function drawRibbon(length: number) {
+  function drawRibbon(length: number, moving: boolean) {
     const c = ribbonCtx;
     const { width: w, height: h } = ribbon;
     c.globalCompositeOperation = 'source-over';
     c.clearRect(0, 0, w, h);
-    c.fillStyle = '#ffffff';
+    c.fillStyle = moving ? MOVING_COLOR : '#ffffff';
     c.fillRect(0, 0, w, h);
     c.globalCompositeOperation = 'destination-in';
     const along = c.createLinearGradient(0, 0, w, 0);
@@ -100,14 +102,15 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     c.globalCompositeOperation = 'source-over';
   }
   const beam = item(ribbon);
-  let beamAsk: { origin: Vector3; dir: Vector3; length: number; toward: Vector3 } | null = null;
+  let beamAsk: { origin: Vector3; dir: Vector3; length: number; toward: Vector3; moving: boolean } | null = null;
   let beamFrame = 0;
   const basis = new Matrix4();
   const bx = new Vector3();
   const by = new Vector3();
   const bz = new Vector3();
   const reticle = item(dot);
-  let reticleAsk: { pos: Vector3; toward: Vector3; radius: number } | null = null;
+  let reticleAsk: { pos: Vector3; toward: Vector3; radius: number; moving: boolean } | null = null;
+  let reticleMoving = false;
   const facing = new Object3D();
 
   const transform = (p: Vector3, q: Quaternion) => new XRRigidTransform({ x: p.x, y: p.y, z: p.z, w: 1 }, { x: q.x, y: q.y, z: q.z, w: q.w });
@@ -193,12 +196,12 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
       }
     },
     // The laser beam from the hand; call every frame it should show.
-    showBeam(origin: Vector3, dir: Vector3, length: number, toward: Vector3) {
-      beamAsk = { origin: origin.clone(), dir: dir.clone(), length, toward: toward.clone() };
+    showBeam(origin: Vector3, dir: Vector3, length: number, toward: Vector3, moving = false) {
+      beamAsk = { origin: origin.clone(), dir: dir.clone(), length, toward: toward.clone(), moving };
     },
     // Where the laser lands; call every frame it should show (the circle is hidden otherwise).
-    showReticle(at: Vector3, toward: Vector3, radius: number) {
-      reticleAsk = { pos: at.clone(), toward: toward.clone(), radius };
+    showReticle(at: Vector3, toward: Vector3, radius: number, moving = false) {
+      reticleAsk = { pos: at.clone(), toward: toward.clone(), radius, moving };
     },
     // Once per XR frame, after the scene was rendered and the panels were placed.
     update(frame: XRFrame, ref: XRReferenceSpace) {
@@ -240,7 +243,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
           bz.normalize();
           by.crossVectors(bz, bx);
           quat.setFromRotationMatrix(basis.makeBasis(bx, by, bz));
-          drawRibbon(beamAsk.length);
+          drawRibbon(beamAsk.length, beamAsk.moving);
           const layer = sync(binding, frame, ref, beam, true, ++beamFrame, beamAsk.length, RADIUS * 2.4, 'raggio');
           if (layer) list.push(layer);
         } else beam.shown = false;
@@ -251,7 +254,11 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
           pos.copy(reticleAsk.pos);
           quat.copy(facing.quaternion);
           const d = reticleAsk.radius * 2;
-          const layer = sync(binding, frame, ref, reticle, true, 0, d, d, 'cerchio');
+          if (reticleMoving !== reticleAsk.moving) {
+            reticleMoving = reticleAsk.moving;
+            drawDot(reticleMoving);
+          }
+          const layer = sync(binding, frame, ref, reticle, true, reticleMoving ? 1 : 0, d, d, 'cerchio');
           if (layer) list.push(layer);
         } else reticle.shown = false;
         reticleAsk = null;
