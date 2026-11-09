@@ -75,6 +75,7 @@ export interface EditorHandlers {
   onSnapGrid(on: boolean): void;
   onSnapVertex(on: boolean): void;
   onLocal(on: boolean): void;
+  onMeasures(mode: MeasureMode): void;
   onUndo(): void;
   onRedo(): void;
   // outline + details
@@ -134,6 +135,15 @@ export type Details =
       moved: boolean; // not where / as it is in the file
     }
   | { kind: 'structure'; key: string; count?: number; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
+// What the measure button shows: nothing, the selected objects only, or the sizes of everything.
+export type MeasureMode = 'off' | 'sel' | 'all';
+export interface MeasureLabel {
+  x: number; // px, in the page
+  y: number;
+  text: string;
+  kind: 'dim' | 'gap' | 'label';
+}
+
 export interface ToolbarState {
   build: BuildKind | null;
   gizmo: Gizmo;
@@ -141,6 +151,7 @@ export interface ToolbarState {
   grid: boolean;
   vertex: boolean;
   local: boolean;
+  measures: MeasureMode;
   canUndo: boolean;
   canRedo: boolean;
 }
@@ -207,6 +218,9 @@ const CSS = `
 .ed-ib svg{width:21px;height:21px}
 .ed-ib:hover:not(:disabled){background:#ffffff1f}
 .ed-ib:disabled{opacity:.3;cursor:default}
+.ed-measures{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.ed-mlabel{position:absolute;left:0;top:0;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0006}
+.ed-mlabel.gap{background:#14b8a6;color:#04211d}
 .ed-ib.on,.ed-ib.on:hover:not(:disabled){background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d}
 .ed-sep{width:1px;height:24px;background:#ffffff26;margin:0 6px}
 .ed-save{padding:0 16px;height:40px;margin-left:4px;background:#ffffff14;color:#cfd6e4;border-radius:999px;border:0;cursor:pointer;font-weight:500}
@@ -294,6 +308,7 @@ const ICON = {
   // a square with a dot on each corner: snap to vertices
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+  ruler: svg('<path d="M3 17 17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'),
   local: svg('<path d="M5 19V4M5 19h15M5 19l7-7"/><path d="M3 6l2-2 2 2M18 17l2 2-2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>'),
   redo: svg('<path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/>'),
@@ -707,7 +722,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, measures: 'sel', canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -717,11 +732,13 @@ export function createEditorUi(h: EditorHandlers) {
   const bGrid = ib(ICON.grid, 'Snap alla griglia (5 cm, rotazione a 15°)', () => h.onSnapGrid(!state.grid));
   const bVertex = ib(ICON.magnet, 'Snap ai vertici di pareti e pavimenti', () => h.onSnapVertex(!state.vertex));
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
+  const NEXT: Record<MeasureMode, MeasureMode> = { off: 'sel', sel: 'all', all: 'off' };
+  const bMeasure = ib(ICON.ruler, 'Misure e distanze: spente / oggetto selezionato / dimensioni di tutto (clic per cambiare)', () => h.onMeasures(NEXT[state.measures]));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
   save.onclick = h.onSave;
-  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, sep(), bUndo, bRedo, save);
+  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, sep(), bUndo, bRedo, save);
   const hint = el('div', '', 'ed-hint');
   top.append(tools, hint);
 
@@ -758,7 +775,10 @@ export function createEditorUi(h: EditorHandlers) {
     drawLoader(cctx, 85, 75, 140, performance.now() / 1000, 1);
     requestAnimationFrame(spin);
   };
-  root.append(side, top, right, toast, loading);
+  // Labels of the measures, pooled, placed by the editor every frame (under the panels, never in the way of the mouse).
+  const measureLayer = el('div', '', 'ed-measures');
+  const labelPool: HTMLElement[] = [];
+  root.append(measureLayer, side, top, right, toast, loading);
 
   function syncChrome() {
     const on = view === 'project' && hasProject;
@@ -1394,6 +1414,21 @@ export function createEditorUi(h: EditorHandlers) {
       save.classList.toggle('dirty', dirty);
       save.textContent = dirty ? 'Salva *' : 'Salva';
     },
+    setMeasureLabels(labels: MeasureLabel[]) {
+      while (labelPool.length < labels.length) {
+        const d = el('div', '', 'ed-mlabel');
+        measureLayer.append(d);
+        labelPool.push(d);
+      }
+      labelPool.forEach((d, i) => {
+        const l = labels[i];
+        d.style.display = l ? 'block' : 'none';
+        if (!l) return;
+        if (d.textContent !== l.text) d.textContent = l.text;
+        d.className = `ed-mlabel ${l.kind}`;
+        d.style.transform = `translate(-50%,-50%) translate(${l.x.toFixed(1)}px,${l.y.toFixed(1)}px)`;
+      });
+    },
     setToolbar(s: ToolbarState) {
       state = s;
       const on = (b: HTMLElement, v: boolean) => b.classList.toggle('on', v);
@@ -1408,6 +1443,8 @@ export function createEditorUi(h: EditorHandlers) {
       on(bVertex, s.vertex);
       on(bLocal, s.local);
       bLocal.innerHTML = s.local ? ICON.local : ICON.world;
+      on(bMeasure, s.measures !== 'off');
+      bMeasure.title = `Misure: ${s.measures === 'off' ? 'spente' : s.measures === 'sel' ? 'oggetto selezionato' : 'dimensioni di tutto'} (clic per cambiare)`;
       bUndo.disabled = !s.canUndo;
       bRedo.disabled = !s.canRedo;
       hint.style.display = s.build ? 'block' : 'none';

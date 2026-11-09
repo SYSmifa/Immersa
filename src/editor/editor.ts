@@ -33,13 +33,17 @@ import type { Backend } from '../cloud/backend';
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
+import { boxSolid, ceilingYOf, dimsOfSolid, dimsOfStructure, floorYOf, gapsOfSolid, modelSolid, planeSeg, roomAxes, solidSegs, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
 import { countTriangles, glbTrianglesAt, describeGlb, glbTrianglesOfFile, HEAVY_TRIANGLES, MAX_FILE_BYTES, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
-import { listMaterials, modelSize as localModelSize } from '../room/selection';
+import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { PartEdit, Project, Room, RoomModel, Structure } from '../room/types';
 import { createStage } from '../scene/stage';
@@ -47,7 +51,7 @@ import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
 import { newTone, projectTones } from '../ui3d/theme';
 import { guessFloorLayers, guessWallLayers, parsePlan, planToStructures, type PlanOptions } from './dxfImport';
-import { createEditorUi, type BuildKind, type Details, type Gizmo, type LookEdit, type Option, type StructureEdit } from './editorUi';
+import { createEditorUi, type BuildKind, type MeasureMode, type Details, type Gizmo, type LookEdit, type Option, type StructureEdit } from './editorUi';
 
 interface Deps {
   renderer: WebGLRenderer;
@@ -152,6 +156,77 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   });
   const structLayer = createStructureLayer(structuresGroup);
 
+  // ---- measures: sizes and free distances of the selected objects (or the sizes of everything), see room/measure.ts ----
+  let measureMode: MeasureMode = (() => {
+    try {
+      const v = localStorage.getItem('immersa.measures');
+      return v === 'off' || v === 'all' ? v : 'sel';
+    } catch {
+      return 'sel';
+    }
+  })();
+  const measureGroup = new Group();
+  scene.add(measureGroup);
+  const lineMat = (color: number, width: number) => new LineMaterial({ color, linewidth: width, depthTest: false, transparent: true });
+  const dimMat = lineMat(0xffffff, 2);
+  const gapMat = lineMat(0x2dd4bf, 2.5);
+  let dimLines: LineSegments2 | null = null;
+  let gapLines: LineSegments2 | null = null;
+  let measureSig = '';
+  const mv = new Vector3();
+
+  function computeMeasures(): Measure[] {
+    if (measureMode === 'off' || !project) return [];
+    const solids = new Map<string, Solid>();
+    for (const m of models()) {
+      const h = layer.holders.get(m.id);
+      const b = h && modelBox(h);
+      if (b) solids.set(m.id, modelSolid(m, b.min, b.max));
+    }
+    const planes = room?.scan.planes ?? [];
+    const walls: Seg[] = [...structures().flatMap(wallSegs), ...planes.map((p, i) => planeSeg(p, i)).filter((x): x is Seg => !!x)];
+    const obstacles = [...walls, ...(room?.scan.boxes ?? []).flatMap((b, i) => solidSegs(boxSolid(b, i))), ...[...solids.values()].flatMap(solidSegs)];
+    const ctx = { obstacles, axes: roomAxes(walls), ceilingY: room ? ceilingYOf(planes) : null, floorY: room ? floorYOf(planes) : 0 };
+    const picked = new Set(selModels().map((m) => m.id));
+    const out: Measure[] = [];
+    for (const [id, s] of solids) {
+      if (picked.has(id) || measureMode === 'all') out.push(...dimsOfSolid(s));
+      if (picked.has(id)) out.push(...gapsOfSolid(s, ctx));
+    }
+    const pickedS = new Set(selStructs().map((x) => x.id));
+    for (const st of structures()) if (pickedS.has(st.id) || measureMode === 'all') out.push(...dimsOfStructure(st));
+    return out;
+  }
+
+  function updateMeasures() {
+    const list = computeMeasures();
+    const sig = list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
+    if (sig !== measureSig) {
+      measureSig = sig;
+      for (const l of [dimLines, gapLines]) if (l) (measureGroup.remove(l), l.geometry.dispose());
+      const flat = (kind: Measure['kind']) => list.filter((m) => m.kind === kind).flatMap((m) => [...m.a, ...m.b]);
+      const make = (pos: number[], mat: LineMaterial) => {
+        if (!pos.length) return null;
+        const l = new LineSegments2(new LineSegmentsGeometry().setPositions(pos), mat);
+        l.renderOrder = 999;
+        l.frustumCulled = false;
+        measureGroup.add(l);
+        return l;
+      };
+      dimLines = make(flat('dim'), dimMat);
+      gapLines = make(flat('gap'), gapMat);
+    }
+    dimMat.resolution.set(window.innerWidth, window.innerHeight);
+    gapMat.resolution.set(window.innerWidth, window.innerHeight);
+    const labels = [];
+    for (const m of list) {
+      mv.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).project(camera);
+      if (mv.z > 1 || Math.abs(mv.x) > 1.2 || Math.abs(mv.y) > 1.2) continue;
+      labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind });
+    }
+    ui.setMeasureLabels(labels);
+  }
+
   scene.background = new Color(0x15171c); // through the composer the clear colour would be encoded twice
 
   // Selection outline: a screen-space azure edge round the selected objects.
@@ -177,6 +252,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     updateFade();
     syncHandles();
+    updateMeasures();
     composer.render();
   });
 
@@ -536,7 +612,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
 
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, measures: measureMode, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
   }
 
   function refreshLists() {
@@ -1368,6 +1444,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onSnapVertex(on) {
       snapVertex = on;
       refreshToolbar();
+    },
+    onMeasures(mode) {
+      measureMode = mode;
+      try {
+        localStorage.setItem('immersa.measures', mode);
+      } catch {
+        /* kept for this session only */
+      }
+      refreshToolbar();
+      ui.setStatus(mode === 'off' ? 'Misure spente.' : mode === 'sel' ? 'Misure: dimensioni e distanze dell\'oggetto selezionato.' : 'Misure: dimensioni di tutti gli oggetti, distanze del selezionato.');
     },
     onLocal(on) {
       local = on;

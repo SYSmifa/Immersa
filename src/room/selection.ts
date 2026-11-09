@@ -135,6 +135,12 @@ export function surfaceUnder(holders: Object3D[], origin: Vector3, dir: Vector3,
   return null;
 }
 
+// Corners of the model's box in its own frame, at scale 1 (null while it is loading).
+export function modelBox(holder: Object3D): { min: [number, number, number]; max: [number, number, number] } | null {
+  const b = localBox(holder);
+  return b ? { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] } : null;
+}
+
 // Size in the model's own axes, at scale 1 (null while it is loading).
 export function modelSize(holder: Object3D): Vector3 | null {
   return localBox(holder)?.getSize(new Vector3()) ?? null;
