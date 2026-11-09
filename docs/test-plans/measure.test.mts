@@ -13,7 +13,7 @@ const model = (id: string, pos: [number, number, number], yaw = 0): RoomModel =>
 const lo: [number, number, number] = [-0.5, 0, -0.25];
 const hi: [number, number, number] = [0.5, 2, 0.25]; // 1 x 2 x 0.5 m
 const ctx = (extra: Partial<MeasureContext> = {}): MeasureContext => ({ obstacles: wallFaces, axes: roomAxes(wallFaces), ceilingY: 2.7, floorY: 0, ...extra });
-const gaps = (s: ReturnType<typeof modelSolid>, c: MeasureContext) => gapsOfSolid(s, c).map((m) => m.text).sort();
+const gaps = (s: ReturnType<typeof modelSolid>, c: MeasureContext) => gapsOfSolid(s, c).filter((m) => m.kind === 'gap').map((m) => m.text).sort();
 
 // formatting
 assert.equal(formatLength(1.236), '1,24 m');
@@ -25,26 +25,26 @@ assert.equal(formatLength(0.008), '8 mm');
 const a = modelSolid(model('a', [2, 0, 1.5]), lo, hi);
 near(a.hu, 0.5);
 near(a.hv, 0.25);
-assert.deepEqual(gaps(a, ctx()), ['1,20 m', '1,45 m', '2,20 m', '2,45 m', '70 cm'].sort()); // -z, -x, +z, +x, ceiling
+assert.deepEqual(gaps(a, ctx()), ['1,20 m · parete', '1,45 m · parete', '2,20 m · parete', '2,45 m · parete', '70 cm · soffitto'].sort()); // -z, -x, +z, +x, ceiling
 
 // dimensions
 assert.deepEqual(dimsOfSolid(a).map((m) => m.text), ['1,00 m', '50 cm', '2,00 m']);
 
 // turned by 30 degrees, measured along the room's axes: its leftmost point is 0.5 cos30 + 0.25 sin30 from the centre
 const turned = modelSolid(model('t', [2, 0, 1.5], Math.PI / 6), lo, hi);
-const left = gapsOfSolid(turned, ctx()).find((m) => m.a[0] < m.b[0] === false && Math.abs(m.a[2] - m.b[2]) < 1e-6 && m.b[0] < m.a[0]);
+const left = gapsOfSolid(turned, ctx()).filter((m) => m.kind === 'gap').find((m) => m.a[0] < m.b[0] === false && Math.abs(m.a[2] - m.b[2]) < 1e-6 && m.b[0] < m.a[0]);
 assert.ok(left);
 near(Math.hypot(left.b[0] - left.a[0], 0), 2 - (0.5 * Math.cos(Math.PI / 6) + 0.25 * Math.sin(Math.PI / 6)) - 0.05);
 
 // another object in the way: the gap is to its side, not to the wall
 const b = modelSolid(model('b', [3.5, 0, 1.5]), [-0.2, 0, -0.25], [0.2, 1.5, 0.25]);
-assert.ok(gaps(a, ctx({ obstacles: [...wallFaces, ...solidSegs(b)] })).includes('80 cm')); // 2.5 -> 3.3
+assert.ok(gaps(a, ctx({ obstacles: [...wallFaces, ...solidSegs(b)] })).includes('80 cm · b')); // 2.5 -> 3.3, and it says what is there
 
 // ... unless it is lower than where the first one starts (no overlap in height): the wall is what is seen
 const raised = modelSolid(model('r', [2, 1.6, 1.5]), lo, hi);
 const low = modelSolid(model('low', [3.5, 0, 1.5]), [-0.2, 0, -0.25], [0.2, 1.5, 0.25]);
 const gRaised = gaps(raised, ctx({ obstacles: [...wallFaces, ...solidSegs(low)], ceilingY: 4 }));
-assert.ok(gRaised.includes('2,45 m') && gRaised.includes('1,60 m')); // wall at +x, and 1.6 m above the floor
+assert.ok(gRaised.includes('2,45 m · parete') && gRaised.includes('1,60 m · pavimento')); // wall at +x, and 1.6 m above the floor
 
 // a wall: length and thickness, height
 assert.deepEqual(dimsOfStructure(walls[0]).map((m) => m.text), ['5,00 m · sp. 10 cm', '2,70 m']);
@@ -68,3 +68,9 @@ near(bs.hu, 1);
 near(bs.hv, 0.5);
 near(bs.y1, 0.8);
 console.log('measure: all checks passed');
+
+// every gap has a tick at each end (two marks), laid on the floor under the object
+const all = gapsOfSolid(a, ctx());
+assert.equal(all.filter((m) => m.kind === 'tick').length, 2 * all.filter((m) => m.kind === 'gap').length);
+assert.ok(all.filter((m) => m.kind === 'gap' && m.text.endsWith('parete')).every((m) => Math.abs(m.a[1] - 0.01) < 1e-9 && Math.abs(m.b[1] - 0.01) < 1e-9));
+console.log('measure: ticks and floor level ok');
