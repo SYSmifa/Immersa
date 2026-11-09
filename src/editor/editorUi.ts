@@ -6,6 +6,7 @@ import { drawLoader } from '../ui3d/loader';
 import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
 import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
+import { HEAVY_TRIANGLES } from './simplify';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -15,7 +16,7 @@ export type Gizmo = 'translate' | 'rotate' | 'scale';
 export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
 
 // A file of the model library (the user's cloud storage) and where it is used.
-const HEAVY = 300000; // same budget as HEAVY_TRIANGLES in simplify.ts
+const HEAVY = HEAVY_TRIANGLES;
 export interface LibraryItem {
   path: string;
   name: string;

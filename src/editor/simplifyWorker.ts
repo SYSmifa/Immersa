@@ -10,7 +10,8 @@ export interface Job {
   stride: number;
   weights: number[];
   target: number; // index count wanted
-  error: number; // relative deviation allowed
+  error: number; // deviation allowed: relative to the part's size, or in metres when `absolute`
+  absolute: boolean;
   fallback: boolean; // finish with the coarse simplifier when the careful one stops early
 }
 
@@ -18,9 +19,13 @@ self.onmessage = async (e: MessageEvent<Job>) => {
   const j = e.data;
   try {
     await MeshoptSimplifier.ready;
+    // In absolute mode the error is in metres, so the attribute weights (which the library takes as fractions of the part's
+    // size in relative mode) are scaled by the part's size to mean the same thing.
+    const flags = j.absolute ? (['ErrorAbsolute'] as const) : undefined;
+    const weights = j.absolute ? j.weights.map((w) => w * MeshoptSimplifier.getScale(j.pos, 3)) : j.weights;
     let [out] = j.stride
-      ? MeshoptSimplifier.simplifyWithAttributes(j.idx, j.pos, 3, j.attr, j.stride, j.weights, null, j.target, j.error)
-      : MeshoptSimplifier.simplify(j.idx, j.pos, 3, j.target, j.error);
+      ? MeshoptSimplifier.simplifyWithAttributes(j.idx, j.pos, 3, j.attr, j.stride, weights, null, j.target, j.error, flags ? [...flags] : undefined)
+      : MeshoptSimplifier.simplify(j.idx, j.pos, 3, j.target, j.error, flags ? [...flags] : undefined);
     // Topology can stop the careful pass early (many separate shells): the coarse one ignores the attributes.
     if (j.fallback && out.length > j.target * 1.3) out = MeshoptSimplifier.simplifySloppy(out, j.pos, 3, null, j.target, 1)[0];
     const copy = new Uint32Array(out); // own buffer, so it can be handed back without copying

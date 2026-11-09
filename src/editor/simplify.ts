@@ -1,12 +1,15 @@
-import { BufferAttribute, BufferGeometry, type InterleavedBufferAttribute, Mesh, Object3D, Scene, SkinnedMesh } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, type InterleavedBufferAttribute, Mesh, Object3D, Scene, SkinnedMesh, Vector3 } from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import type { Job } from './simplifyWorker';
 import { createGltfLoader } from '../scene/gltf';
 
 // Triangle budget for one model on the headset. Above it the editor offers to simplify when the project is saved.
-export const HEAVY_TRIANGLES = 300000;
-// How far a geometry may drift from the original in the first, "lossless" pass: a fraction of the part's size.
-const LOSSLESS_ERROR = 0.001;
+export const HEAVY_TRIANGLES = 500000;
+// The first pass removes what does not change the shape: deviation up to this fraction of the whole model's size. If the model
+// is still over budget the allowed deviation grows by `EPS_GROWTH` per pass (the same in metres for every part) up to `EPS_MAX`.
+const EPS_START = 1e-4;
+const EPS_GROWTH = 1.5;
+const EPS_MAX = 0.02;
 export const MAX_FILE_BYTES = 45 * 1024 * 1024; // under the cloud's 50 MB per file
 
 const MAX_TEXTURE = 2048;
@@ -143,21 +146,21 @@ function weld(g: BufferGeometry): BufferGeometry {
 // One geometry down to about `targetTris` triangles: edge collapses that keep the normals and the UVs close to the original
 // (meshoptimizer, in a worker), then the vertices no triangle uses any more are dropped, which is where most of the file
 // size goes.
-async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean, stop: { stopped: boolean }): Promise<BufferGeometry> {
+async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, absolute: boolean, coarseFallback: boolean, stop: { stopped: boolean }): Promise<BufferGeometry> {
   const w = await takeWorker();
   let out: Uint32Array;
   let g: BufferGeometry;
   let position: Attr;
   try {
     if (stop.stopped) throw new Error('interrotto');
-    ({ out, g, position } = await simplifyOn(w, source, targetTris, maxError, coarseFallback));
+    ({ out, g, position } = await simplifyOn(w, source, targetTris, maxError, absolute, coarseFallback));
   } finally {
     giveBack(w);
   }
   return rebuild(g, position, out);
 }
 
-async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean) {
+async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number, maxError: number, absolute: boolean, coarseFallback: boolean) {
   const g = source.index ? source : weld(source);
   const position = g.getAttribute('position') as Attr;
   const nor = g.getAttribute('normal') as Attr | undefined;
@@ -177,6 +180,7 @@ async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number,
     weights: [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [0.5, 0.5] : [])],
     target: Math.max(8, targetTris) * 3,
     error: maxError,
+    absolute,
     fallback: coarseFallback,
   });
   return { out, g, position };
@@ -243,14 +247,14 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
     }
   };
   // Every part (geometry) goes to a worker; they run side by side. `what` says what the parts are doing, with how many are done.
-  const run = async (geos: BufferGeometry[], what: string, target: (g: BufferGeometry) => number, error: number, fallback: boolean) => {
+  const run = async (geos: BufferGeometry[], what: string, target: (g: BufferGeometry) => number, error: number, absolute: boolean, fallback: boolean) => {
     const done = new Map<BufferGeometry, BufferGeometry>();
     let n = 0;
     onStep(`${what} (0 di ${geos.length})`);
     try {
       await Promise.all(
         geos.map(async (g) => {
-          done.set(g, await simplifyGeometry(g, target(g), error, fallback, stop));
+          done.set(g, await simplifyGeometry(g, target(g), error, absolute, fallback, stop));
           onStep(`${what} (${++n} di ${geos.length})`);
         }),
       );
@@ -260,9 +264,20 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
     }
     swap(done);
   };
-  // Step 1: as far as it goes within the tolerance.
-  await run([...new Set(all.filter(eligible).map((m) => m.geometry))], 'Tolgo i triangoli inutili', () => 8, LOSSLESS_ERROR, false);
-  // Step 2: still too many, so spread the cut that is missing over the parts that can take it.
+  // Pass 1 removes what does not change the shape (flat areas cut into many triangles, details far finer than a millimetre). If
+  // the model is still over budget, more passes follow with a larger deviation allowed, the same in metres for every part: flat
+  // surfaces lose almost everything, small detailed parts keep their shape (cutting every part by the same percentage, as it was
+  // before, flattened the small ones).
+  scene.updateMatrixWorld(true);
+  const box = new Box3().setFromObject(scene);
+  const diag = box.isEmpty() ? 1 : box.getSize(new Vector3()).length() || 1;
+  for (let pass = 1, eps = diag * EPS_START; ; pass++, eps *= EPS_GROWTH) {
+    const geos = [...new Set(all.filter(eligible).map((m) => m.geometry))];
+    if (!geos.length) break;
+    await run(geos, pass === 1 ? 'Tolgo i triangoli inutili' : `Semplifico per il visore (passata ${pass})`, () => 8, eps, true, false);
+    if (count() <= budget || eps >= diag * EPS_MAX) break;
+  }
+  // Last resort, when the passes above hit their limit: spread the cut that is missing over the parts that can take it.
   const squeeze = async (goal: number, what: string) => {
     const uses = new Map<BufferGeometry, number>();
     for (const m of all) uses.set(m.geometry, (uses.get(m.geometry) ?? 0) + 1);
@@ -271,7 +286,7 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
     let free = 0;
     for (const [g, n] of uses) (canDo.has(g) ? (free += trianglesOf(g) * n) : (fixed += trianglesOf(g) * n));
     const ratio = free ? Math.min(1, Math.max(0.02, (goal - fixed) / free)) : 1;
-    await run([...canDo], what, (g) => Math.round(trianglesOf(g) * ratio), 1, true);
+    await run([...canDo], what, (g) => Math.round(trianglesOf(g) * ratio), 1, false, true);
   };
   if (count() > budget) await squeeze(budget, 'Semplifico ancora per il visore');
   // The cloud takes files up to a limit (50 MB by default): if the file is still bigger, go on until it fits.
