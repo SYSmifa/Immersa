@@ -2274,12 +2274,27 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
           for (const ax of cands) if (Math.abs(dir.dot(ax)) > Math.cos(AXIS_SNAP)) dir.copy(ax).multiplyScalar(Math.sign(dir.dot(ax)));
           g.axis = dir;
         }
-        goal = o.clone().addScaledVector(g.axis, Math.max(0.01, hand.clone().sub(o).dot(g.axis))); // never through the other end
+        // Signed: the point may cross to the other side of the other end (it used to stick near it when the hand went behind),
+        // but never closer than 1 cm to it.
+        let t = hand.clone().sub(o).dot(g.axis);
+        if (Math.abs(t) < 0.01) t = t < 0 ? -0.01 : 0.01;
+        goal = o.clone().addScaledVector(g.axis, t);
       } else if (g.mode === 2) {
         goal = new Vector3(hand.x, o.y, hand.z); // the same height as the other end
       } else {
-        const dy = hand.y - o.y;
-        goal = new Vector3(o.x, o.y + (Math.abs(dy) < 0.01 ? 0.01 : dy), o.z); // straight above / below the other end
+        // Straight above / below the other end, where the laser comes closest to that vertical line: the hand cannot reach high
+        // up, the laser can.
+        const ray = rays.get(g.pointer);
+        let dy = g.now.y - o.y;
+        if (ray) {
+          const w = o.clone().sub(ray.origin);
+          const b = ray.dir.y; // vertical line direction (0,1,0) . ray direction
+          const dd = w.y; // (0,1,0) . w
+          const e = ray.dir.dot(w);
+          const den = 1 - b * b;
+          if (den > 1e-4) dy = Math.max(-30, Math.min(30, (b * e - dd) / den)); // a ray along the vertical has no single closest point: it stays
+        }
+        goal = new Vector3(o.x, o.y + (Math.abs(dy) < 0.01 ? 0.01 : dy), o.z);
       }
     }
     g.now.lerp(goal, 1 - Math.exp(-dt * ANNOT_FOLLOW));
