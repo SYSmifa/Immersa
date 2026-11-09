@@ -347,7 +347,12 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     } else {
       // A search field on top (the 3D keyboard types the name), then the list, which scrolls with the bar on its right.
       const q = fold(v.search.trim());
-      const list = q ? v.projects.filter((p) => fold(p.name).includes(q)) : v.projects;
+      const found = q ? v.projects.filter((p) => fold(p.name).includes(q)) : v.projects;
+      // When the room is known its projects come first, under their own heading, then the others under another one.
+      type Row = { head: string } | { p: (typeof found)[number] };
+      const mine = found.filter((p) => p.here);
+      const rest = found.filter((p) => !p.here);
+      const list: Row[] = mine.length ? [{ head: `In questa stanza${v.roomName ? ` · ${v.roomName}` : ''}` }, ...mine.map((p) => ({ p })), ...(rest.length ? [{ head: 'Altre stanze' }, ...rest.map((p) => ({ p }))] : [])] : found.map((p) => ({ p }));
       const sw = v.search ? W - 64 : W;
       out.push({ kind: 'row', icon: 'search', rect: { x: M, y: top, w: sw, h: 52 }, text: v.search || 'Cerca un progetto', size: 23, align: 'left', color: v.search ? undefined : T.sub, onClick: a.askSearch });
       if (v.search) out.push({ kind: 'iconbtn', icon: 'close', rect: { x: M + W - 52, y: top, w: 52, h: 52 }, text: '', onClick: a.clearSearch });
@@ -358,14 +363,19 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       const cardW = scrolls ? W - 34 : W;
       const first = scrolls ? Math.round(Math.min(1, Math.max(0, v.scroll)) * (list.length - PER_PAGE)) : 0;
       if (!list.length) out.push(text(`Nessun progetto con "${v.search.trim()}".`, M, listTop + 20, W, 40, 24, T.text2));
-      list.slice(first, first + PER_PAGE).forEach((p, i) => {
-        const open = p.id === v.currentProjectId;
+      list.slice(first, first + PER_PAGE).forEach((row, i) => {
         const y = listTop + i * step;
+        if ('head' in row) {
+          out.push(text(row.head.toUpperCase(), M + 6, y + 30, cardW - 12, 36, 20, T.accent[1], { bold: true }));
+          return;
+        }
+        const p = row.p;
+        const open = p.id === v.currentProjectId;
         out.push({
           kind: 'card',
           rect: { x: M, y, w: cardW, h: cardH },
           text: p.name,
-          sub: `${p.rooms}${p.here ? '' : ' (altra stanza)'} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
+          sub: `${p.rooms} · ${p.models} ${p.models === 1 ? 'modello' : 'modelli'}`,
           tone: p.tone,
           active: open,
           reserve: open ? 150 : undefined, // room for the "Chiudi" button drawn over the card
