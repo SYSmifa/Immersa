@@ -35,38 +35,44 @@ export async function countTriangles(file: File): Promise<number> {
 const eligible = (m: Mesh) => !(m as SkinnedMesh).isSkinnedMesh && !m.geometry.morphAttributes.position && !m.geometry.groups.length && trianglesOf(m.geometry) > SMALL;
 
 
-// Workers that run the simplifier, one job each at a time; a few at most (memory: every job holds its own copy of the mesh).
+// Workers that run the simplifier, one job each at a time; a few at most. A part's data is only prepared once a worker is free
+// for it (every job holds its own copy of the mesh: preparing all the parts of a big model at once ran the page out of memory).
 const MAX_WORKERS = 4;
 const idle: Worker[] = [];
+const all: Set<Worker> = new Set();
 const waiting: (() => void)[] = [];
-let spawned = 0;
 async function takeWorker(): Promise<Worker> {
   for (;;) {
     const w = idle.pop();
     if (w) return w;
-    if (spawned < Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency ?? 4) - 1))) {
-      spawned++;
-      return new Worker(new URL('./simplifyWorker.ts', import.meta.url), { type: 'module' });
+    if (all.size < Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency ?? 4) - 1))) {
+      const nw = new Worker(new URL('./simplifyWorker.ts', import.meta.url), { type: 'module' });
+      all.add(nw);
+      return nw;
     }
     await new Promise<void>((r) => waiting.push(r));
   }
 }
+function giveBack(w: Worker) {
+  w.onmessage = w.onerror = null;
+  idle.push(w);
+  waiting.shift()?.();
+}
+// All workers go away at the end of a simplification: their memory is not given back otherwise.
+function endWorkers() {
+  for (const w of all) w.terminate();
+  all.clear();
+  idle.length = 0;
+  for (const r of waiting.splice(0)) r();
+}
 let jobId = 0;
-async function runJob(job: Omit<Job, 'id'>): Promise<Uint32Array> {
-  const w = await takeWorker();
+function runOn(w: Worker, job: Omit<Job, 'id'>): Promise<Uint32Array> {
   const id = ++jobId;
-  try {
-    return await new Promise<Uint32Array>((resolve, reject) => {
-      w.onmessage = (e: MessageEvent<{ id: number; out?: Uint32Array; error?: string }>) => (e.data.out ? resolve(e.data.out) : reject(new Error(e.data.error ?? 'worker')));
-      w.onerror = (e) => reject(new Error(e.message || 'worker'));
-      const t = [job.idx.buffer, job.pos.buffer, job.attr.buffer];
-      w.postMessage({ ...job, id }, t);
-    });
-  } finally {
-    w.onmessage = w.onerror = null;
-    idle.push(w);
-    waiting.shift()?.();
-  }
+  return new Promise<Uint32Array>((resolve, reject) => {
+    w.onmessage = (e: MessageEvent<{ id: number; out?: Uint32Array; error?: string }>) => (e.data.out ? resolve(e.data.out) : reject(new Error(e.data.error ?? 'worker')));
+    w.onerror = (e) => reject(new Error(e.message || 'worker'));
+    w.postMessage({ ...job, id }, [job.idx.buffer, job.pos.buffer, job.attr.buffer]);
+  });
 }
 
 type Attr = BufferAttribute | InterleavedBufferAttribute;
@@ -136,7 +142,21 @@ function weld(g: BufferGeometry): BufferGeometry {
 // One geometry down to about `targetTris` triangles: edge collapses that keep the normals and the UVs close to the original
 // (meshoptimizer, in a worker), then the vertices no triangle uses any more are dropped, which is where most of the file
 // size goes.
-async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean): Promise<BufferGeometry> {
+async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean, stop: { stopped: boolean }): Promise<BufferGeometry> {
+  const w = await takeWorker();
+  let out: Uint32Array;
+  let g: BufferGeometry;
+  let position: Attr;
+  try {
+    if (stop.stopped) throw new Error('interrotto');
+    ({ out, g, position } = await simplifyOn(w, source, targetTris, maxError, coarseFallback));
+  } finally {
+    giveBack(w);
+  }
+  return rebuild(g, position, out);
+}
+
+async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number, maxError: number, coarseFallback: boolean) {
   const g = source.index ? source : weld(source);
   const position = g.getAttribute('position') as Attr;
   const nor = g.getAttribute('normal') as Attr | undefined;
@@ -148,7 +168,7 @@ async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxE
     if (nor) for (let k = 0; k < 3; k++) attr[o++] = nor.getComponent(i, k);
     if (uv) for (let k = 0; k < 2; k++) attr[o++] = uv.getComponent(i, k);
   }
-  const out = await runJob({
+  const out = await runOn(w, {
     idx: Uint32Array.from(g.index!.array as ArrayLike<number>),
     pos: floats(position, 3),
     attr,
@@ -158,7 +178,10 @@ async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxE
     error: maxError,
     fallback: coarseFallback,
   });
+  return { out, g, position };
+}
 
+function rebuild(g: BufferGeometry, position: Attr, out: Uint32Array): BufferGeometry {
   // Keep only the vertices still used, in the order they first appear.
   const remap = new Int32Array(position.count).fill(-1);
   const used: number[] = [];
@@ -194,6 +217,15 @@ export interface Simplified {
 // total, it goes on until it fits (the parts share the cut in proportion). Written back as a GLB with the same node tree,
 // so that the components and the materials keep their places.
 export async function simplifyGlb(file: File, budget: number, onStep: (text: string) => void = () => undefined): Promise<Simplified> {
+  try {
+    return await simplifyAll(file, budget, onStep);
+  } finally {
+    endWorkers();
+  }
+}
+
+async function simplifyAll(file: File, budget: number, onStep: (text: string) => void): Promise<Simplified> {
+  const stop = { stopped: false };
   onStep('Leggo il modello');
   await tick();
   const scene = await readGlb(file);
@@ -212,12 +244,17 @@ export async function simplifyGlb(file: File, budget: number, onStep: (text: str
     const done = new Map<BufferGeometry, BufferGeometry>();
     let n = 0;
     onStep(`${what} (0 di ${geos.length})`);
-    await Promise.all(
-      geos.map(async (g) => {
-        done.set(g, await simplifyGeometry(g, target(g), error, fallback));
-        onStep(`${what} (${++n} di ${geos.length})`);
-      }),
-    );
+    try {
+      await Promise.all(
+        geos.map(async (g) => {
+          done.set(g, await simplifyGeometry(g, target(g), error, fallback, stop));
+          onStep(`${what} (${++n} di ${geos.length})`);
+        }),
+      );
+    } catch (e) {
+      stop.stopped = true; // the parts still waiting do not start
+      throw e;
+    }
     swap(done);
   };
   // Step 1: as far as it goes within the tolerance.

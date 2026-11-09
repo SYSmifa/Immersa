@@ -824,12 +824,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   async function withLoading<T>(title: string, sub: string | undefined, what: (progress: (text: string) => void) => Promise<T>): Promise<T> {
     manualLoad = { title, sub };
     refreshLoading();
+    let live = true; // progress that arrives after the work ended (or failed) must not bring the card back
     try {
       return await what((text) => {
+        if (!live) return;
         manualLoad = { title, sub: sub ? `${sub} · ${text}` : text };
         refreshLoading();
       });
     } finally {
+      live = false;
       manualLoad = null;
       refreshLoading();
     }
