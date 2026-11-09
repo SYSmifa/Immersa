@@ -333,6 +333,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     } else {
       topSpin = null;
       start = null;
+      annotStart = null;
       partStart = null;
       refreshPivot();
       commit();
@@ -406,7 +407,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   // ---- selection, pivot and gizmo ----
-  const effectiveGizmo = (): Gizmo => (gizmo === 'scale' && !partSel && !(selModels().length === 1 && sel.length === 1) ? 'translate' : gizmo);
+  const effectiveGizmo = (): Gizmo => (selAnnotId ? 'translate' : gizmo === 'scale' && !partSel && !(selModels().length === 1 && sel.length === 1) ? 'translate' : gizmo);
 
   // ---- a chosen component of a model ----
   const partModel = () => (partSel ? findModel(partSel.modelId) : null);
@@ -442,6 +443,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const modelQuat = (m: RoomModel) => new Quaternion().setFromEuler(new Euler(m.tilt?.[0] ?? 0, m.yaw, m.tilt?.[1] ?? 0, 'YXZ'));
 
   function refreshPivot() {
+    const an = findAnnot(selAnnotId);
+    if (an) {
+      // A note: its point. A ruler: the middle of the two. The gizmo moves the whole annotation.
+      const b = an.b ?? an.a;
+      pivot.position.set((an.a[0] + b[0]) / 2, (an.a[1] + b[1]) / 2, (an.a[2] + b[2]) / 2);
+      pivot.rotation.set(0, 0, 0);
+      pivot.scale.setScalar(1);
+      pivot.updateMatrixWorld(true);
+      return;
+    }
     const node = partNode();
     const holder = partHolder();
     const pm = partModel();
@@ -498,6 +509,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function selectAnnot(id: string | null) {
     setSelection([]);
     selAnnotId = id;
+    if (id && findAnnot(id) && !build) {
+      refreshPivot();
+      transform.attach(pivot); // the gizmo moves the whole annotation
+    }
+    applyGizmo();
     refreshAll();
   }
 
@@ -517,7 +533,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   let start: Start | null = null;
   let partStart: { c: Vector3; q: Quaternion; d: [number, number, number]; yaw: number; scale: number } | null = null;
+  let annotStart: { a: Vec3; b: Vec3 | null; c: Vector3 } | null = null;
   function startDrag() {
+    const an = findAnnot(selAnnotId);
+    if (an) {
+      annotStart = { a: [...an.a] as Vec3, b: an.b ? ([...an.b] as Vec3) : null, c: pivot.position.clone() };
+      start = { c: pivot.position.clone(), q: pivot.quaternion.clone(), models: new Map(), structs: new Map() };
+      return;
+    }
     if (partSel) {
       const e = partEdit();
       partStart = { c: pivot.position.clone(), q: pivot.quaternion.clone(), d: [...(e?.d ?? [0, 0, 0])] as [number, number, number], yaw: e?.yaw ?? 0, scale: e?.scale ?? 1 };
@@ -565,6 +588,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   transform.addEventListener('objectChange', () => {
     if (!start) return;
     const mode = effectiveGizmo();
+    const moved = findAnnot(selAnnotId);
+    if (moved && annotStart) {
+      // An annotation follows the gizmo (on the 5 cm grid, like the models).
+      if (snapGrid) {
+        pivot.position.x = Math.round(pivot.position.x / GRID_STEP) * GRID_STEP;
+        pivot.position.y = Math.round(pivot.position.y / GRID_STEP) * GRID_STEP;
+        pivot.position.z = Math.round(pivot.position.z / GRID_STEP) * GRID_STEP;
+      }
+      const dp = pivot.position.clone().sub(annotStart.c);
+      moved.a = [annotStart.a[0] + dp.x, annotStart.a[1] + dp.y, annotStart.a[2] + dp.z];
+      if (moved.b && annotStart.b) moved.b = [annotStart.b[0] + dp.x, annotStart.b[1] + dp.y, annotStart.b[2] + dp.z];
+      markDirty();
+      return;
+    }
     if (topSpin && mode === 'rotate') {
       const p = floorPointAt(lastPointer.x, lastPointer.y);
       if (p) {
@@ -1835,6 +1872,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const p = surfacePoint(e);
     if (!a || !p) return;
     a[annotDrag.pt] = toVec3(p);
+    refreshPivot();
     markDirty();
   });
   let annotDrag: { id: string; pt: 'a' | 'b' } | null = null;
