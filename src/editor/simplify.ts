@@ -204,6 +204,8 @@ function rebuild(g: BufferGeometry, position: Attr, out: Uint32Array): BufferGeo
     result.setAttribute(name, new BufferAttribute(arr, src.itemSize));
   }
   result.setIndex(new BufferAttribute(used.length > 65535 ? index : Uint16Array.from(index), 1));
+  for (const gr of g.groups) result.addGroup(gr.start, gr.count, gr.materialIndex);
+  result.userData.compact = true; // nothing left to drop
   return result;
 }
 
@@ -233,7 +235,7 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
   const all = meshes(scene);
   const count = () => all.reduce((n, m) => n + trianglesOf(m.geometry), 0);
   const before = count();
-  if (before <= budget) return { file, before, after: before };
+  if (before <= budget && file.size <= maxBytes) return { file, before, after: before }; // light enough in both ways
   const swap = (done: Map<BufferGeometry, BufferGeometry>) => {
     for (const m of all) {
       const g = done.get(m.geometry);
@@ -273,6 +275,16 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
   };
   if (count() > budget) await squeeze(budget, 'Semplifico ancora per il visore');
   // The cloud takes files up to a limit (50 MB by default): if the file is still bigger, go on until it fits.
+  // Parts left alone (too small to simplify, say) may still point at the whole original vertex buffer, which CAD files often
+  // share between all parts: the exporter would write all of it again. Keep only the vertices each part uses.
+  const skinned = new Set<BufferGeometry>(all.filter((m) => (m as SkinnedMesh).isSkinnedMesh).map((m) => m.geometry));
+  const compact = new Map<BufferGeometry, BufferGeometry>();
+  for (const g of new Set(all.map((m) => m.geometry))) {
+    if (g.userData.compact || !g.index || skinned.has(g) || g.morphAttributes.position) continue;
+    compact.set(g, rebuild(g, g.getAttribute('position') as Attr, Uint32Array.from(g.index.array as ArrayLike<number>)));
+    await tick();
+  }
+  swap(compact);
   const top = [...scene.children];
   const write = async () => {
     onStep('Scrivo il file');
@@ -294,10 +306,12 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
 // Triangles of a GLB read from its JSON chunk alone (accessor counts x nodes that use each mesh): no geometry is decoded, so
 // it is cheap, and only the first bytes of the file are fetched when the server honours a Range request.
 interface GltfJson {
-  accessors?: { count: number }[];
+  accessors?: { count: number; type?: string; componentType?: number }[];
+  animations?: unknown[];
+  skins?: unknown[];
   images?: { bufferView?: number }[];
   bufferViews?: { byteLength: number }[];
-  meshes?: { primitives: { mode?: number; indices?: number; attributes: { POSITION?: number } }[] }[];
+  meshes?: { primitives: { mode?: number; indices?: number; attributes: Record<string, number> & { POSITION?: number } }[] }[];
   nodes?: { mesh?: number }[];
 }
 function trianglesOfJson(g: GltfJson): number {
@@ -340,11 +354,32 @@ export async function glbTrianglesAt(url: string): Promise<number> {
   return trianglesOfJson(parseJson(json));
 }
 
-// A short description of a GLB for messages: triangles, meshes and how much of the file is images.
+// A short description of a GLB for messages: triangles, and where the bytes are (positions, normals, UVs, other attributes,
+// indices, images, the JSON text, the rest).
 export async function describeGlb(file: Blob): Promise<string> {
   const len = new DataView(await file.slice(0, 20).arrayBuffer()).getUint32(12, true);
   const g = parseJson(await file.slice(20, 20 + len).arrayBuffer());
   const imageBytes = (g.images ?? []).reduce((n, i) => n + (i.bufferView !== undefined ? (g.bufferViews?.[i.bufferView]?.byteLength ?? 0) : 0), 0);
-  const mb = (n: number) => (n / 1048576).toFixed(0);
-  return `${trianglesOfJson(g).toLocaleString('it-IT')} triangoli in ${g.meshes?.length ?? 0} mesh, ${g.images?.length ?? 0} immagini (${mb(imageBytes)} MB), il resto ${mb(file.size - imageBytes)} MB`;
+  const comps: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+  const size = (idx: number) => {
+    const a = g.accessors?.[idx];
+    return a ? a.count * (comps[a.type ?? 'SCALAR'] ?? 1) * ([5120, 5121].includes(a.componentType ?? 0) ? 1 : [5122, 5123].includes(a.componentType ?? 0) ? 2 : 4) : 0;
+  };
+  const seen = new Set<number>();
+  const by: Record<string, number> = { posizioni: 0, normali: 0, uv: 0, 'altri attributi': 0, indici: 0 };
+  const add = (key: string, idx: number | undefined) => {
+    if (idx === undefined || seen.has(idx)) return;
+    seen.add(idx);
+    by[key] += size(idx);
+  };
+  for (const m of g.meshes ?? []) {
+    for (const p of m.primitives) {
+      add('indici', p.indices);
+      for (const [name, idx] of Object.entries(p.attributes)) add(name === 'POSITION' ? 'posizioni' : name === 'NORMAL' ? 'normali' : name.startsWith('TEXCOORD') ? 'uv' : 'altri attributi', idx);
+    }
+  }
+  const mb = (n: number) => (n / 1048576).toFixed(1);
+  const known = Object.values(by).reduce((a, b) => a + b, 0) + imageBytes + len;
+  const parts = Object.entries(by).map(([k, v]) => `${k} ${mb(v)}`);
+  return `${trianglesOfJson(g).toLocaleString('it-IT')} triangoli in ${g.meshes?.length ?? 0} mesh; MB: ${parts.join(', ')}, immagini ${mb(imageBytes)} (${g.images?.length ?? 0}), testo JSON ${mb(len)}, altro ${mb(Math.max(0, file.size - known))}${g.animations?.length ? `; ${g.animations.length} animazioni` : ''}${g.skins?.length ? `; ${g.skins.length} scheletri` : ''}`;
 }
