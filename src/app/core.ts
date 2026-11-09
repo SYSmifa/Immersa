@@ -1853,7 +1853,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
   let btnAnchor: { key: string; pos: Vector3 } | null = null;
   let btnHidden = true;
-  // A spot in front of the object's near side, at head height: 0.3 m before the box, between 0.6 and 2.4 m from you.
+  // A spot in front of the object's near side, at head height, much nearer the object than you: 0.15 m before its near face, never
+  // closer to you than `minDist` (unless the object itself is that close) nor farther than 6 m, and never in the half towards you.
   function headHeightSpot(box: Box3, head: Head, minDist = 0.6): Vector3 {
     const c = box.getCenter(new Vector3());
     const len = Math.hypot(c.x - head.pos.x, c.z - head.pos.z) || 1e-6;
@@ -1869,7 +1870,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       tOut = Math.min(tOut, Math.max(t1, t2));
     }
     const near = tIn > 0 && tIn < tOut ? tIn : 0; // inside the footprint: right here
-    const t = Math.min(2.4, Math.max(minDist, near - 0.3));
+    let t = near - 0.15;
+    if (t < minDist) t = Math.min(minDist, near * 0.7); // the object is very close: in front of it, not through it
+    t = Math.min(6, Math.max(t, near / 2, 0.3)); // never nearer to you than to the object (within 6 m)
     return new Vector3(head.pos.x + ux * t, head.pos.y, head.pos.z + uz * t);
   }
   function placeObjectButton(head: Head) {
@@ -1888,7 +1891,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const key = selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : `m:${m?.id}`;
       const moved = grab || partGrab || structGrab || rig.visible; // hidden: put again where it is when it comes back
       const far = btnAnchor ? Math.hypot(btnAnchor.pos.x - head.pos.x, btnAnchor.pos.z - head.pos.z) : 0;
-      if (!btnAnchor || btnAnchor.key !== key || btnHidden || far > 3 || far < 0.35) btnAnchor = { key, pos: headHeightSpot(box, head) };
+      if (!btnAnchor || btnAnchor.key !== key || btnHidden || far > 7 || far < 0.35) btnAnchor = { key, pos: headHeightSpot(box, head) };
       btnHidden = !!moved;
       top = btnAnchor.pos.clone();
       top.y -= 0.17; // the button sits 0.17 above this point
