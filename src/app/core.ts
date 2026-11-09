@@ -15,7 +15,7 @@ import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { createPoke } from '../ui3d/poke';
@@ -1816,8 +1816,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
     }
     if (target?.startsWith('a:')) {
-      selectAnnot(target.slice(2)); // chosen, its button shows; held and pulled, the pinched point follows the ray over the surfaces
-      annotGrab = { pointer: id, id: target.slice(2), pt: hoverAnnotPt.get(id) ?? 'a', phase: 'pending', seen: true };
+      selectAnnot(target.slice(2)); // chosen, its button shows; held, the pinched point follows the hand
+      const an = annotOf(selectedAnnotId);
+      const house = an && houses.get(an.roomId);
+      const pt = hoverAnnotPt.get(id) ?? 'a';
+      const q = an?.[pt] ?? an?.a;
+      if (an && house && q && pinchR) {
+        const w = new Vector3(...q).applyMatrix4(house.root.matrix);
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, hand0: pinchR.clone(), world0: w, now: w.clone() };
+      }
       return;
     }
     if (target?.startsWith('s:')) {
@@ -2059,21 +2066,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     two: { refDist: number; refAcc: number; refYaw: number; refScale: number; yaw0: number; scale0: number; prevAng: number; acc: number; yaw: number; scale: number; mode: 'none' | 'turn' | 'scale'; dead: number } | null;
   }
   let structGrab: StructGrab | null = null;
-  // ---- dragging a note, or one end of a ruler: the point goes where the ray meets a model, wall or floor. ----
-  let annotGrab: { pointer: string; id: string; pt: 'a' | 'b'; phase: 'pending' | 'move'; seen: boolean } | null = null;
-  const surfRay = new Raycaster();
-  function endAnnotGrab() {
-    annotGrab = null;
+  // ---- dragging a note, or one end of a ruler: the point follows the pinching hand (relative, 1:1), however far the ray was; on
+  // release it sticks to a surface of a model / wall / floor if one is within 5 cm. ----
+  interface AnnotGrab {
+    pointer: string;
+    id: string;
+    pt: 'a' | 'b';
+    phase: 'pending' | 'move';
+    seen: boolean;
+    hand0: Vector3; // the pinch point when it began
+    world0: Vector3; // the annotation's point then, in the world
+    now: Vector3; // smoothed target in the world
   }
-  function updateAnnotGrab() {
-    const g = annotGrab;
-    if (!g) return;
-    const an = annotOf(g.id);
-    const house = an && houses.get(an.roomId);
-    const ray = rays.get(g.pointer);
-    if (!an || !house || !house.root.visible || !g.seen || !ray) return endAnnotGrab();
-    g.seen = false;
-    // What the ray meets first: models and walls / floors of the project (not the scan).
+  let annotGrab: AnnotGrab | null = null;
+  const SNAP_RELEASE = 0.05; // m
+  const surfRay = new Raycaster();
+  function surfaceTargets(): Object3D[] {
     const targets: Object3D[] = [];
     for (const m of current?.models ?? []) {
       const h = houses.get(m.roomId);
@@ -2084,20 +2092,48 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const mesh = houses.get(st.roomId)?.root.visible ? structMesh(st) : null;
       if (mesh) targets.push(mesh);
     }
-    surfRay.set(ray.origin, ray.dir);
-    surfRay.far = visit ? 30 : 8;
-    const hit = surfRay.intersectObjects(targets, true)[0];
-    if (!hit) return; // nothing there: it stays where it is
+    return targets;
+  }
+  function endAnnotGrab() {
+    const g = annotGrab;
+    annotGrab = null;
+    const an = g && annotOf(g.id);
+    const house = an && houses.get(an.roomId);
+    if (!g || !an || !house || g.phase !== 'move') return;
+    // Stick to the nearest surface within reach of the point (six directions), if there is one.
+    const targets = surfaceTargets();
     house.root.updateWorldMatrix(true, false);
-    const local = house.root.worldToLocal(hit.point.clone());
-    const cur = an[g.pt] ?? an.a;
+    const at = g.now;
+    let best: Vector3 | null = null;
+    for (const d of [new Vector3(1, 0, 0), new Vector3(-1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0), new Vector3(0, 0, 1), new Vector3(0, 0, -1)]) {
+      surfRay.set(at, d);
+      surfRay.far = SNAP_RELEASE;
+      const hit = surfRay.intersectObjects(targets, true)[0];
+      if (hit && (!best || hit.distance < best.distanceTo(at))) best = hit.point.clone();
+    }
+    if (!best) return;
+    const l = house.root.worldToLocal(best);
+    an[g.pt] = [l.x, l.y, l.z];
+    markUnsaved();
+  }
+  function updateAnnotGrab(dt: number) {
+    const g = annotGrab;
+    if (!g) return;
+    const an = annotOf(g.id);
+    const house = an && houses.get(an.roomId);
+    if (!an || !house || !house.root.visible || !g.seen) return endAnnotGrab();
+    g.seen = false;
+    const hand = pinchR;
+    if (!hand) return; // the hand is not tracked this frame: it stays
+    const delta = hand.clone().sub(g.hand0);
     if (g.phase === 'pending') {
-      if (new Vector3(...cur).distanceTo(local) < 0.05) return; // a pinch that only selects: not moved by a hand's tremor
+      if (delta.length() < 0.03) return; // a pinch that only selects: a hand's tremor does not move it
       g.phase = 'move';
     }
-    const next: Vec3 = [local.x, local.y, local.z];
-    if (g.pt === 'a') an.a = next;
-    else an.b = next;
+    g.now.lerp(g.world0.clone().add(delta), 1 - Math.exp(-dt * 30)); // a light smoothing against the hand tracking's jitter
+    house.root.updateWorldMatrix(true, false);
+    const l = house.root.worldToLocal(g.now.clone());
+    an[g.pt] = [l.x, l.y, l.z];
     markUnsaved();
   }
   function startStructGrab(pointer: string, st: Structure) {
@@ -2871,7 +2907,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       updateGrab(dt);
       updatePartGrab(dt);
       updateStructGrab(dt);
-      updateAnnotGrab();
+      updateAnnotGrab(dt);
       placeObjectButton(head);
       updateMeasures(head);
       syncOutline();
