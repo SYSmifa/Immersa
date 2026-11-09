@@ -577,7 +577,7 @@ export function createEditorUi(h: EditorHandlers) {
       t.style.fontWeight = '700';
       const del = pill('Elimina', () => h.onDeleteModel(i.path), 'bad');
       del.disabled = i.usedIn.length > 0;
-      const info = [t, el('div', i.triangles === undefined ? i.sub : `${i.sub} · ${i.triangles.toLocaleString('it-IT')} triangoli`, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta')];
+      const info = [t, el('div', i.triangles === undefined ? i.sub : `${i.sub} · ${i.triangles > HEAVY * 3 ? 'molto pesante per il visore' : i.triangles > HEAVY ? 'pesante per il visore' : 'leggero'}`, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta')];
       if (replacing === i.path) {
         // Choosing the replacement: another file of the library, or a new one from the PC.
         const others = select();
@@ -1231,30 +1231,38 @@ export function createEditorUi(h: EditorHandlers) {
       email.focus();
     },
 
-    // Before saving: the models with too many triangles for the headset, each with the size to bring it down to.
-    // Resolves with the chosen target per model id (null = keep as it is), or null if the user cancels the save.
-    askSimplify(items: { id: string; name: string; triangles: number }[], limit: number, targets: number[], intro?: { title: string; text: string; ok: string }) {
+    // Before saving: the models too heavy for the headset. No triangle counts: each model says how heavy it is in words and
+    // offers a few levels of "lighten by N %", the first one being the smallest cut that brings it within budget.
+    // Resolves with the chosen target (triangles) per model id (null = keep as it is), or null if the user cancels.
+    askSimplify(items: { id: string; name: string; triangles: number }[], limit: number, intro?: { title: string; text: string; ok: string }) {
       return new Promise<Map<string, number | null> | null>((resolve) => {
-        const chosen = new Map<string, number | null>(items.map((i) => [i.id, targets.find((t) => t <= limit && t < i.triangles) ?? null]));
+        const levels = (tri: number): number[] => {
+          const rec = Math.min(90, Math.max(10, Math.ceil(((1 - limit / tri) * 100) / 5) * 5)); // % to cut, in steps of 5
+          const more = (k: number) => Math.min(95, Math.round((rec + (100 - rec) * k) / 5) * 5);
+          return [...new Set([rec, more(0.5), more(0.75)])];
+        };
+        const chosen = new Map<string, number | null>(items.map((i) => [i.id, Math.round(i.triangles * (1 - levels(i.triangles)[0] / 100))]));
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel');
-        const num = (n: number) => n.toLocaleString('it-IT');
         const cards = items.map((it) => {
           const opts = new Map<number | null, HTMLButtonElement>();
           const refresh = () => {
             for (const [v, b] of opts) b.classList.toggle('acc', v === chosen.get(it.id));
           };
           const choices = row();
-          for (const t of [...targets.filter((x) => x < it.triangles), null]) {
-            const b = pill(t === null ? 'Non semplificare' : `${num(t)} triangoli`, () => {
-              chosen.set(it.id, t);
+          const cuts = levels(it.triangles);
+          for (const cut of [...cuts, null]) {
+            const target = cut === null ? null : Math.round(it.triangles * (1 - cut / 100));
+            const b = pill(cut === null ? 'Non alleggerire' : `Alleggerisci del ${cut}%${cut === cuts[0] ? ' (consigliato)' : ''}`, () => {
+              chosen.set(it.id, target);
               refresh();
             });
-            opts.set(t, b);
+            opts.set(target, b);
             choices.append(b);
           }
           refresh();
-          return card(el('div', it.name), el('div', `${num(it.triangles)} triangoli`, 'ed-meta'), choices);
+          const heavy = it.triangles > limit * 3;
+          return card(el('div', it.name), el('div', heavy ? 'Molto pesante: nel visore andrebbe a scatti' : 'Pesante: nel visore potrebbe rallentare', heavy ? 'ed-warn' : 'ed-meta'), choices);
         });
         const done = (v: Map<string, number | null> | null) => {
           window.removeEventListener('keydown', key, true);
@@ -1268,12 +1276,9 @@ export function createEditorUi(h: EditorHandlers) {
         window.addEventListener('keydown', key, true);
         panel.append(
           el('h3', intro?.title ?? 'Modelli troppo pesanti per il visore'),
-          el('div', intro?.text ?? `Questi modelli hanno più di ${num(limit)} triangoli. Nel visore faranno scendere i fotogrammi al secondo e il movimento sarà a scatti. Sul cloud va solo la versione semplificata, che pesa anche meno; l'originale non si conserva.`, 'ed-meta'),
+          el('div', intro?.text ?? "Questi modelli sono troppo pesanti per il visore: lo farebbero andare a scatti. Alleggerendoli il visore resta fluido e il progetto pesa meno. Sul cloud va solo la versione alleggerita: l'originale non si conserva.", 'ed-meta'),
           ...cards,
-          row(
-            pill(intro?.ok ?? 'Salva', () => done(chosen), 'acc'),
-            pill('Annulla', () => done(null)),
-          ),
+          row(pill(intro?.ok ?? 'Salva', () => done(chosen), 'acc'), pill('Annulla', () => done(null))),
         );
         overlay.append(panel);
         root.append(overlay);

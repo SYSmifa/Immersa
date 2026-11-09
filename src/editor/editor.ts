@@ -36,7 +36,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
-import { countTriangles, glbTrianglesAt, HEAVY_TRIANGLES, SIMPLIFY_TARGETS, simplifyGlb } from './simplify';
+import { countTriangles, glbTrianglesAt, HEAVY_TRIANGLES, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelSize as localModelSize } from '../room/selection';
@@ -932,15 +932,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     });
     const out = new Map(entries.map((e) => [e.key, e.file]));
     if (!heavy.length) return out;
-    const choice = await ui.askSimplify(heavy, HEAVY_TRIANGLES, SIMPLIFY_TARGETS);
+    const choice = await ui.askSimplify(heavy, HEAVY_TRIANGLES);
     if (!choice) return null;
     for (const h of heavy) {
       const target = choice.get(h.id);
       if (!target) continue;
       const entry = entries.find((e) => e.key === h.id)!;
-      const res = await withLoading('Semplifico il modello', `${h.name} · ${h.triangles.toLocaleString('it-IT')} → ${target.toLocaleString('it-IT')} triangoli`, () => simplifyGlb(entry.file, target));
+      const res = await withLoading('Alleggerisco il modello', h.name, () => simplifyGlb(entry.file, target));
       out.set(h.id, res.file);
-      ui.setStatus(`${h.name}: da ${res.before.toLocaleString('it-IT')} a ${res.after.toLocaleString('it-IT')} triangoli.`);
+      ui.setStatus(`${h.name}: alleggerito del ${Math.round((1 - res.after / res.before) * 100)}%.`);
     }
     return out;
   }
@@ -1279,18 +1279,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const name = used ? [...used.names].join(' / ') : path;
         const file = await withLoading('Scarico il modello', name, async () => new File([await (await fetch(await modelUrl(path))).blob()], `${name}.glb`));
         const triangles = await withLoading('Controllo il modello', name, () => countTriangles(file));
-        if (triangles <= HEAVY_TRIANGLES) return ui.setStatus(`${name}: ${triangles.toLocaleString('it-IT')} triangoli, è già leggero.`);
-        const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, SIMPLIFY_TARGETS, {
+        if (triangles <= HEAVY_TRIANGLES) return ui.setStatus(`${name} è già abbastanza leggero per il visore.`);
+        const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, {
           title: 'Semplifica il modello',
-          text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione semplificata (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
-          ok: 'Semplifica',
+          text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione alleggerita (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
+          ok: 'Alleggerisci',
         });
         const target = choice?.get(path);
         if (!target) return ui.setStatus('Semplificazione annullata.');
-        const res = await withLoading('Semplifico il modello', `${name} · ${triangles.toLocaleString('it-IT')} → ${target.toLocaleString('it-IT')} triangoli`, () => simplifyGlb(file, target));
+        const res = await withLoading('Alleggerisco il modello', name, () => simplifyGlb(file, target));
         const { path: newPath } = await withLoading('Carico il modello', name, () => upload(res.file));
         await replaceModel(path, newPath, undefined, true);
-        await loadLibrary(`${name}: da ${res.before.toLocaleString('it-IT')} a ${res.after.toLocaleString('it-IT')} triangoli.`);
+        await loadLibrary(`${name}: alleggerito del ${Math.round((1 - res.after / res.before) * 100)}%.`);
       }),
     onReplaceFromLibrary: (oldPath, newPath) =>
       run(async () => {
