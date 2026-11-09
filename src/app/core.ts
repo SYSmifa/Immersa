@@ -1816,14 +1816,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
     }
     if (target?.startsWith('a:')) {
-      selectAnnot(target.slice(2)); // chosen, its button shows; held, the pinched point follows the hand
+      selectAnnot(target.slice(2)); // chosen, its button shows; held, the pinched point flies to the hand and follows it
       const an = annotOf(selectedAnnotId);
       const house = an && houses.get(an.roomId);
       const pt = hoverAnnotPt.get(id) ?? 'a';
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, hand0: pinchR.clone(), world0: w, now: w.clone() };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone() };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -2067,7 +2067,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     two: { refDist: number; refAcc: number; refYaw: number; refScale: number; yaw0: number; scale0: number; prevAng: number; acc: number; yaw: number; scale: number; mode: 'none' | 'turn' | 'scale'; dead: number } | null;
   }
   let structGrab: StructGrab | null = null;
-  // ---- dragging a note, or one end of a ruler: the point follows the pinching hand (relative, 1:1), however far the ray was; on
+  // ---- dragging a note, or one end of a ruler: the point glides to the pinching hand and follows it until the pinch opens; on
   // release it sticks to a surface of a model / wall / floor if one is within 5 cm. ----
   interface AnnotGrab {
     pointer: string;
@@ -2075,12 +2075,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     pt: 'a' | 'b';
     phase: 'pending' | 'move';
     seen: boolean;
-    hand0: Vector3; // the pinch point when it began
-    world0: Vector3; // the annotation's point then, in the world
-    now: Vector3; // smoothed target in the world
+    now: Vector3; // where the point is now, in the world
   }
   let annotGrab: AnnotGrab | null = null;
   const SNAP_RELEASE = 0.05; // m
+  const ANNOT_FOLLOW = 14; // 1/s: how fast the point catches up with the hand
   const surfRay = new Raycaster();
   function surfaceTargets(): Object3D[] {
     const targets: Object3D[] = [];
@@ -2125,13 +2124,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!an || !house || !house.root.visible || !mainHeld) return endAnnotGrab(); // the pinch is what holds it, not the laser
     const hand = pinchR;
     if (!hand) return; // the hand is not tracked this frame: it stays
-    const delta = hand.clone().sub(g.hand0);
     if (g.phase === 'pending') {
-      if (delta.length() < 0.03) return; // a pinch that only selects: a hand's tremor does not move it
       g.phase = 'move';
-      logEvent('nota: si muove con la mano');
+      logEvent('nota: vola sulla mano');
     }
-    g.now.lerp(g.world0.clone().add(delta), 1 - Math.exp(-dt * 30)); // a light smoothing against the hand tracking's jitter
+    // It glides to the hand (the first moments show the flight) and then follows it, lightly smoothed against the tracking's jitter.
+    g.now.lerp(hand, 1 - Math.exp(-dt * ANNOT_FOLLOW));
     house.root.updateWorldMatrix(true, false);
     const l = house.root.worldToLocal(g.now.clone());
     an[g.pt] = [l.x, l.y, l.z];
