@@ -1351,6 +1351,70 @@ export function createEditorUi(h: EditorHandlers) {
         root.append(overlay);
       });
     },
+    // In-app replacements for prompt(): a text field with OK/Cancel. `validate` returns an error text (shown under the field,
+    // the card stays open) or '' when the value is fine. Resolves with the trimmed text, or null if cancelled.
+    askText(title: string, initial: string, opts: { text?: string; ok?: string; placeholder?: string; validate?: (v: string) => string } = {}) {
+      return new Promise<string | null>((resolve) => {
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel ed-login');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = initial;
+        input.placeholder = opts.placeholder ?? '';
+        const err = el('div', '', 'ed-warn');
+        const done = (v: string | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const submit = () => {
+          const v = input.value.trim();
+          const msg = opts.validate ? opts.validate(v) : '';
+          if (msg) {
+            err.textContent = msg;
+            input.focus();
+            return;
+          }
+          done(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          else if (e.key === 'Enter' && e.target === input) submit();
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        input.addEventListener('input', () => (err.textContent = ''));
+        panel.append(el('h3', title));
+        if (opts.text) panel.append(el('div', opts.text, 'ed-sub'));
+        panel.append(input, err, row(pill(opts.ok ?? 'OK', submit, 'acc'), pill('Annulla', () => done(null))));
+        overlay.append(panel);
+        root.append(overlay);
+        input.focus();
+        input.select();
+      });
+    },
+    // In-app replacement for confirm(): resolves true on OK.
+    askConfirm(text: string, ok = 'Continua', title = 'Conferma') {
+      return new Promise<boolean>((resolve) => {
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel');
+        const done = (v: boolean) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(false);
+          else if (e.key === 'Enter') done(true);
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const lines = text.split('\n').map((t) => el('div', t, 'ed-meta'));
+        panel.append(el('h3', title), ...lines, row(pill(ok, () => done(true), 'acc'), pill('Annulla', () => done(false))));
+        overlay.append(panel);
+        root.append(overlay);
+      });
+    },
     askImport(info: { name: string; format: string; triangles: number; fixedUnit: boolean; unit: Unit; zUp: boolean; dims(unit: Unit, zUp: boolean): string }) {
       return new Promise<{ unit: Unit; zUp: boolean } | null>((resolve) => {
         let unit = info.unit;

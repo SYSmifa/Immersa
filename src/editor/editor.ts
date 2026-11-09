@@ -715,7 +715,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   });
 
   // ---- sidebar / outline / details data ----
-  const confirmLeave = () => !dirty || confirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?');
+  const confirmLeave = async () => !dirty || (await ui.askConfirm('Ci sono modifiche non salvate al progetto. Continuare senza salvare?', 'Continua senza salvare', 'Modifiche non salvate'));
 
   const annotStepText = () => (annotMode === 'note' ? 'Nota: clic su un punto di un modello, di una parete o del pavimento' : annotMode === 'ruler' ? (annotFirst ? 'Metro: clic sul secondo punto' : 'Metro: clic sul primo punto') : '');
   function refreshToolbar() {
@@ -1280,7 +1280,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (!hit.length) return ui.setStatus('Nessun progetto usa questo modello: niente da sostituire.');
     const count = hit.reduce((n, p) => n + p.models.filter((m) => m.path === oldPath).length, 0);
     const list = hit.map((p) => `${p.name} (${p.models.filter((m) => m.path === oldPath).length})`).join(', ');
-    if (!confirm(`Sostituire il modello in ${count} posizioni, in questi progetti: ${list}?\nPosizione, rotazione, scala e nome restano; ${keepLook ? 'colori e componenti restano.' : 'colori e componenti modificati si azzerano.'}`)) return;
+    if (!(await ui.askConfirm(`Sostituire il modello in ${count} posizioni, in questi progetti: ${list}?\nPosizione, rotazione, scala e nome restano; ${keepLook ? 'colori e componenti restano.' : 'colori e componenti modificati si azzerano.'}`, 'Sostituisci', 'Sostituisci il modello'))) return;
     const swap = (m: RoomModel) => {
       if (m.path !== oldPath) return;
       m.path = newPath;
@@ -1355,40 +1355,33 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   // ---- the UI ----
   const ui = createEditorUi({
-    onOpenProject(id) {
-      if (!confirmLeave()) return;
+    async onOpenProject(id) {
+      if (!(await confirmLeave())) return;
       showProject(projects.find((p) => p.id === id) ?? null);
       ui.setView('project');
     },
     projectNameError,
     onCreateProject: (name, roomIds) =>
       run(async () => {
-        if (!confirmLeave()) return;
+        if (!(await confirmLeave())) return;
         const p = await backend.createProject(name, roomIds, [], [], newTone(projects));
         projects.unshift(p);
         showProject(p);
         ui.setView('project');
         ui.setStatus(`Progetto "${name}" creato${p.roomIds.length ? '' : ' senza stanza: carica un modello'}`);
       }),
-    onCloseProject() {
-      if (!confirmLeave()) return;
+    async onCloseProject() {
+      if (!(await confirmLeave())) return;
       showProject(null);
       ui.setView('home');
     },
     onRenameProject: () =>
       run(async () => {
         if (!project) return;
-        let text = project.name;
-        let title = 'Nome del progetto';
-        let name: string | undefined;
-        for (;;) {
-          name = prompt(title, text)?.trim();
-          if (!name || name === project.name) return;
-          const bad = projectNameError(name, project.id);
-          if (!bad) break;
-          text = name; // asks again, with the name typed so far
-          title = bad;
-        }
+        const pid = project.id;
+        const current = project.name;
+        const name = await ui.askText('Nome del progetto', current, { ok: 'Rinomina', validate: (v) => (!v ? 'Scrivi un nome.' : v === current ? '' : projectNameError(v, pid)) });
+        if (!name || name === current) return;
         await backend.saveProject(project.id, { name });
         project.name = name;
         refreshLists();
@@ -1400,23 +1393,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (!project) return;
         const saved = (await backend.listProjects()).find((x) => x.id === project!.id);
         if (!saved) return ui.setStatus('Salva prima il progetto: non è ancora sul cloud.');
-        if (dirty && !confirm("Ci sono modifiche non salvate: la copia parte dall'ultima versione salvata. Continuare?")) return;
+        if (dirty && !(await ui.askConfirm("Ci sono modifiche non salvate: la copia parte dall'ultima versione salvata.", 'Duplica', 'Duplica progetto'))) return;
         let text = `${saved.name} (copia)`;
         for (let i = 2; projectNameError(text); i++) text = `${saved.name} (copia ${i})`;
-        let title = 'Nome della copia';
-        let name: string | undefined;
-        for (;;) {
-          name = prompt(title, text)?.trim();
-          if (!name) return;
-          const bad = projectNameError(name);
-          if (!bad) break;
-          text = name;
-          title = bad;
-        }
+        const name = await ui.askText('Nome della copia', text, { ok: 'Duplica', validate: (v) => (!v ? 'Scrivi un nome.' : projectNameError(v)) });
+        if (!name) return;
         const models = saved.models.map((m, i) => ({ ...structuredClone(m), id: `${newId()}${i}` }));
         const structs = saved.structures.map((x, i) => ({ ...structuredClone(x), id: `${newId()}s${i}` }));
         const notes = saved.annotations.map((a, i) => copyAnnotation(a, i));
-        const copy = await withLoading('Duplico il progetto', saved.name, () => backend.createProject(name!, [...saved.roomIds], models, structs, newTone(projects), notes));
+        const copy = await withLoading('Duplico il progetto', saved.name, () => backend.createProject(name, [...saved.roomIds], models, structs, newTone(projects), notes));
         projects.unshift(copy);
         if (dirty) {
           refreshLists();
@@ -1428,7 +1413,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       }),
     onDeleteProject: () =>
       run(async () => {
-        if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
+        if (!project || !(await ui.askConfirm(`Eliminare il progetto "${project.name}"?`, 'Elimina', 'Elimina progetto'))) return;
         await backend.deleteProject(project.id);
         void prune();
         projects = projects.filter((p) => p !== project);
@@ -1447,8 +1432,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       showRoom(r);
       resetHistory();
     },
-    onRemoveRoom() {
-      if (!project || !room || !confirm(`Togliere la stanza "${room.name}" dal progetto? Anche i suoi modelli, pareti e pavimenti vengono tolti.`)) return;
+    async onRemoveRoom() {
+      if (!project || !room || !(await ui.askConfirm(`Togliere la stanza "${room.name}" dal progetto?\nAnche i suoi modelli, pareti e pavimenti vengono tolti.`, 'Togli', 'Togli la stanza'))) return;
+      if (!project || !room) return;
       const id = room.id;
       project.roomIds = project.roomIds.filter((x) => x !== id);
       project.models = project.models.filter((m) => m.roomId !== id);
@@ -1468,9 +1454,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onRenameRoom: (id) =>
       run(async () => {
         const r = rooms.find((x) => x.id === id);
-        const name = r && prompt('Nome della stanza', r.name)?.trim();
-        if (!r || !name || name === r.name) return;
-        if (rooms.some((x) => x.id !== id && x.name.trim().toLowerCase() === name.toLowerCase())) return ui.setStatus(`Esiste già una stanza chiamata "${name}": scegli un altro nome.`);
+        if (!r) return;
+        const taken = (v: string) => rooms.some((x) => x.id !== id && x.name.trim().toLowerCase() === v.toLowerCase());
+        const name = await ui.askText('Nome della stanza', r.name, { ok: 'Rinomina', validate: (v) => (!v ? 'Scrivi un nome.' : v !== r.name && taken(v) ? `Esiste già una stanza chiamata "${v}": scegli un altro nome.` : '') });
+        if (!name || name === r.name) return;
         await backend.renameRoom(id, name);
         r.name = name;
         refreshLists();
@@ -1547,7 +1534,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       }),
     onDeleteModel: (path) =>
       run(async () => {
-        if (!confirm('Eliminare questo modello dal cloud? Non si può annullare.')) return;
+        if (!(await ui.askConfirm('Eliminare questo modello dal cloud? Non si può annullare.', 'Elimina', 'Elimina modello'))) return;
         await library.remove([path]);
         await loadLibrary('Modello eliminato.');
       }),
@@ -1555,7 +1542,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       run(async () => {
         const used = await usage();
         const files = (await library.list()).filter((f) => !used.has(f.path));
-        if (!files.length || !confirm(`Eliminare ${files.length} modelli non usati da nessun progetto (${sizeText(files.reduce((a, f) => a + f.size, 0))})? Non si può annullare.`)) return;
+        if (!files.length || !(await ui.askConfirm(`Eliminare ${files.length} modelli non usati da nessun progetto (${sizeText(files.reduce((a, f) => a + f.size, 0))})?\nNon si può annullare.`, 'Elimina', 'Elimina i non usati'))) return;
         await library.remove(files.map((f) => f.path));
         await loadLibrary(`${files.length} modelli eliminati.`);
       }),
@@ -1564,7 +1551,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const r = rooms.find((x) => x.id === id);
         const users = projects.filter((p) => p.roomIds.includes(id));
         const note = users.length ? ` Sarà tolta anche dai progetti: ${users.map((p) => p.name).join(', ')} (con i suoi modelli).` : '';
-        if (!r || !confirm(`Eliminare la stanza "${r.name}"?${note}`)) return;
+        if (!r || !(await ui.askConfirm(`Eliminare la stanza "${r.name}"?${note}`, 'Elimina', 'Elimina stanza'))) return;
         await backend.deleteRoom(id);
         rooms = rooms.filter((x) => x !== r);
         for (const p of users) {
@@ -1832,15 +1819,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   const toVec3 = (v: Vector3): Vec3 => [v.x, v.y, v.z];
 
-  function annotClick(e: PointerEvent) {
+  async function annotClick(e: PointerEvent) {
     const p = surfacePoint(e);
     if (!p || !project || !annotMode) return;
     const keep = e.shiftKey; // Shift: stay in the tool for the next one
     let made: Annotation | null = null;
     if (annotMode === 'note') {
-      const text = prompt('Testo della nota', '');
+      const text = await ui.askText('Testo della nota', '', { ok: 'Aggiungi', placeholder: 'Scrivi la nota' });
       if (text === null) return; // cancelled: nothing is put down
-      made = newAnnotation('note', spaceId(), toVec3(p), undefined, text.trim());
+      made = newAnnotation('note', spaceId(), toVec3(p), undefined, text);
     } else if (!annotFirst) {
       annotFirst = toVec3(p);
       refreshToolbar();
@@ -1996,7 +1983,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return;
     }
     if (annotMode) {
-      if (e.button === 0 && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5) annotClick(e);
+      if (e.button === 0 && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5) void annotClick(e);
       return;
     }
     if (build) return;
