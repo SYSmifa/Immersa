@@ -36,7 +36,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
-import { countTriangles, glbTrianglesAt, HEAVY_TRIANGLES, simplifyGlb } from './simplify';
+import { countTriangles, glbTrianglesAt, glbTrianglesOfFile, HEAVY_TRIANGLES, MAX_FILE_BYTES, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelSize as localModelSize } from '../room/selection';
@@ -933,8 +933,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const heavy: { id: string; name: string; triangles: number }[] = [];
     await withLoading('Controllo i modelli', undefined, async () => {
       for (const e of entries) {
-        const triangles = await countTriangles(e.file).catch(() => 0);
-        if (triangles > HEAVY_TRIANGLES) heavy.push({ id: e.key, name: e.name, triangles });
+        // From the file's header (no parsing). If even that fails, or the file is simply too big for the cloud, it counts as heavy.
+        const triangles = await glbTrianglesOfFile(e.file).catch(() => 0);
+        if (triangles > HEAVY_TRIANGLES || e.file.size > MAX_FILE_BYTES) heavy.push({ id: e.key, name: e.name, triangles: Math.max(triangles, HEAVY_TRIANGLES + 1) });
       }
     });
     const out = new Map(entries.map((e) => [e.key, e.file]));
@@ -1284,7 +1285,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const used = (await usage()).get(path);
         const name = used ? [...used.names].join(' / ') : path;
         const file = await withLoading('Scarico il modello', name, async () => new File([await (await fetch(await modelUrl(path))).blob()], `${name}.glb`));
-        const triangles = await withLoading('Controllo il modello', name, () => countTriangles(file));
+        const triangles = await withLoading('Controllo il modello', name, () => glbTrianglesOfFile(file).catch(() => countTriangles(file)));
         if (triangles <= HEAVY_TRIANGLES) return ui.setStatus(`${name} è già abbastanza leggero per il visore.`);
         const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, {
           title: 'Semplifica il modello',

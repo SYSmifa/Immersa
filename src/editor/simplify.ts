@@ -298,20 +298,7 @@ interface GltfJson {
   meshes?: { primitives: { mode?: number; indices?: number; attributes: { POSITION?: number } }[] }[];
   nodes?: { mesh?: number }[];
 }
-export async function glbTrianglesAt(url: string): Promise<number> {
-  const head = await fetch(url, { headers: { Range: 'bytes=0-19' } }).catch(() => fetch(url)); // a refused Range header (CORS): the whole file
-  let json: ArrayBuffer;
-  if (head.status === 206) {
-    const h = new DataView(await head.arrayBuffer());
-    const len = h.getUint32(12, true);
-    const res = await fetch(url, { headers: { Range: `bytes=20-${19 + len}` } });
-    json = await res.arrayBuffer();
-  } else {
-    const all = await head.arrayBuffer(); // no ranges: the whole file came
-    const len = new DataView(all).getUint32(12, true);
-    json = all.slice(20, 20 + len);
-  }
-  const g = JSON.parse(new TextDecoder().decode(json)) as GltfJson;
+function trianglesOfJson(g: GltfJson): number {
   const uses = new Map<number, number>();
   for (const n of g.nodes ?? []) if (n.mesh !== undefined) uses.set(n.mesh, (uses.get(n.mesh) ?? 0) + 1);
   let total = 0;
@@ -326,4 +313,27 @@ export async function glbTrianglesAt(url: string): Promise<number> {
     total += tris * (uses.get(i) ?? (g.nodes?.length ? 0 : 1));
   });
   return total;
+}
+const parseJson = (buf: ArrayBuffer) => JSON.parse(new TextDecoder().decode(buf)) as GltfJson;
+
+// The same for a file we hold: only its first bytes are read, so a 400 MB model costs nothing (parsing it whole can run out of memory).
+export async function glbTrianglesOfFile(file: Blob): Promise<number> {
+  const len = new DataView(await file.slice(0, 20).arrayBuffer()).getUint32(12, true);
+  return trianglesOfJson(parseJson(await file.slice(20, 20 + len).arrayBuffer()));
+}
+
+export async function glbTrianglesAt(url: string): Promise<number> {
+  const head = await fetch(url, { headers: { Range: 'bytes=0-19' } }).catch(() => fetch(url)); // a refused Range header (CORS): the whole file
+  let json: ArrayBuffer;
+  if (head.status === 206) {
+    const h = new DataView(await head.arrayBuffer());
+    const len = h.getUint32(12, true);
+    const res = await fetch(url, { headers: { Range: `bytes=20-${19 + len}` } });
+    json = await res.arrayBuffer();
+  } else {
+    const all = await head.arrayBuffer(); // no ranges: the whole file came
+    const len = new DataView(all).getUint32(12, true);
+    json = all.slice(20, 20 + len);
+  }
+  return trianglesOfJson(parseJson(json));
 }
