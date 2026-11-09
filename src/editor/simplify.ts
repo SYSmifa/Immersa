@@ -2,6 +2,7 @@ import { Box3, BufferAttribute, BufferGeometry, type InterleavedBufferAttribute,
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import type { Job } from './simplifyWorker';
 import { createGltfLoader } from '../scene/gltf';
+import { withCreasedNormals } from './normals';
 
 // Triangle budget for one model on the headset. Above it the editor offers to simplify when the project is saved.
 export const HEAVY_TRIANGLES = 500000;
@@ -157,27 +158,25 @@ async function simplifyGeometry(source: BufferGeometry, targetTris: number, maxE
   } finally {
     giveBack(w);
   }
-  return rebuild(g, position, out);
+  return rebuild(g, position, out, true);
 }
 
 async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number, maxError: number, absolute: boolean, coarseFallback: boolean) {
   const g = source.index ? source : weld(source);
   const position = g.getAttribute('position') as Attr;
-  const nor = g.getAttribute('normal') as Attr | undefined;
+  // Only the UVs are kept close to the original while simplifying. The normals are not: they are worked out again from the
+  // triangles at the end (see normals.ts), and holding the original ones (often averaged across hard edges in CAD files) stopped
+  // flat surfaces from being reduced and left wrong shading on the big triangles that remained.
   const uv = g.getAttribute('uv') as Attr | undefined;
-  const stride = (nor ? 3 : 0) + (uv ? 2 : 0);
+  const stride = uv ? 2 : 0;
   const attr = new Float32Array(position.count * stride);
-  for (let i = 0; i < position.count; i++) {
-    let o = i * stride;
-    if (nor) for (let k = 0; k < 3; k++) attr[o++] = nor.getComponent(i, k);
-    if (uv) for (let k = 0; k < 2; k++) attr[o++] = uv.getComponent(i, k);
-  }
+  for (let i = 0; i < position.count && uv; i++) for (let k = 0; k < 2; k++) attr[i * 2 + k] = uv.getComponent(i, k);
   const out = await runOn(w, {
     idx: Uint32Array.from(g.index!.array as ArrayLike<number>),
     pos: floats(position, 3),
     attr,
     stride,
-    weights: [...(nor ? [0.5, 0.5, 0.5] : []), ...(uv ? [0.5, 0.5] : [])],
+    weights: uv ? [0.5, 0.5] : [],
     target: Math.max(8, targetTris) * 3,
     error: maxError,
     absolute,
@@ -186,7 +185,7 @@ async function simplifyOn(w: Worker, source: BufferGeometry, targetTris: number,
   return { out, g, position };
 }
 
-function rebuild(g: BufferGeometry, position: Attr, out: Uint32Array): BufferGeometry {
+function rebuild(g: BufferGeometry, position: Attr, out: Uint32Array, simplified = false): BufferGeometry {
   // Keep only the vertices still used, in the order they first appear.
   const remap = new Int32Array(position.count).fill(-1);
   const used: number[] = [];
@@ -210,6 +209,7 @@ function rebuild(g: BufferGeometry, position: Attr, out: Uint32Array): BufferGeo
   result.setIndex(new BufferAttribute(used.length > 65535 ? index : Uint16Array.from(index), 1));
   for (const gr of g.groups) result.addGroup(gr.start, gr.count, gr.materialIndex);
   result.userData.compact = true; // nothing left to drop
+  if (simplified) result.userData.simplified = true; // its normals are worked out again before writing
   return result;
 }
 
@@ -304,6 +304,17 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
   const write = async () => {
     onStep('Scrivo il file');
     await tick();
+    // Simplified parts get their normals worked out again, once (a part simplified again later is a new geometry).
+    const creased = new Map<BufferGeometry, BufferGeometry>();
+    for (const g of new Set(all.map((m) => m.geometry))) {
+      if (g.userData.simplified && !g.userData.creased && g.getAttribute('normal')) {
+        const h = withCreasedNormals(g);
+        h.userData.creased = true;
+        creased.set(g, h);
+        await tick();
+      }
+    }
+    swap(creased);
     const out = new Scene();
     for (const c of top) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
     return (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;

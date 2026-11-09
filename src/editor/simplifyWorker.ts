@@ -6,7 +6,7 @@ export interface Job {
   id: number;
   idx: Uint32Array;
   pos: Float32Array; // x y z per vertex
-  attr: Float32Array; // normals and UVs, `stride` floats per vertex (empty when stride is 0)
+  attr: Float32Array; // UVs, `stride` floats per vertex (empty when stride is 0)
   stride: number;
   weights: number[];
   target: number; // index count wanted
@@ -19,13 +19,10 @@ self.onmessage = async (e: MessageEvent<Job>) => {
   const j = e.data;
   try {
     await MeshoptSimplifier.ready;
-    // In absolute mode the error is in metres, so the attribute weights (which the library takes as fractions of the part's
-    // size in relative mode) are scaled by the part's size to mean the same thing.
-    const flags = j.absolute ? (['ErrorAbsolute'] as const) : undefined;
-    const weights = j.absolute ? j.weights.map((w) => w * MeshoptSimplifier.getScale(j.pos, 3)) : j.weights;
+    const flags = j.absolute ? ['ErrorAbsolute' as const] : undefined;
     let [out] = j.stride
-      ? MeshoptSimplifier.simplifyWithAttributes(j.idx, j.pos, 3, j.attr, j.stride, weights, null, j.target, j.error, flags ? [...flags] : undefined)
-      : MeshoptSimplifier.simplify(j.idx, j.pos, 3, j.target, j.error, flags ? [...flags] : undefined);
+      ? MeshoptSimplifier.simplifyWithAttributes(j.idx, j.pos, 3, j.attr, j.stride, j.weights, null, j.target, j.error, flags)
+      : MeshoptSimplifier.simplify(j.idx, j.pos, 3, j.target, j.error, flags);
     // Topology can stop the careful pass early (many separate shells): the coarse one ignores the attributes.
     if (j.fallback && out.length > j.target * 1.3) out = MeshoptSimplifier.simplifySloppy(out, j.pos, 3, null, j.target, 1)[0];
     const copy = new Uint32Array(out); // own buffer, so it can be handed back without copying
