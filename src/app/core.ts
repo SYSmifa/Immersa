@@ -1917,7 +1917,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), axis: null };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), axis: null, dir0: startDir(an, pt, house.root.matrix) };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -2171,9 +2171,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     seen: boolean;
     now: Vector3; // where the point is now, in the world
     axis: Vector3 | null; // ruler only, other pinch held: the line the point is kept on (unit, world)
+    dir0: Vector3 | null; // ruler only: its direction before the pinch moved anything (from the other end to this one, unit, world)
   }
   let annotGrab: AnnotGrab | null = null;
   const SNAP_RELEASE = 0.05; // m
+  // A ruler's direction as it is when grabbed (null for a note, or while both ends are still the same point).
+  function startDir(an: Annotation, pt: 'a' | 'b', mtx: Matrix4): Vector3 | null {
+    const other = pt === 'a' ? an.b : an.a;
+    if (an.kind !== 'ruler' || !other) return null;
+    const d = new Vector3(...an[pt]!).applyMatrix4(mtx).sub(new Vector3(...other).applyMatrix4(mtx));
+    return d.lengthSq() > 1e-6 ? d.normalize() : null;
+  }
   const AXIS_SNAP = (6 * Math.PI) / 180; // a locked ruler within 6 degrees of a world axis is made exactly parallel to it
   const ANNOT_FOLLOW = 14; // 1/s: how fast the point catches up with the hand
   const surfRay = new Raycaster();
@@ -2232,8 +2240,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // pressed (or the nearest axis of the world, if it is within a few degrees), so it can only be lengthened or shortened.
       const o = new Vector3(...other).applyMatrix4(house.root.matrix);
       if (!g.axis) {
+        // the line the ruler had before the hand moved it; a ruler that had no length yet takes where it is now
         const d = g.now.clone().sub(o);
-        const dir = d.lengthSq() > 1e-8 ? d.normalize() : hand.clone().sub(o).normalize();
+        const dir = g.dir0 ? g.dir0.clone() : d.lengthSq() > 1e-8 ? d.normalize() : hand.clone().sub(o).normalize();
         for (const ax of [new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1)]) {
           if (Math.abs(dir.dot(ax)) > Math.cos(AXIS_SNAP)) dir.copy(ax).multiplyScalar(Math.sign(dir.dot(ax)));
         }
