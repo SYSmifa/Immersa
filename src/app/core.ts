@@ -1824,7 +1824,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
         annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, hand0: pinchR.clone(), world0: w, now: w.clone() };
-      }
+        logEvent(`nota: presa (${pt})`);
+      } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
     }
     if (target?.startsWith('s:')) {
@@ -2121,14 +2122,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!g) return;
     const an = annotOf(g.id);
     const house = an && houses.get(an.roomId);
-    if (!an || !house || !house.root.visible || !g.seen) return endAnnotGrab();
-    g.seen = false;
+    if (!an || !house || !house.root.visible || !mainHeld) return endAnnotGrab(); // the pinch is what holds it, not the laser
     const hand = pinchR;
     if (!hand) return; // the hand is not tracked this frame: it stays
     const delta = hand.clone().sub(g.hand0);
     if (g.phase === 'pending') {
       if (delta.length() < 0.03) return; // a pinch that only selects: a hand's tremor does not move it
       g.phase = 'move';
+      logEvent('nota: si muove con la mano');
     }
     g.now.lerp(g.world0.clone().add(delta), 1 - Math.exp(-dt * 30)); // a light smoothing against the hand tracking's jitter
     house.root.updateWorldMatrix(true, false);
