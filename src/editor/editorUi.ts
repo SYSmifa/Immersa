@@ -1276,7 +1276,7 @@ export function createEditorUi(h: EditorHandlers) {
         window.addEventListener('keydown', key, true);
         panel.append(
           el('h3', intro?.title ?? 'Modelli troppo pesanti per il visore'),
-          el('div', intro?.text ?? "Questi modelli sono troppo pesanti per il visore: lo farebbero andare a scatti. Alleggerendoli il visore resta fluido e il progetto pesa meno. Sul cloud va solo la versione alleggerita: l'originale non si conserva.", 'ed-meta'),
+          el('div', intro?.text ?? 'Questi modelli sono particolarmente pesanti e potrebbero rallentare le prestazioni del visore.', 'ed-meta'),
           ...cards,
           row(pill(intro?.ok ?? 'Salva', () => done(chosen), 'acc'), pill('Annulla', () => done(null))),
         );
