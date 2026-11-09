@@ -13,7 +13,7 @@ import { HEAVY_TRIANGLES } from './simplify';
 // centre-top toolbar, top-right outline of the scene with the details of the selection under it, toast at the bottom.
 export type BuildKind = 'floor' | 'wall';
 export type Gizmo = 'translate' | 'rotate' | 'scale';
-export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
+export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project' | 'pRooms'; // pRooms: the rooms of the open project
 
 // A file of the model library (the user's cloud storage) and where it is used.
 const HEAVY = HEAVY_TRIANGLES;
@@ -640,6 +640,7 @@ export function createEditorUi(h: EditorHandlers) {
   fileInput.type = 'file';
   fileInput.accept = MODEL_ACCEPT;
   fileInput.multiple = true; // an OBJ comes with its MTL and textures, a GLTF with its BIN
+  fileInput.style.display = 'none';
   fileInput.onchange = () => {
     if (fileInput.files?.length) h.onUpload([...fileInput.files]);
     fileInput.value = '';
@@ -666,14 +667,30 @@ export function createEditorUi(h: EditorHandlers) {
   const planInput = el('input', '', 'ed-file');
   planInput.type = 'file';
   planInput.accept = '.dxf';
+  planInput.style.display = 'none';
   planInput.onchange = () => {
     if (planInput.files?.length) h.onImportPlan(planInput.files[0]);
     planInput.value = '';
   };
 
+  // The open project: its name and, as three separate buttons, the rooms, adding a model and the CAD plan. The last two open the
+  // file chooser straight away.
   function renderProject() {
     const name = el('div', projectName);
     name.style.cssText = 'font-weight:700;font-size:16px';
+    fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
+    const n = projectRoomItems.length;
+    body.replaceChildren(
+      back('Chiudi progetto', h.onCloseProject),
+      card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
+      big(ICON.room, 'Stanze del progetto', n ? `${n} ${n === 1 ? 'stanza' : 'stanze'}: aggiungi o togli` : 'Nessuna: spazio libero, o aggiungine una', () => setView('pRooms')),
+      big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
+      big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
+    );
+  }
+
+  // The rooms of the open project: the list (a click opens one, the eye hides its scan), adding one and taking one out.
+  function renderProjectRooms() {
     const rooms = projectRoomItems.map((r) => {
       const wrap = el('div', '', `ed-item${r.id === currentRoomId ? ' on' : ''}${r.hidden ? ' off' : ''}`);
       wrap.innerHTML = `${ICON.room}<span></span><button class="ed-eye" title="Nascondi / mostra la scansione di questa stanza">${r.hidden ? ICON.eyeOff : ICON.eye}</button>`;
@@ -692,22 +709,16 @@ export function createEditorUi(h: EditorHandlers) {
     add.disabled = !addableItems.length;
     const remove = pill('Togli la stanza dal progetto', h.onRemoveRoom, 'bad');
     remove.disabled = !hasRoom;
-    fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
     body.replaceChildren(
-      back('Chiudi progetto', h.onCloseProject),
-      card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
-      title('Stanze del progetto'),
+      back('Indietro', () => setView('project')),
+      el('div', 'Stanze del progetto', 'ed-h'),
       ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),
-      title('Aggiungi un modello (.glb)'),
-      fileInput,
-      title('Pianta CAD (.dxf): pareti e pavimenti'),
-      card(el('div', 'Crea le pareti e i pavimenti da una pianta, in un progetto senza stanze scansionate: ci puoi camminare dentro col visore.', 'ed-meta'), pill('Importa pianta…', () => planInput.click())),
     );
   }
 
   function render() {
-    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, project: renderProject })[view]();
+    ({ home: renderHome, projects: renderProjects, new: renderNew, rooms: renderRooms, models: renderModels, project: renderProject, pRooms: renderProjectRooms })[view]();
   }
   function setView(v: View) {
     view = v;
@@ -782,10 +793,10 @@ export function createEditorUi(h: EditorHandlers) {
   // Labels of the measures, pooled, placed by the editor every frame (under the panels, never in the way of the mouse).
   const measureLayer = el('div', '', 'ed-measures');
   const labelPool: HTMLElement[] = [];
-  root.append(measureLayer, side, top, right, toast, loading);
+  root.append(measureLayer, side, top, right, toast, loading, fileInput, planInput);
 
   function syncChrome() {
-    const on = view === 'project' && hasProject;
+    const on = (view === 'project' || view === 'pRooms') && hasProject;
     top.style.display = on ? 'flex' : 'none';
     right.style.display = on ? 'flex' : 'none';
   }
@@ -1070,6 +1081,7 @@ export function createEditorUi(h: EditorHandlers) {
     hasRoom = room;
     syncChrome();
     if (view === 'project') renderProject();
+    else if (view === 'pRooms') renderProjectRooms();
   };
 
   const api = {
@@ -1412,6 +1424,7 @@ export function createEditorUi(h: EditorHandlers) {
       currentRoomId = currentId;
       addableItems = addable;
       if (view === 'project') renderProject();
+      else if (view === 'pRooms') renderProjectRooms();
     },
     setState,
     setDirty(dirty: boolean) {
