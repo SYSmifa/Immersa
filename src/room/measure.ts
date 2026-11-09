@@ -238,7 +238,7 @@ export function gapsOfSolid(s: Solid, ctx: MeasureContext): Measure[] {
   const e1: P2 = ctx.axes ?? s.u;
   const out: Measure[] = [];
   const corners = solidSegs(s).map((q) => q.a);
-  const yMid = s.y0 + Math.min(0.9, (s.y1 - s.y0) / 2);
+  const yLine = s.y0; // the same height as the width and depth lines (the object's base)
   for (const d of [e1, [-e1[0], -e1[1]] as P2, perp(e1), [-perp(e1)[0], -perp(e1)[1]] as P2]) {
     const p = perp(d);
     const pc = corners.map((q) => q[0] * p[0] + q[1] * p[1]);
@@ -265,7 +265,7 @@ export function gapsOfSolid(s: Solid, ctx: MeasureContext): Measure[] {
       if (hit !== null && (best === null || hit < best.t)) best = { t: hit, from };
     }
     if (best && best.t > 0.005 && best.t <= range) {
-      out.push({ kind: 'gap', a: v3(best.from[0], yMid, best.from[1]), b: v3(best.from[0] + d[0] * best.t, yMid, best.from[1] + d[1] * best.t), text: formatLength(best.t), owner: s.id });
+      out.push({ kind: 'gap', a: v3(best.from[0], yLine, best.from[1]), b: v3(best.from[0] + d[0] * best.t, yLine, best.from[1] + d[1] * best.t), text: formatLength(best.t), owner: s.id });
     }
   }
   if (ctx.vertical !== false && ctx.ceilingY !== null) {

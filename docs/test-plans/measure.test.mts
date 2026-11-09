@@ -77,3 +77,7 @@ assert.deepEqual(h.a, d.a);
 const wallsOnly = gapsOfSolid(a, ctx({ vertical: false, ceilingY: null }));
 assert.deepEqual(wallsOnly.map((m) => m.text).sort(), ['1,20 m', '1,45 m', '2,20 m', '2,45 m'].sort());
 console.log('measure: corner and walls-only ok');
+
+// the distances to the walls lie at the height of the width and depth lines (the object's base)
+for (const m of gapsOfSolid(a, ctx({ vertical: false, ceilingY: null }))) assert.ok(Math.abs(m.a[1] - dimsOfSolid(a)[0].a[1]) < 1e-9 && Math.abs(m.b[1] - dimsOfSolid(a)[0].a[1]) < 1e-9);
+console.log('measure: gap lines at the base height ok');
