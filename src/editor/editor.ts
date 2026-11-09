@@ -213,6 +213,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     dimMat.resolution.set(window.innerWidth, window.innerHeight);
     gapMat.resolution.set(window.innerWidth, window.innerHeight);
+    camera.updateMatrixWorld(); // the labels follow this frame's camera, not the one the last render used (they lagged one frame behind)
     const labels = [];
     for (const m of list) {
       mv.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).project(camera);

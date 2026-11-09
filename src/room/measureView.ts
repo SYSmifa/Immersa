@@ -29,8 +29,11 @@ export function createMeasureView() {
   let dimLines: LineSegments2 | null = null;
   let gapLines: LineSegments2 | null = null;
   let sig = '';
+  let sigList: Measure[] | null = null;
   const labels: Label[] = [];
   const mid = new Vector3();
+  let chosen: Measure[] | null = null;
+  const chosenAt = new Vector3(Infinity, Infinity, Infinity);
 
   function makeLabel(): Label {
     const canvas = document.createElement('canvas');
@@ -77,9 +80,12 @@ export function createMeasureView() {
         return;
       }
       root.visible = true;
-      const s = list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
+      // The list is made again every so often: only when what it says has changed are the lines and the labels redone.
+      const s = list === sigList ? sig : list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
+      sigList = list;
       if (s !== sig) {
         sig = s;
+        chosen = null;
         for (const l of [dimLines, gapLines]) if (l) (root.remove(l), l.geometry.dispose());
         const flat = (kind: Measure['kind']) => list.filter((m) => m.kind === kind).flatMap((m) => [...m.a, ...m.b]);
         const make = (pos: number[], m: LineMaterial) => {
@@ -93,11 +99,21 @@ export function createMeasureView() {
         dimLines = make(flat('dim'), dimMat);
         gapLines = make(flat('gap'), gapMat);
       }
-      // the nearest labels, if there are more than the pool
-      const sorted = list
-        .map((m) => ({ m, d: mid.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).distanceTo(head) }))
-        .sort((p, q) => p.d - q.d)
-        .slice(0, MAX_LABELS);
+      // Which measures get a label: all of them when they fit the pool, else the nearest. Decided when the list changes or when the
+      // head has moved well away, NOT every frame: sorting by distance each frame swapped labels between slots as the eyes moved a
+      // little (turning the head does that), and every swap repainted a label.
+      if (!chosen || head.distanceTo(chosenAt) > 0.7) {
+        chosen =
+          list.length <= MAX_LABELS
+            ? list
+            : list
+                .map((m) => ({ m, d: mid.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).distanceTo(head) }))
+                .sort((p, q) => p.d - q.d)
+                .slice(0, MAX_LABELS)
+                .map((x) => x.m);
+        chosenAt.copy(head);
+      }
+      const sorted = chosen.map((m) => ({ m, d: mid.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).distanceTo(head) }));
       while (labels.length < sorted.length) labels.push(makeLabel());
       labels.forEach((l, i) => {
         const it = sorted[i];

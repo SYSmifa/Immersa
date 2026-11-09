@@ -221,7 +221,7 @@ const CSS = `
 .ed-ib:hover:not(:disabled){background:#ffffff1f}
 .ed-ib:disabled{opacity:.3;cursor:default}
 .ed-measures{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
-.ed-mlabel{position:absolute;left:0;top:0;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0006}
+.ed-mlabel{position:absolute;left:0;top:0;will-change:transform;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0006}
 .ed-mlabel.gap{background:#14b8a6;color:#04211d}
 .ed-ib.on,.ed-ib.on:hover:not(:disabled){background:linear-gradient(135deg,var(--acc),var(--acc2));color:#04211d}
 .ed-sep{width:1px;height:24px;background:#ffffff26;margin:0 6px}
