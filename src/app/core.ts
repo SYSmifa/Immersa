@@ -1760,7 +1760,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let btnAnchor: { key: string; pos: Vector3 } | null = null;
   let btnHidden = true;
   // A spot in front of the object's near side, at head height: 0.3 m before the box, between 0.6 and 2.4 m from you.
-  function headHeightSpot(box: Box3, head: Head): Vector3 {
+  function headHeightSpot(box: Box3, head: Head, minDist = 0.6): Vector3 {
     const c = box.getCenter(new Vector3());
     const len = Math.hypot(c.x - head.pos.x, c.z - head.pos.z) || 1e-6;
     const ux = (c.x - head.pos.x) / len;
@@ -1775,7 +1775,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       tOut = Math.min(tOut, Math.max(t1, t2));
     }
     const near = tIn > 0 && tIn < tOut ? tIn : 0; // inside the footprint: right here
-    const t = Math.min(2.4, Math.max(0.6, near - 0.3));
+    const t = Math.min(2.4, Math.max(minDist, near - 0.3));
     return new Vector3(head.pos.x + ux * t, head.pos.y, head.pos.z + uz * t);
   }
   function placeObjectButton(head: Head) {
@@ -2078,6 +2078,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return Number.isFinite(n) ? n : null;
   };
   let hudText = '';
+  let hudSpot: Vector3 | null = null; // where the rotation / scale card floats during the current gesture
   let snapNote = '';
   // Two separate cards while turning / scaling: rotation and scale, each with its icon, the value now and the value before.
   // The one that is being changed is lit.
@@ -2099,9 +2100,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         ...(size ? [{ kind: 'chip' as const, rect: { x: 12 + (hud.pxW - 24 - 330) / 2, y: 128, w: 330, h: 40 }, text: size, size: 19, fill: theme().surface, color: theme().text2 }] : []),
       ]);
     }
+    // Like the object's menu button: between you and the object, at head height (above a tall object it was out of sight). It is
+    // put there when the gesture starts and stays, so that it does not chase the head while the object turns and grows.
     const top = new Box3().setFromObject(holder);
-    hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.22, (top.min.z + top.max.z) / 2);
-    if (lastHead) hud.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - hud.mesh.position.x, lastHead.pos.z - hud.mesh.position.z), 0);
+    if (lastHead) {
+      if (!hud.mesh.visible || !hudSpot) hudSpot = headHeightSpot(top, lastHead, 1);
+      hud.mesh.position.copy(hudSpot);
+      hud.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - hud.mesh.position.x, lastHead.pos.z - hud.mesh.position.z), 0);
+    } else hud.mesh.position.set((top.min.x + top.max.x) / 2, top.max.y + 0.22, (top.min.z + top.max.z) / 2);
     hud.mesh.visible = true;
     hud.draw();
   }
