@@ -9,12 +9,13 @@ import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { dimsOfSolid, dimsOfStructure, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { annotationLength, annotationMeasures, annotationName, ANNOTATION_COLORS } from '../room/annotations';
+import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
 import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { createPoke } from '../ui3d/poke';
@@ -265,6 +266,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     outline: true,
     measures: 'off', // both start off every time
     gaps: false,
+    annotations: true, // notes and rulers are shown unless switched off in Options
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
@@ -370,6 +372,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const selectedModel = () => (selectedId ? (current?.models.find((x) => x.id === selectedId) ?? null) : null);
   // A wall or floor can be selected too (built in the PC editor): same floating button and object menu.
   let selectedStructId: string | null = null;
+  let selectedAnnotId: string | null = null; // a note or a ruler (instead of a model / wall / floor)
+  const annotOf = (id: string | null): Annotation | null => (id ? (current?.annotations.find((a) => a.id === id) ?? null) : null);
   const selectedStruct = () => (selectedStructId ? (current?.structures?.find((x) => x.id === selectedStructId) ?? null) : null);
   const structsOf = (roomId: string) => current?.structures?.filter((x) => x.roomId === roomId) ?? [];
   const structMesh = (st: Structure) => houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null;
@@ -411,6 +415,26 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return {
       roughness: own?.roughness ?? m.finish?.roughness ?? base?.roughness ?? 0.5,
       metalness: own?.metalness ?? m.finish?.metalness ?? base?.metalness ?? 0,
+    };
+  }
+  function annotationView(an: Annotation): ObjectView {
+    const len = annotationLength(an);
+    return {
+      measures: false,
+      gaps: false,
+      name: annotationName(an),
+      yawDeg: 0,
+      scale: 1,
+      size: '',
+      color: null,
+      confirmDelete,
+      colorPage: false,
+      materials: [],
+      target: 'all',
+      matPage: 0,
+      hsv: pick,
+      finish: { roughness: 0.5, metalness: 0 },
+      annotation: { kind: an.kind, text: an.text, color: an.color, colors: ANNOTATION_COLORS, length: len === null ? null : formatLength(len) },
     };
   }
   function structureView(st: Structure): ObjectView {
@@ -469,6 +493,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const v = partView();
       if (v) return v;
     }
+    const an = objectOpen ? annotOf(selectedAnnotId) : null;
+    if (an) return annotationView(an);
     const st = objectOpen ? selectedStruct() : null;
     if (st) return structureView(st);
     const m = objectOpen ? selectedModel() : null;
@@ -584,6 +610,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function closeCurrent() {
     measureOverride.clear();
     gapOverride.clear();
+    selectedAnnotId = null;
     pendingTp = null;
     warnOpen = false;
     warn.mesh.visible = false;
@@ -1417,6 +1444,19 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       refreshView();
     },
     objDeleteYes() {
+      const an = annotOf(selectedAnnotId);
+      if (an && current) {
+        current.annotations = current.annotations.filter((x) => x.id !== an.id);
+        const name = an.kind === 'note' ? 'nota' : 'metro';
+        selectedAnnotId = null;
+        objectOpen = false;
+        confirmDelete = false;
+        markUnsaved();
+        measureAt = 0;
+        closeMenu();
+        refreshView();
+        return notify(`Eliminato: ${name}`);
+      }
       const st = selectedStruct();
       if (st && current) {
         current.structures = current.structures.filter((x) => x.id !== st.id);
@@ -1510,6 +1550,30 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       measureAt = 0;
       refreshView();
     },
+    toggleAnnotations() {
+      view.annotations = !view.annotations;
+      if (!view.annotations) selectAnnot(null);
+      measureAt = 0;
+      refreshView();
+    },
+    async objAnnotText() {
+      const an = annotOf(selectedAnnotId);
+      if (!an) return;
+      const text = await ask(an.kind === 'note' ? 'Testo della nota' : 'Etichetta del metro', an.text, { max: 60, capital: true });
+      if (text === null) return;
+      an.text = text.trim();
+      markUnsaved();
+      measureAt = 0;
+      refreshView();
+    },
+    objAnnotColor(color) {
+      const an = annotOf(selectedAnnotId);
+      if (!an) return;
+      an.color = color;
+      markUnsaved();
+      measureAt = 0;
+      refreshView();
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);
@@ -1555,22 +1619,37 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
   let looked: { key: string; node: Object3D } | null = null;
 
+  function selectAnnot(id: string | null) {
+    if (id === selectedAnnotId) return;
+    selectedAnnotId = id;
+    if (id) {
+      selectedId = null;
+      selectedStructId = null;
+      selectedPart = null;
+    }
+    if (objectOpen) closeMenu(); // another one (or nothing) pinched: the menu goes, the button shows on the new one
+  }
   function selectStruct(id: string | null) {
     if (id === selectedStructId) return;
     selectedStructId = id;
-    if (id) selectedId = null;
+    if (id) {
+      selectedId = null;
+      selectedAnnotId = null;
+    }
     if (objectOpen) closeMenu(); // another one (or nothing) pinched: the menu goes, the button shows on the new one
   }
   function selectPart(modelId: string, path: string) {
     if (selectedPart?.modelId === modelId && selectedPart.path === path) return;
     if (objectOpen) closeMenu();
     selectedStructId = null;
+    selectedAnnotId = null;
     selectedId = modelId;
     selectedPart = { modelId, path };
   }
   function selectModel(id: string | null) {
     if (selectedPart && id !== selectedId) selectedPart = null;
     if (id && selectedStructId) selectedStructId = null;
+    if (id) selectedAnnotId = null;
     if (id === selectedId) return;
     if (id && objectOpen) closeMenu(); // another model pinched while a menu is open: it closes
     selectedId = id;
@@ -1643,6 +1722,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         }
       }
     }
+    // Notes and rulers: a small sphere at each point; one just behind the surface it sits on still wins.
+    if (current?.annotations.length && view.annotations) {
+      const limit = panelDist ?? (visit ? 30 : 5);
+      let near: { id: string; d: number } | null = null;
+      for (const an of current.annotations) {
+        const house = houses.get(an.roomId);
+        if (!house?.root.visible) continue;
+        for (const p of an.kind === 'ruler' && an.b ? [an.a, an.b] : [an.a]) {
+          const c = new Vector3(...p).applyMatrix4(house.root.matrix);
+          const along = c.clone().sub(origin).dot(dir);
+          if (along < 0.05 || along > limit) continue;
+          const miss = c.distanceTo(origin.clone().addScaledVector(dir, along));
+          if (miss <= Math.max(0.06, along * 0.025) && (!near || along < near.d)) near = { id: `a:${an.id}`, d: along };
+        }
+      }
+      if (near && (!best || near.d <= best.d + 0.08)) best = near;
+    }
     if (panelDist !== null && (!best || panelDist <= best.d)) return { length: panelDist, target: 'panel' };
     if (best) {
       hovered.set(id, best.id);
@@ -1679,6 +1775,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function pressModel(id: string) {
     if (warnOpen) return; // the warning must be answered first
     const target = hovered.get(id) ?? null;
+    if (!target?.startsWith('a:') && selectedAnnotId) selectAnnot(null); // pinched something else, or nothing
     if (visit) {
       // In the visit the floor and the open ground are for walking: a pinch there deselects when something is selected and
       // walks there when nothing is. A floor is chosen for editing with a double pinch (or pinched while it is the chosen one).
@@ -1705,6 +1802,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
           return;
         }
       }
+    }
+    if (target?.startsWith('a:')) {
+      selectAnnot(target.slice(2)); // a quick pinch: it is chosen, its button shows (nothing to drag in the headset yet)
+      return;
     }
     if (target?.startsWith('s:')) {
       structHit = hoverPoint.get(id)?.clone() ?? null;
@@ -1791,7 +1892,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   host.root.add(objButton.mesh);
   host.add(objButton);
   function openObjectMenu() {
-    if (!selectedModel() && !selectedStruct()) return;
+    if (!selectedModel() && !selectedStruct() && !annotOf(selectedAnnotId)) return;
     objectOpen = true;
     confirmDelete = false;
     colorPage = false;
@@ -1831,6 +1932,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const ov = measureOverride.get(`s:${st.id}`);
         if (ov ?? (mode === 'sel' && selectedStructId === st.id)) local.push(...dimsOfStructure(st));
       }
+      if (view.annotations) {
+        for (const x of (current.annotations ?? []).filter((y) => y.roomId === roomId)) {
+          // the chosen one is white, so that it stands out
+          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, color: '#ffffff' } : m)));
+        }
+      }
       const mtx = house.root.matrix; // the room's place in the world
       const world = (p: [number, number, number]) => new Vector3(...p).applyMatrix4(mtx).toArray() as [number, number, number];
       for (const m of local) out.push({ ...m, a: world(m.a), b: world(m.b) });
@@ -1838,7 +1945,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return out;
   }
   function updateMeasures(head: Head) {
-    if (!current || (view.measures === 'off' && !view.gaps && !measureOverride.size && !gapOverride.size)) {
+    if (selectedAnnotId && !annotOf(selectedAnnotId)) selectedAnnotId = null; // deleted elsewhere
+    const notes = view.annotations && !!current?.annotations.length;
+    if (!current || (view.measures === 'off' && !view.gaps && !measureOverride.size && !gapOverride.size && !notes)) {
       measureList = [];
       measureView.hide();
       return;
@@ -1886,9 +1995,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (holder && houses.get(m!.roomId)?.root.visible) box = new Box3().setFromObject(holder);
     const pn = selectedPart ? partNodeOf() : null;
     if (pn && houses.get(selectedPart!.modelId ? (partModelOf()?.roomId ?? '') : '')?.root.visible) box = new Box3().setFromObject(pn);
+    // A note or a ruler: a small box round its point(s), so that the button floats in front of it like for a model.
+    const an = annotOf(selectedAnnotId);
+    if (an && view.annotations && houses.get(an.roomId)?.root.visible) {
+      const mtx = houses.get(an.roomId)!.root.matrix;
+      box = new Box3().setFromPoints([an.a, ...(an.b ? [an.b] : [])].map((p) => new Vector3(...p).applyMatrix4(mtx))).expandByScalar(0.05);
+    }
     let top: Vector3 | null = null;
     if (box && !box.isEmpty()) {
-      const key = selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : `m:${m?.id}`;
+      const key = an ? `n:${an.id}` : selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : `m:${m?.id}`;
       const moved = grab || partGrab || structGrab || rig.visible; // hidden: put again where it is when it comes back
       const far = btnAnchor ? Math.hypot(btnAnchor.pos.x - head.pos.x, btnAnchor.pos.z - head.pos.z) : 0;
       if (!btnAnchor || btnAnchor.key !== key || btnHidden || far > 7 || far < 0.35) btnAnchor = { key, pos: headHeightSpot(box, head) };

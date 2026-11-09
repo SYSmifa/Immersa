@@ -71,7 +71,10 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     { id: 'r2', name: 'Cucina', createdAt: '2026-05-02T16:30:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
   const projects: Project[] = [
-    { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], annotations: [], models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
+    { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], annotations: [
+        { id: 'n1', roomId: 'r1', kind: 'note', a: [0.5, 0.95, -0.5], text: 'Passa il cavo qui', color: '#ffb020' },
+        { id: 'n2', roomId: 'r1', kind: 'ruler', a: [-1, 0.02, 1.4], b: [0.5, 0.02, 0.4], text: '', color: '#2dd4bf' },
+      ], models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
     { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), structures: [], annotations: [], models: [model('Macchina', 1, 1)] },
     { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [], structures: [], annotations: [] },
     // A whole house: models in two rooms, each in its own room's frame.

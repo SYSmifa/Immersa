@@ -21,6 +21,8 @@ export interface ObjectView {
   finish: { roughness: number; metalness: number }; // of the target, as shown now
   measures: boolean; // its sizes are shown now
   gaps: boolean; // its distances to the nearest things are shown now (models only)
+  // Set when the selection is a note or a ruler instead of a model.
+  annotation?: { kind: 'note' | 'ruler'; text: string; color: string; colors: string[]; length: string | null };
   // Set when the selection is one component of a model.
   part?: { model: string; moved: boolean };
   // Set when the selection is a wall or a floor instead of a model.
@@ -71,6 +73,7 @@ export interface MenuView {
   outline: boolean;
   measures: 'off' | 'sel'; // Options: the selected object's sizes shown or not
   gaps: boolean; // Options: distances of the selected object to the nearest things
+  annotations: boolean; // Options: notes and rulers shown
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
   dominant: 'left' | 'right'; // the hand that points with the laser
@@ -105,6 +108,9 @@ export interface MenuActions {
   objMeasures(): void;
   toggleGaps(): void;
   objGaps(): void;
+  toggleAnnotations(): void;
+  objAnnotText(): void;
+  objAnnotColor(color: string): void;
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
@@ -176,7 +182,7 @@ function saveButton(v: MenuView, a: MenuActions, out: Widget[]) {
 // Object menu --------------------------------------------------------------------------------------------------
 // Colour page: pick what to change (all materials or one), then the colour on a wheel, a brightness bar or presets.
 function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
-  out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.name, M + 70), closeButton(a));
+  out.push(backButton(a.objColorBack), title('Colore', M + 70), subtitle(o.annotation ? '' : o.name, M + 70), closeButton(a));
   const st = o.structure;
   const items: { name: string; color: string | null; t: 'all' | number; tex?: string | null; image?: CanvasImageSource }[] = st
     ? st.textures.map((t) => ({ name: t.name, color: t.color, t: 'all' as const, tex: t.id, image: t.image }))
@@ -224,8 +230,22 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
 
 function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   if (o.colorPage) return colorPage(o, out, a);
-  out.push(backButton(o.part ? a.objExitPart : a.objClose), title(o.part ? 'Componente' : o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.name, M + 70), closeButton(a));
+  out.push(backButton(o.part ? a.objExitPart : a.objClose), title(o.annotation ? (o.annotation.kind === 'note' ? 'Nota' : 'Metro') : o.part ? 'Componente' : o.structure ? (o.structure.kind === 'wall' ? 'Parete' : 'Pavimento') : 'Oggetto', M + 70), subtitle(o.annotation ? '' : o.name, M + 70), closeButton(a));
   const half = (W - 16) / 2;
+  if (o.annotation) {
+    const an = o.annotation;
+    out.push({ kind: 'card', icon: 'room_plan', rect: { x: M, y: 112, w: W, h: 104 }, text: an.text || (an.kind === 'note' ? 'Nota senza testo' : 'Nessuna etichetta'), sub: an.length ? `Metro: ${an.length} · tocca per cambiare l'etichetta` : 'Tocca per cambiare il testo', size: 30, onClick: a.objAnnotText });
+    const cw = (W - 3 * 14) / 4;
+    an.colors.forEach((c, i) => out.push({ kind: 'chip', rect: { x: M + i * (cw + 14), y: 232, w: cw, h: 56 }, text: c === an.color ? '✓' : '', size: 30, fill: c, color: '#1a1205', onClick: () => a.objAnnotColor(c) }));
+    if (o.confirmDelete) {
+      out.push(surface(M, 310, W, 176));
+      out.push(text(`Eliminare ${an.kind === 'note' ? 'la nota' : 'il metro'}?`, M + 28, 326, W - 56, 44, 30, theme().bad, { bold: true }));
+      const bw = (W - 28 * 2 - 14) / 2;
+      out.push({ kind: 'pill', rect: { x: M + 28, y: 414, w: bw, h: 56 }, text: 'Annulla', size: 24, onClick: a.objDeleteNo });
+      out.push({ kind: 'pill', icon: 'trash', primary: true, rect: { x: M + 28 + bw + 14, y: 414, w: bw, h: 56 }, text: 'Sì, elimina', size: 24, onClick: a.objDeleteYes });
+    } else out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 310, w: W, h: 64 }, text: an.kind === 'note' ? 'Elimina nota' : 'Elimina metro', size: 26, color: theme().bad, onClick: a.objDelete });
+    return out;
+  }
   if (o.part) {
     out.push({ kind: 'card', icon: 'rotate', rect: { x: M, y: 112, w: half, h: 104 }, text: `${o.yawDeg}°`, sub: 'Rotazione', size: 34, onClick: a.objRotation });
     out.push({ kind: 'card', icon: 'scale', rect: { x: M + half + 16, y: 112, w: half, h: 104 }, text: `×${o.scale.toFixed(2)}`, sub: 'Scala', size: 34, onClick: a.objScale });
@@ -436,8 +456,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     }
   } else if (v.tab === 'options') {
     const half = (W - 14) / 2;
-    const STEP = 64; // five rows of cards fit above the info line
-    const H = 58;
+    const STEP = 58; // six rows of cards fit above the info line
+    const H = 52;
     const at = (col: number, row: number) => ({ x: M + col * (half + 14), y: top + row * STEP, w: half, h: H });
     const toggle = (col: number, row: number, name: string, sub: string, on: boolean, onClick: () => void, icon: IconName): Widget => ({
       kind: 'card', icon, rect: at(col, row), text: name, size: 22, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
@@ -452,9 +472,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 22, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
-    out.push(surface(M, top + 5 * STEP + 4, W, 50));
-    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 5 * STEP + 12, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
-    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 5 * STEP + 33, W - 48, 18, 14, T.dim)));
+    out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
+    out.push(surface(M, top + 6 * STEP + 2, W, 44));
+    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 6 * STEP + 6, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
+    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 6 * STEP + 26, W - 48, 18, 14, T.dim)));
   } else if (v.showLog) {
     // The event log in big, readable lines: the headset has no copy and paste, so it is meant to be photographed.
     out.push(surface(M, top, W, 392));
