@@ -2,8 +2,22 @@ import { supabase } from './supabase';
 
 const BUCKET = 'models';
 
-// URL a loader can fetch: public/models/<file> for "local:" paths, else a signed storage URL.
+// Models imported on the PC but not uploaded yet (they go up when the project is saved, possibly simplified first):
+// they live in memory under a "pending:<n>" path that only the editor ever sees.
+const pending = new Map<string, { file: File; url?: string }>();
+let pendingCount = 0;
+export const isPendingModel = (path: string) => path.startsWith('pending:');
+export function registerPendingModel(file: File): string {
+  const path = `pending:${++pendingCount}`;
+  pending.set(path, { file });
+  return path;
+}
+export const pendingModelFile = (path: string) => pending.get(path)?.file;
+
+// URL a loader can fetch: public/models/<file> for "local:" paths, a blob for "pending:" ones, else a signed storage URL.
 export async function modelUrl(path: string): Promise<string> {
+  const p = pending.get(path);
+  if (p) return (p.url ??= URL.createObjectURL(p.file));
   if (path.startsWith('local:')) return `/models/${path.slice(6)}`;
   if (!supabase) throw new Error('Supabase not configured');
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);

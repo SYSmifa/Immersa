@@ -30,12 +30,13 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { listModels, pruneModels, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
+import { isPendingModel, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
+import { countTriangles, HEAVY_TRIANGLES, SIMPLIFY_TARGETS, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelSize as localModelSize } from '../room/selection';
@@ -893,10 +894,60 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
   }
 
+  // Files that are about to go up: the ones above the headset's triangle budget are offered for simplification (a dialog with
+  // the choice per model); what comes back is what must be uploaded. null = the user cancelled.
+  async function lighten(entries: { key: string; name: string; file: File }[]): Promise<Map<string, File> | null> {
+    const heavy: { id: string; name: string; triangles: number }[] = [];
+    await withLoading('Controllo i modelli', undefined, async () => {
+      for (const e of entries) {
+        const triangles = await countTriangles(e.file).catch(() => 0);
+        if (triangles > HEAVY_TRIANGLES) heavy.push({ id: e.key, name: e.name, triangles });
+      }
+    });
+    const out = new Map(entries.map((e) => [e.key, e.file]));
+    if (!heavy.length) return out;
+    const choice = await ui.askSimplify(heavy, HEAVY_TRIANGLES, SIMPLIFY_TARGETS);
+    if (!choice) return null;
+    for (const h of heavy) {
+      const target = choice.get(h.id);
+      if (!target) continue;
+      const entry = entries.find((e) => e.key === h.id)!;
+      const res = await withLoading('Semplifico il modello', `${h.name} · ${h.triangles.toLocaleString('it-IT')} → ${target.toLocaleString('it-IT')} triangoli`, () => simplifyGlb(entry.file, target));
+      out.set(h.id, res.file);
+      ui.setStatus(`${h.name}: da ${res.before.toLocaleString('it-IT')} a ${res.after.toLocaleString('it-IT')} triangoli.`);
+    }
+    return out;
+  }
+
+  // Models imported since the last save are uploaded now. `uploaded` remembers where each went, so that undoing back to a
+  // model that is already up does not ask again.
+  const uploaded = new Map<string, string>();
+  async function uploadPending(): Promise<boolean> {
+    if (!project) return true;
+    const waiting = [...new Set(project.models.map((m) => m.path).filter(isPendingModel))];
+    const toSend = waiting.filter((p) => !uploaded.has(p) && pendingModelFile(p));
+    if (toSend.length) {
+      const entries = toSend.map((p) => ({ key: p, name: project!.models.find((m) => m.path === p)!.name, file: pendingModelFile(p)! }));
+      const files = await lighten(entries);
+      if (!files) return false;
+      for (const e of entries) {
+        const { path } = await withLoading('Carico il modello', e.name, () => upload(files.get(e.key)!));
+        uploaded.set(e.key, path);
+      }
+    }
+    for (const m of project.models) {
+      const to = uploaded.get(m.path);
+      if (to) m.path = to;
+    }
+    layer.sync(models()); // the models now come from the cloud (simplified, if so chosen)
+    return true;
+  }
+
   async function save() {
     if (!project) return;
     ui.setStatus('Salvo...');
     try {
+      if (!(await uploadPending())) return ui.setStatus('Salvataggio annullato.');
       await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures }));
       markDirty(false);
       ui.setStatus(`Progetto "${project.name}" salvato`);
@@ -960,7 +1011,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const prepared = await prepareGlb(files);
       if (!prepared) return ui.setStatus('Importazione annullata.');
       const { file, source, base } = prepared;
-      const { path } = await withLoading('Carico il modello', file.name, () => upload(file));
+      const path = registerPendingModel(file); // goes up when the project is saved
       const name = uniqueModelName(base);
       const id = newId();
       // In a room: its floor centre. Without one: in a row along x, so that several do not overlap.
@@ -971,7 +1022,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       setSelection([`m:${id}`]);
       markDirty();
       commit();
-      ui.setStatus('Caricato. Ricorda di salvare.');
+      ui.setStatus('Aggiunto. Ricorda di salvare: il modello va sul cloud al salvataggio.');
     } catch (e) {
       ui.setStatus(`Importazione FALLITA: ${errText(e)}`);
     }
@@ -1171,7 +1222,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (!m) return;
         const prepared = await prepareGlb(files);
         if (!prepared) return ui.setStatus('Sostituzione annullata.');
-        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(prepared.file));
+        const file = await lighten([{ key: 'f', name: prepared.base, file: prepared.file }]);
+        if (!file) return ui.setStatus('Sostituzione annullata.');
+        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(file.get('f')!));
         await replaceModel(m.path, path, prepared.source);
         await refreshLibOptions();
       }),
@@ -1186,7 +1239,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         ui.setStatus(`Preparo ${files[0].name}...`);
         const prepared = await prepareGlb(files);
         if (!prepared) return ui.setStatus('Sostituzione annullata.');
-        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(prepared.file));
+        const file = await lighten([{ key: 'f', name: prepared.base, file: prepared.file }]);
+        if (!file) return ui.setStatus('Sostituzione annullata.');
+        const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(file.get('f')!));
         await replaceModel(oldPath, path, prepared.source);
         await loadLibrary('Modello sostituito.');
       }),
@@ -1221,7 +1276,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           p.roomIds = p.roomIds.filter((x) => x !== id);
           p.models = p.models.filter((m) => m.roomId !== id);
           p.structures = p.structures.filter((x) => x.roomId !== id);
-          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models, structures: p.structures });
+          await backend.saveProject(p.id, { roomIds: p.roomIds, models: p.models.filter((m) => !isPendingModel(m.path)), structures: p.structures }); // models not uploaded yet stay out of the cloud
         }
         void prune();
         if (room === r) showRoom(projectRoomsList()[0] ?? null);
