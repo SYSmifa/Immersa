@@ -93,6 +93,7 @@ export interface Annotation {
   b?: Vec3; // rulers only
   text: string;
   color: string; // '#rrggbb'
+  scale?: number; // notes: size of the label (1 = normal)
 }
 
 // A project holds the models of one or more rooms (e.g. a whole house), each in its room's frame.

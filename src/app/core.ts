@@ -1917,7 +1917,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), mode: 0, axis: null, dir0: startDir(an, pt, house.root.matrix) };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), sc: null, mode: 0, axis: null, dir0: startDir(an, pt, house.root.matrix) };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -2018,6 +2018,48 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // you; the object's menu has its own switch that overrides Options for that object. ----
   const measureView = createMeasureView();
   scene.add(measureView.root);
+  // A note's foot, in its room's frame: the floor or the first model / wall / floor under it (the cross sits there, a wire goes up
+  // to the note). Kept for a second, or recomputed every time while the note is carried.
+  const anchorCache = new Map<string, { key: string; at: number; p: [number, number, number] | null }>();
+  const downRay = new Raycaster();
+  function noteAnchor(an: Annotation, house: House): [number, number, number] | null {
+    const key = an.a.map((n) => n.toFixed(3)).join(',');
+    const now = performance.now();
+    const hit = anchorCache.get(an.id);
+    const carried = annotGrab?.id === an.id && annotGrab.phase === 'move';
+    if (hit && hit.key === key && !carried && now - hit.at < 1000) return hit.p;
+    house.root.updateWorldMatrix(true, false);
+    const origin = new Vector3(...an.a).applyMatrix4(house.root.matrixWorld);
+    origin.y += 0.01;
+    const down = new Vector3(0, -1, 0);
+    let best = Infinity;
+    for (const m of current?.models ?? []) {
+      if (m.roomId !== an.roomId) continue;
+      const holder = house.layer.holders.get(m.id);
+      const d = holder ? pickDistance(holder, origin, down, 30) : null;
+      if (d !== null && d < best) best = d;
+    }
+    downRay.set(origin, down);
+    downRay.far = 30;
+    for (const st of current?.structures ?? []) {
+      if (st.roomId !== an.roomId) continue;
+      const mesh = structMesh(st);
+      const h = mesh && downRay.intersectObject(mesh, false)[0];
+      if (h && h.distance < best) best = h.distance;
+    }
+    const room = rooms.find((r) => r.id === an.roomId);
+    if (room) {
+      const floorY = new Vector3(0, floorCentre(room.scan.planes)[1], 0).applyMatrix4(house.root.matrixWorld).y;
+      if (origin.y > floorY && origin.y - floorY < best) best = origin.y - floorY;
+    }
+    let p: [number, number, number] | null = null;
+    if (best < Infinity) {
+      const l = house.root.worldToLocal(origin.clone().addScaledVector(down, best));
+      p = [l.x, l.y, l.z];
+    }
+    anchorCache.set(an.id, { key, at: now, p });
+    return p;
+  }
   function computeMeasures(): Measure[] {
     const out: Measure[] = [];
     if (!current) return out;
@@ -2050,7 +2092,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (view.annotations) {
         for (const x of (current.annotations ?? []).filter((y) => y.roomId === roomId)) {
           // the chosen one gets the azure outline of selected objects
-          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true, ...(annotGrab?.mode && annotGrab.id === x.id ? { color: '#2dd4bf' } : {}) } : m)));
+          local.push(...annotationMeasures(x, x.kind === 'note' ? noteAnchor(x, house) : null).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true, ...(annotGrab?.mode && annotGrab.id === x.id ? { color: '#2dd4bf' } : {}) } : m)));
         }
       }
       const mtx = house.root.matrix; // the room's place in the world
@@ -2170,6 +2212,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     phase: 'pending' | 'move';
     seen: boolean;
     now: Vector3; // where the point is now, in the world
+    sc: { ref: number; s0: number } | null; // note only: the other pinch is held, sizing it (hands' distance then, size then)
     mode: number; // ruler only: 0 free, 1 along its old line, 2 same height as the other end, 3 vertical (the other hand's taps go round)
     axis: Vector3 | null; // mode 1: the line (unit, world)
     dir0: Vector3 | null; // ruler only: its direction before the pinch moved anything (from the other end to this one, unit, world)
@@ -2253,6 +2296,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!an || !house || !house.root.visible || !mainHeld) return endAnnotGrab(); // the pinch is what holds it, not the laser
     const hand = pinchR;
     if (!hand) return; // the hand is not tracked this frame: it stays
+    // A note, the other pinch held: the distance between the hands sizes it (the same gesture as a model's scale); it stays put meanwhile.
+    if (an.kind === 'note' && leftHeld && pinchL) {
+      const dist = pinchL.distanceTo(hand);
+      if (!g.sc) g.sc = { ref: Math.max(dist, 0.05), s0: an.scale ?? 1 };
+      an.scale = Math.round(Math.min(4, Math.max(0.4, (g.sc.s0 * dist) / g.sc.ref)) * 100) / 100;
+      markUnsaved();
+      measureAt = 0;
+      return;
+    }
+    g.sc = null;
     if (g.phase === 'pending') {
       g.phase = 'move';
       logEvent('nota: vola sulla mano');

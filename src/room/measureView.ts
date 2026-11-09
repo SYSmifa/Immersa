@@ -102,7 +102,7 @@ export function createMeasureView() {
       }
       root.visible = true;
       // The list is made again every so often: only when what it says has changed are the lines and the labels redone.
-      const s = list === sigList ? sig : list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}${m.text}${m.color ?? ''}${m.selected ? 's' : ''}`).join('|');
+      const s = list === sigList ? sig : list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}${m.text}${m.color ?? ''}${m.selected ? 's' : ''}${m.scale ?? ''}`).join('|');
       sigList = list;
       if (s !== sig) {
         sig = s;
@@ -154,7 +154,8 @@ export function createMeasureView() {
         paint(l, it.m.text, it.m.kind, it.m.color, it.m.selected);
         l.mesh.position.set((it.m.a[0] + it.m.b[0]) / 2, (it.m.a[1] + it.m.b[1]) / 2 + 0.03, (it.m.a[2] + it.m.b[2]) / 2);
         const h = Math.min(0.22, Math.max(0.05, it.d * 0.045)); // about the same size on the eye at any distance
-        l.mesh.scale.set(h * ASPECT, h, 1);
+        const sc = it.m.scale ?? 1;
+        l.mesh.scale.set(h * sc * ASPECT, h * sc, 1);
         l.mesh.lookAt(head);
       });
     },

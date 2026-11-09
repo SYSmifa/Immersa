@@ -36,9 +36,14 @@ function cross(p: Vec3, owner: string, color: string): Measure[] {
 }
 
 // Things to draw for one annotation, in its room's frame.
-export function annotationMeasures(a: Annotation): Measure[] {
+// `anchor`: for a note, the point on the floor or on the first object under it (a cross there, and a wire up to the note).
+export function annotationMeasures(a: Annotation, anchor?: Vec3 | null): Measure[] {
   const color = a.color || DEFAULT_COLOR;
-  if (a.kind === 'note' || !a.b) return [...cross(a.a, a.id, color), { kind: 'note', a: a.a, b: a.a, text: annotationLabel(a), owner: a.id, color }];
+  if (a.kind === 'note' || !a.b) {
+    const foot = anchor && Math.hypot(anchor[0] - a.a[0], anchor[1] - a.a[1], anchor[2] - a.a[2]) > 0.02 ? anchor : null;
+    const wire: Measure[] = foot ? [{ kind: 'pin', a: foot, b: a.a, text: '', owner: a.id, color }] : [];
+    return [...cross(foot ?? a.a, a.id, color), ...wire, { kind: 'note', a: a.a, b: a.a, text: annotationLabel(a), owner: a.id, color, ...(a.scale && a.scale !== 1 ? { scale: a.scale } : {}) }];
+  }
   return [...cross(a.a, a.id, color), ...cross(a.b, a.id, color), { kind: 'ruler', a: a.a, b: a.b, text: annotationLabel(a), owner: a.id, color }];
 }
 

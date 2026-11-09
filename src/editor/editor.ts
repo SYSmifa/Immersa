@@ -200,8 +200,29 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return out;
   }
 
+  // A note's foot: the floor, or the first model / wall / floor under it. Kept until something changes (a ray against heavy models
+  // every frame would be slow).
+  let anchorEpoch = 0;
+  const anchors = new Map<string, { key: string; p: Vec3 | null }>();
+  const downRay = new Raycaster();
+  function noteAnchor(a: Annotation): Vec3 | null {
+    if (a.kind !== 'note') return null;
+    const key = `${a.a.map((n) => n.toFixed(3))}|${anchorEpoch}`;
+    const hit = anchors.get(a.id);
+    if (hit && hit.key === key) return hit.p;
+    downRay.set(new Vector3(a.a[0], a.a[1] + 0.01, a.a[2]), new Vector3(0, -1, 0));
+    downRay.far = 50;
+    const first = downRay.intersectObjects([...layer.holders.values(), ...structLayer.meshes.values()], true).find((h) => (h.object as Mesh).isMesh && h.object.visible);
+    let p: Vec3 | null = first ? toVec3(first.point) : null;
+    if (!p) {
+      const f = downRay.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -floorY()), new Vector3());
+      p = f ? toVec3(f) : null;
+    }
+    anchors.set(a.id, { key, p });
+    return p;
+  }
   function computeAnnotMeasures(): Measure[] {
-    const out = annotations().flatMap(annotationMeasures);
+    const out = annotations().flatMap((a) => annotationMeasures(a, noteAnchor(a)));
     // While a tool is in use: where the pointer would put the point, and the ruler as far as it goes.
     if (annotMode && annotCursor) {
       const color = DEFAULT_COLOR;
@@ -279,7 +300,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (m.kind === 'pin' || !m.text) continue;
       mv.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).project(camera);
       if (mv.z > 1 || Math.abs(mv.x) > 1.2 || Math.abs(mv.y) > 1.2) continue;
-      labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind, color: m.color });
+      labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind, color: m.color, scale: m.scale });
     }
     ui.setMeasureLabels(labels);
   }
@@ -394,6 +415,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
 
   function markDirty(on = true) {
+    anchorEpoch++;
     dirty = on;
     ui.setDirty(on);
   }

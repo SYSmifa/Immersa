@@ -149,6 +149,7 @@ export interface MeasureLabel {
   text: string;
   kind: 'dim' | 'gap' | 'label' | 'note' | 'ruler';
   color?: string; // annotations
+  scale?: number;
 }
 
 export interface ToolbarState {
@@ -1545,6 +1546,7 @@ export function createEditorUi(h: EditorHandlers) {
         d.className = `ed-mlabel ${l.kind}`;
         d.style.background = l.color ?? '';
         d.style.color = l.color ? '#1a1205' : '';
+        d.style.fontSize = l.scale && l.scale !== 1 ? `${(12 * l.scale).toFixed(1)}px` : '';
         d.style.transform = `translate(-50%,-50%) translate(${l.x.toFixed(1)}px,${l.y.toFixed(1)}px)`;
       });
     },
