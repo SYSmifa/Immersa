@@ -3,6 +3,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import type { Measure } from './measure';
+import { SELECT_COLOR } from './selection';
 
 // Draws measures (see measure.ts) in the headset: thin lines a few millimetres wide and labels that always face you, with the
 // same apparent size at any distance. Measures come in world coordinates. Drawn over everything (no depth test), so a line
@@ -36,6 +37,9 @@ export function createMeasureView() {
   const dimMat = mat(0xffffff, LINE_DIM);
   const gapMat = mat(0x2dd4bf, LINE_GAP);
   const annotMats = new Map<string, LineMaterial>(); // annotations: a line material per colour
+  const haloMat = mat(SELECT_COLOR, LINE_GAP * 3.2);
+  haloMat.depthTest = false;
+  let haloLines: LineSegments2 | null = null;
   let annotLines: LineSegments2[] = [];
   let dimLines: LineSegments2 | null = null;
   let gapLines: LineSegments2 | null = null;
@@ -59,8 +63,8 @@ export function createMeasureView() {
     return { mesh, canvas, texture, key: '', stamp: 0, d: 0 };
   }
 
-  function paint(l: Label, text: string, kind: Measure['kind'], color?: string) {
-    const key = `${kind}|${text}|${color ?? ''}`;
+  function paint(l: Label, text: string, kind: Measure['kind'], color?: string, selected?: boolean) {
+    const key = `${kind}|${text}|${color ?? ''}|${selected ? 's' : ''}`;
     if (l.key === key) return;
     l.key = key;
     l.stamp++;
@@ -76,6 +80,11 @@ export function createMeasureView() {
     c.beginPath();
     c.roundRect((w - tw) / 2, 6, tw, h - 12, (h - 12) / 2);
     c.fill();
+    if (selected) {
+      c.lineWidth = 6;
+      c.strokeStyle = '#35b8ff';
+      c.stroke();
+    }
     c.fillStyle = color ? '#1a1205' : kind === 'gap' ? '#04211d' : '#ffffff';
     c.textAlign = 'center';
     c.textBaseline = 'middle';
@@ -93,12 +102,12 @@ export function createMeasureView() {
       }
       root.visible = true;
       // The list is made again every so often: only when what it says has changed are the lines and the labels redone.
-      const s = list === sigList ? sig : list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}`).join('|');
+      const s = list === sigList ? sig : list.map((m) => `${m.kind}${m.a.map((n) => n.toFixed(3))}${m.b.map((n) => n.toFixed(3))}${m.text}${m.color ?? ''}${m.selected ? 's' : ''}`).join('|');
       sigList = list;
       if (s !== sig) {
         sig = s;
         chosen = null;
-        for (const l of [dimLines, gapLines, ...annotLines]) if (l) (root.remove(l), l.geometry.dispose());
+        for (const l of [dimLines, gapLines, haloLines, ...annotLines]) if (l) (root.remove(l), l.geometry.dispose());
         const flat = (match: (m: Measure) => boolean) => list.filter(match).flatMap((m) => [...m.a, ...m.b]);
         const make = (pos: number[], m: LineMaterial) => {
           if (!pos.length) return null;
@@ -110,6 +119,8 @@ export function createMeasureView() {
         };
         dimLines = make(flat((m) => m.kind === 'dim'), dimMat);
         gapLines = make(flat((m) => m.kind === 'gap'), gapMat);
+        haloLines = make(flat((m) => !!m.selected && (m.kind === 'pin' || m.kind === 'ruler')), haloMat);
+        if (haloLines) haloLines.renderOrder = 1090; // under the coloured line: it shows as an outline
         annotLines = [];
         for (const color of new Set(list.filter((m) => m.color).map((m) => m.color!))) {
           let am = annotMats.get(color);
@@ -140,7 +151,7 @@ export function createMeasureView() {
         l.mesh.visible = !!it;
         if (!it) return;
         l.d = it.d;
-        paint(l, it.m.text, it.m.kind, it.m.color);
+        paint(l, it.m.text, it.m.kind, it.m.color, it.m.selected);
         l.mesh.position.set((it.m.a[0] + it.m.b[0]) / 2, (it.m.a[1] + it.m.b[1]) / 2 + 0.03, (it.m.a[2] + it.m.b[2]) / 2);
         const h = Math.min(0.22, Math.max(0.05, it.d * 0.045)); // about the same size on the eye at any distance
         l.mesh.scale.set(h * ASPECT, h, 1);

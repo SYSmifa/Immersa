@@ -39,6 +39,7 @@ export interface Measure {
   text: string;
   owner: string;
   color?: string; // '#rrggbb', annotations only
+  selected?: boolean; // annotations: drawn with the azure outline of selected objects
 }
 
 export interface MeasureContext {

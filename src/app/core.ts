@@ -1934,8 +1934,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       if (view.annotations) {
         for (const x of (current.annotations ?? []).filter((y) => y.roomId === roomId)) {
-          // the chosen one is white, so that it stands out
-          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, color: '#ffffff' } : m)));
+          // the chosen one gets the azure outline of selected objects
+          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true } : m)));
         }
       }
       const mtx = house.root.matrix; // the room's place in the world
@@ -1995,13 +1995,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (holder && houses.get(m!.roomId)?.root.visible) box = new Box3().setFromObject(holder);
     const pn = selectedPart ? partNodeOf() : null;
     if (pn && houses.get(selectedPart!.modelId ? (partModelOf()?.roomId ?? '') : '')?.root.visible) box = new Box3().setFromObject(pn);
-    // A note or a ruler: a small box round its point(s), so that the button floats in front of it like for a model.
     const an = annotOf(selectedAnnotId);
+    let top: Vector3 | null = null;
+    // A note or a ruler: the button sits just above its highest point.
     if (an && view.annotations && houses.get(an.roomId)?.root.visible) {
       const mtx = houses.get(an.roomId)!.root.matrix;
-      box = new Box3().setFromPoints([an.a, ...(an.b ? [an.b] : [])].map((p) => new Vector3(...p).applyMatrix4(mtx))).expandByScalar(0.05);
+      const pts = [an.a, ...(an.b ? [an.b] : [])].map((p) => new Vector3(...p).applyMatrix4(mtx));
+      const hi = pts.reduce((a, b) => (b.y > a.y ? b : a));
+      top = hi.clone();
+      top.y -= 0.03; // the button sits 0.17 above this point, so 0.14 above the annotation
     }
-    let top: Vector3 | null = null;
     if (box && !box.isEmpty()) {
       const key = an ? `n:${an.id}` : selectedPart ? `p:${selectedPart.modelId}:${selectedPart.path}` : `m:${m?.id}`;
       const moved = grab || partGrab || structGrab || rig.visible; // hidden: put again where it is when it comes back
