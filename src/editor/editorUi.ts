@@ -1271,8 +1271,7 @@ export function createEditorUi(h: EditorHandlers) {
           el('div', intro?.text ?? `Questi modelli hanno più di ${num(limit)} triangoli. Nel visore faranno scendere i fotogrammi al secondo e il movimento sarà a scatti. Sul cloud va solo la versione semplificata, che pesa anche meno; l'originale non si conserva.`, 'ed-meta'),
           ...cards,
           row(
-            pill(intro?.ok ?? 'Semplifica e salva', () => done(chosen), 'acc'),
-            ...(intro ? [] : [pill('Salva senza semplificare', () => done(new Map(items.map((i) => [i.id, null]))))]),
+            pill(intro?.ok ?? 'Salva', () => done(chosen), 'acc'),
             pill('Annulla', () => done(null)),
           ),
         );
