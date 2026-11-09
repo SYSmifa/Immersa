@@ -9,7 +9,9 @@ import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { applySelectionLook, clearSelectionLook, listMaterials, modelSize, pickDistance, surfaceUnder } from '../room/selection';
+import { boxSolid, ceilingYOf, dimsOfSolid, dimsOfStructure, floorYOf, gapsOfSolid, modelSolid, planeSeg, roomAxes, solidSegs, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { createMeasureView } from '../room/measureView';
+import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
@@ -93,6 +95,15 @@ export const fpsPreferred = () => {
     return localStorage.getItem(FPS_KEY) === '1';
   } catch {
     return false;
+  }
+};
+const MEASURE_KEY = 'immersa.measures';
+const readMeasure = (): 'off' | 'sel' | 'all' => {
+  try {
+    const v = localStorage.getItem(MEASURE_KEY);
+    return v === 'off' || v === 'all' ? v : 'sel';
+  } catch {
+    return 'sel';
   }
 };
 const SNAP_KEY = 'immersa.snap';
@@ -223,6 +234,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const occluderMaterial = createOccluderMaterial();
   const houses = new Map<string, House>();
 
+  const measureOverride = new Map<string, boolean>(); // 'm:<id>' / 's:<id>' -> its measures shown or not, whatever Options say
+  let measureAt = 0;
+  let measureList: Measure[] = [];
+
   const view: MenuView = {
     tab: 'scan',
     email: null,
@@ -256,6 +271,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     search: '',
     scroll: 0,
     outline: true,
+    measures: readMeasure(),
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
@@ -406,6 +422,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
   function structureView(st: Structure): ObjectView {
     return {
+      measures: measureOverride.get(`s:${st.id}`) ?? view.measures !== 'off',
       name: structName(st),
       yawDeg: 0,
       scale: 1,
@@ -436,6 +453,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const info = listMaterials(node)[0];
     const color = e?.color ?? m.color ?? info?.color ?? '#ffffff';
     return {
+      measures: false,
       name: partName(node),
       yawDeg: ((Math.round(((e?.yaw ?? 0) * 180) / Math.PI) % 360) + 360) % 360,
       scale: e?.scale ?? 1,
@@ -470,6 +488,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const mats = holder ? listMaterials(holder) : [];
     if (typeof colorTarget === 'number' && colorTarget >= mats.length) colorTarget = 'all';
     return {
+      measures: measureOverride.get(`m:${m.id}`) ?? view.measures !== 'off',
       name: m.name,
       yawDeg: ((Math.round((m.yaw * 180) / Math.PI) % 360) + 360) % 360,
       scale: m.scale,
@@ -567,6 +586,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    measureOverride.clear();
     pendingTp = null;
     warnOpen = false;
     warn.mesh.visible = false;
@@ -1469,6 +1489,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       view.outline = !view.outline;
       refreshView();
     },
+    toggleMeasures() {
+      view.measures = view.measures === 'off' ? 'sel' : view.measures === 'sel' ? 'all' : 'off';
+      try {
+        localStorage.setItem(MEASURE_KEY, view.measures);
+      } catch {
+        /* kept for this session only */
+      }
+      measureAt = 0;
+      refreshView();
+    },
+    objMeasures() {
+      const key = selectedStructId ? `s:${selectedStructId}` : selectedId ? `m:${selectedId}` : null;
+      if (!key) return;
+      measureOverride.set(key, !(measureOverride.get(key) ?? view.measures !== 'off'));
+      measureAt = 0;
+      refreshView();
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);
@@ -1756,6 +1793,59 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     colorPage = false;
     openMenu();
     refreshView();
+  }
+  // ---- measures: sizes and free distances (room/measure.ts) of the selected object, or of everything (Options), drawn in front of
+  // you; the object's menu has its own switch that overrides Options for that object. ----
+  const measureView = createMeasureView();
+  scene.add(measureView.root);
+  function computeMeasures(): Measure[] {
+    const out: Measure[] = [];
+    if (!current) return out;
+    const mode = view.measures;
+    for (const [roomId, house] of houses) {
+      if (!house.root.visible) continue;
+      const room = rooms.find((r) => r.id === roomId);
+      const planes = room?.scan.planes ?? [];
+      const structs = current.structures?.filter((x) => x.roomId === roomId) ?? [];
+      const solids = new Map<string, Solid>();
+      for (const m of modelsOf(roomId)) {
+        const h = house.layer.holders.get(m.id);
+        const b = h && modelBox(h);
+        if (b) solids.set(m.id, modelSolid(m, b.min, b.max));
+      }
+      const walls: Seg[] = [...structs.flatMap(wallSegs), ...planes.map((p, i) => planeSeg(p, i)).filter((x): x is Seg => !!x)];
+      const obstacles = [...walls, ...(room?.scan.boxes ?? []).flatMap((b, i) => solidSegs(boxSolid(b, i))), ...[...solids.values()].flatMap(solidSegs)];
+      const ctx = { obstacles, axes: roomAxes(walls), ceilingY: room ? ceilingYOf(planes) : null, floorY: room ? floorYOf(planes) : 0 };
+      const local: Measure[] = [];
+      for (const [id, s] of solids) {
+        const sel = selectedId === id;
+        const ov = measureOverride.get(`m:${id}`);
+        if (ov ?? (mode === 'all' || (mode === 'sel' && sel))) local.push(...dimsOfSolid(s));
+        if (ov ?? (mode !== 'off' && sel)) local.push(...gapsOfSolid(s, ctx));
+      }
+      for (const st of structs) {
+        const ov = measureOverride.get(`s:${st.id}`);
+        if (ov ?? (mode === 'all' || (mode === 'sel' && selectedStructId === st.id))) local.push(...dimsOfStructure(st));
+      }
+      const mtx = house.root.matrix; // the room's place in the world
+      const world = (p: [number, number, number]) => new Vector3(...p).applyMatrix4(mtx).toArray() as [number, number, number];
+      for (const m of local) out.push({ ...m, a: world(m.a), b: world(m.b) });
+    }
+    return out;
+  }
+  function updateMeasures(head: Head) {
+    if (!current || (view.measures === 'off' && !measureOverride.size)) {
+      measureList = [];
+      measureView.hide();
+      return;
+    }
+    const now = performance.now();
+    const carrying = (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab;
+    if (carrying || now - measureAt > 150) {
+      measureAt = now;
+      measureList = computeMeasures();
+    }
+    measureView.update(measureList, head.pos);
   }
   let btnAnchor: { key: string; pos: Vector3 } | null = null;
   let btnHidden = true;
@@ -2601,6 +2691,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       updatePartGrab(dt);
       updateStructGrab(dt);
       placeObjectButton(head);
+      updateMeasures(head);
       syncOutline();
       host.update();
     },
