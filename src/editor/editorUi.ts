@@ -48,6 +48,7 @@ export interface EditorHandlers {
   projectNameError(name: string, exceptId?: string): string; // '' when the name is free (names are unique, caps and edge spaces ignored)
   onCloseProject(): void;
   onRenameProject(): void;
+  onDuplicateProject(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
   onRoomVisible(id: string): void;
@@ -694,7 +695,7 @@ export function createEditorUi(h: EditorHandlers) {
     fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
     body.replaceChildren(
       back('Chiudi progetto', h.onCloseProject),
-      card(name, row(pill('Rinomina', h.onRenameProject), pill('Elimina', h.onDeleteProject, 'bad'))),
+      card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       title('Stanze del progetto'),
       ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),

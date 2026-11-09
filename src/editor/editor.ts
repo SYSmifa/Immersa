@@ -1263,6 +1263,38 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         project.name = name;
         refreshLists();
       }),
+    // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
+    // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
+    onDuplicateProject: () =>
+      run(async () => {
+        if (!project) return;
+        const saved = (await backend.listProjects()).find((x) => x.id === project!.id);
+        if (!saved) return ui.setStatus('Salva prima il progetto: non è ancora sul cloud.');
+        if (dirty && !confirm("Ci sono modifiche non salvate: la copia parte dall'ultima versione salvata. Continuare?")) return;
+        let text = `${saved.name} (copia)`;
+        for (let i = 2; projectNameError(text); i++) text = `${saved.name} (copia ${i})`;
+        let title = 'Nome della copia';
+        let name: string | undefined;
+        for (;;) {
+          name = prompt(title, text)?.trim();
+          if (!name) return;
+          const bad = projectNameError(name);
+          if (!bad) break;
+          text = name;
+          title = bad;
+        }
+        const models = saved.models.map((m, i) => ({ ...structuredClone(m), id: `${newId()}${i}` }));
+        const structs = saved.structures.map((x, i) => ({ ...structuredClone(x), id: `${newId()}s${i}` }));
+        const copy = await withLoading('Duplico il progetto', saved.name, () => backend.createProject(name!, [...saved.roomIds], models, structs, newTone(projects)));
+        projects.unshift(copy);
+        if (dirty) {
+          refreshLists();
+          return ui.setStatus(`Copia creata: "${name}". La trovi in Apri progetto.`);
+        }
+        showProject(copy);
+        ui.setView('project');
+        ui.setStatus(`Copia "${name}" creata: ${copy.models.length} modelli, ${copy.structures.length} pareti/pavimenti.`);
+      }),
     onDeleteProject: () =>
       run(async () => {
         if (!project || !confirm(`Eliminare il progetto "${project.name}"?`)) return;
