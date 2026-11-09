@@ -10,7 +10,7 @@ import type { Measure } from './measure';
 const MAX_LABELS = 28;
 const LINE_DIM = 0.004; // m
 const LINE_GAP = 0.005;
-const ASPECT = 6; // label width / height
+const ASPECT = 4; // label width / height
 const PX_H = 64;
 
 interface Label {
@@ -26,7 +26,6 @@ export function createMeasureView() {
   const mat = (color: number, width: number) => new LineMaterial({ color, linewidth: width, worldUnits: true, depthTest: false, transparent: true });
   const dimMat = mat(0xffffff, LINE_DIM);
   const gapMat = mat(0x2dd4bf, LINE_GAP);
-  gapMat.depthTest = true; // a distance on the floor goes behind what is in front of it
   let dimLines: LineSegments2 | null = null;
   let gapLines: LineSegments2 | null = null;
   let sig = '';
@@ -82,7 +81,7 @@ export function createMeasureView() {
       if (s !== sig) {
         sig = s;
         for (const l of [dimLines, gapLines]) if (l) (root.remove(l), l.geometry.dispose());
-        const flat = (kinds: Measure['kind'][]) => list.filter((m) => kinds.includes(m.kind)).flatMap((m) => [...m.a, ...m.b]);
+        const flat = (kind: Measure['kind']) => list.filter((m) => m.kind === kind).flatMap((m) => [...m.a, ...m.b]);
         const make = (pos: number[], m: LineMaterial) => {
           if (!pos.length) return null;
           const l = new LineSegments2(new LineSegmentsGeometry().setPositions(pos), m);
@@ -91,12 +90,11 @@ export function createMeasureView() {
           root.add(l);
           return l;
         };
-        dimLines = make(flat(['dim']), dimMat);
-        gapLines = make(flat(['gap', 'tick']), gapMat);
+        dimLines = make(flat('dim'), dimMat);
+        gapLines = make(flat('gap'), gapMat);
       }
       // the nearest labels, if there are more than the pool
       const sorted = list
-        .filter((m) => m.kind !== 'tick')
         .map((m) => ({ m, d: mid.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).distanceTo(head) }))
         .sort((p, q) => p.d - q.d)
         .slice(0, MAX_LABELS);

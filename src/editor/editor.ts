@@ -170,7 +170,6 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   const lineMat = (color: number, width: number) => new LineMaterial({ color, linewidth: width, depthTest: false, transparent: true });
   const dimMat = lineMat(0xffffff, 2);
   const gapMat = lineMat(0x2dd4bf, 2.5);
-  gapMat.depthTest = true; // a distance on the floor goes behind what is in front of it
   let dimLines: LineSegments2 | null = null;
   let gapLines: LineSegments2 | null = null;
   let measureSig = '';
@@ -205,7 +204,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (sig !== measureSig) {
       measureSig = sig;
       for (const l of [dimLines, gapLines]) if (l) (measureGroup.remove(l), l.geometry.dispose());
-      const flat = (kinds: Measure['kind'][]) => list.filter((m) => kinds.includes(m.kind)).flatMap((m) => [...m.a, ...m.b]);
+      const flat = (kind: Measure['kind']) => list.filter((m) => m.kind === kind).flatMap((m) => [...m.a, ...m.b]);
       const make = (pos: number[], mat: LineMaterial) => {
         if (!pos.length) return null;
         const l = new LineSegments2(new LineSegmentsGeometry().setPositions(pos), mat);
@@ -214,14 +213,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         measureGroup.add(l);
         return l;
       };
-      dimLines = make(flat(['dim']), dimMat);
-      gapLines = make(flat(['gap', 'tick']), gapMat);
+      dimLines = make(flat('dim'), dimMat);
+      gapLines = make(flat('gap'), gapMat);
     }
     dimMat.resolution.set(window.innerWidth, window.innerHeight);
     gapMat.resolution.set(window.innerWidth, window.innerHeight);
     const labels = [];
     for (const m of list) {
-      if (m.kind === 'tick') continue;
       mv.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2).project(camera);
       if (mv.z > 1 || Math.abs(mv.x) > 1.2 || Math.abs(mv.y) > 1.2) continue;
       labels.push({ x: ((mv.x + 1) / 2) * window.innerWidth, y: ((1 - mv.y) / 2) * window.innerHeight, text: m.text, kind: m.kind });

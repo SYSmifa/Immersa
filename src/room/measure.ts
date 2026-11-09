@@ -15,7 +15,6 @@ export interface Seg {
   y0: number;
   y1: number;
   owner: string; // what it belongs to (a measure never stops on its own object)
-  name: string; // what it is, for the label of a distance that ends on it: 'parete', a model's name, ...
 }
 
 // An oriented rectangle in plan with a height range: a model, or a furniture box of the scan.
@@ -30,10 +29,9 @@ export interface Solid {
   y1: number;
 }
 
-// `dim`: a line with its size. `gap`: a free distance to the next thing. `tick`: a small cross mark at an end of a gap (no text).
-// `label`: only a text at a point (a === b).
+// `dim`: a line with its size. `gap`: a free distance to the next thing. `label`: only a text at a point (a === b).
 export interface Measure {
-  kind: 'dim' | 'gap' | 'tick' | 'label';
+  kind: 'dim' | 'gap' | 'label';
   a: Vec3;
   b: Vec3;
   text: string;
@@ -111,7 +109,7 @@ export function solidSegs(s: Solid): Seg[] {
   const v = perp(s.u);
   const p = (a: number, b: number): P2 => [s.c[0] + s.u[0] * a * s.hu + v[0] * b * s.hv, s.c[1] + s.u[1] * a * s.hu + v[1] * b * s.hv];
   const k = [p(-1, -1), p(1, -1), p(1, 1), p(-1, 1)];
-  return k.map((a, i) => ({ a, b: k[(i + 1) % 4], y0: s.y0, y1: s.y1, owner: s.id, name: s.name }));
+  return k.map((a, i) => ({ a, b: k[(i + 1) % 4], y0: s.y0, y1: s.y1, owner: s.id }));
 }
 
 // A wall built in the editor: its four sides (it has a thickness).
@@ -151,7 +149,7 @@ export function planeSeg(p: RoomPlane, index: number): Seg | null {
   off /= pts.length;
   if (t1 - t0 < 0.1) return null;
   const nn: P2 = [n[0] / nl, n[2] / nl];
-  return { a: [d[0] * t0 + nn[0] * off, d[1] * t0 + nn[1] * off], b: [d[0] * t1 + nn[0] * off, d[1] * t1 + nn[1] * off], y0, y1, owner: `plane:${index}`, name: 'parete' };
+  return { a: [d[0] * t0 + nn[0] * off, d[1] * t0 + nn[1] * off], b: [d[0] * t1 + nn[0] * off, d[1] * t1 + nn[1] * off], y0, y1, owner: `plane:${index}` };
 }
 
 export const ceilingYOf = (planes: RoomPlane[]): number | null => planes.find((p) => p.label === 'ceiling')?.pos[1] ?? null;
@@ -175,8 +173,8 @@ export function roomAxes(walls: Seg[]): P2 | null {
 // ---- rays ----
 
 // First wall face hit by a ray in plan from `o` along `d`, among faces that cover some of the heights y0..y1.
-function cast(o: P2, d: P2, segs: Seg[], y0: number, y1: number, skip: string): { t: number; seg: Seg } | null {
-  let best: { t: number; seg: Seg } | null = null;
+function cast(o: P2, d: P2, segs: Seg[], y0: number, y1: number, skip: string): number | null {
+  let best: number | null = null;
   for (const s of segs) {
     if (s.owner === skip || s.y1 <= y0 + 0.02 || s.y0 >= y1 - 0.02) continue;
     const rx = s.b[0] - s.a[0];
@@ -187,7 +185,7 @@ function cast(o: P2, d: P2, segs: Seg[], y0: number, y1: number, skip: string): 
     const wz = s.a[1] - o[1];
     const t = (wx * rz - wz * rx) / den;
     const k = (wx * d[1] - wz * d[0]) / den;
-    if (t > 1e-4 && k >= 0 && k <= 1 && (best === null || t < best.t)) best = { t, seg: s };
+    if (t > 1e-4 && k >= 0 && k <= 1 && (best === null || t < best)) best = t;
   }
   return best;
 }
@@ -233,29 +231,19 @@ export function dimsOfStructure(st: Structure): Measure[] {
 }
 
 // Free distances from a solid to the next wall face or object in four directions (along the room's own directions, else its
-// own), and up to the ceiling / down to the floor. Each is a line laid on the floor at the object's base, with a small tick at
-// both ends so that it is clear where it starts and where it stops, and a label that says what is at the other end.
-const TICK = 0.07; // m, half length of an end mark
-
-function tick(at: Vec3, along: P2 | null, owner: string): Measure {
-  // across the line: in plan the perpendicular, for a vertical line along x
-  const d = along ? perp(along) : ([1, 0] as P2);
-  return { kind: 'tick', a: v3(at[0] - d[0] * TICK, at[1], at[2] - d[1] * TICK), b: v3(at[0] + d[0] * TICK, at[1], at[2] + d[1] * TICK), text: '', owner };
-}
-
+// own), and up to the ceiling / down to the floor.
 export function gapsOfSolid(s: Solid, ctx: MeasureContext): Measure[] {
   const range = ctx.maxRange ?? MAX_RANGE;
   const e1: P2 = ctx.axes ?? s.u;
   const out: Measure[] = [];
   const corners = solidSegs(s).map((q) => q.a);
-  const yLine = s.y0 + 0.01; // on the floor under the object
-  const line = (a: Vec3, b: Vec3, text: string, along: P2 | null) => out.push({ kind: 'gap', a, b, text, owner: s.id }, tick(a, along, s.id), tick(b, along, s.id));
+  const yMid = s.y0 + Math.min(0.9, (s.y1 - s.y0) / 2);
   for (const d of [e1, [-e1[0], -e1[1]] as P2, perp(e1), [-perp(e1)[0], -perp(e1)[1]] as P2]) {
     const p = perp(d);
     const pc = corners.map((q) => q[0] * p[0] + q[1] * p[1]);
     const pmin = Math.min(...pc);
     const pmax = Math.max(...pc);
-    let best: { t: number; from: P2; name: string } | null = null;
+    let best: { t: number; from: P2 } | null = null;
     // Rays across the side, and one from each corner: the nearest point of a turned object is a corner.
     const ts = [...pc, ...Array.from({ length: SAMPLES }, (_, k) => pmin + ((k + 0.5) / SAMPLES) * (pmax - pmin))];
     for (const t of ts) {
@@ -273,16 +261,16 @@ export function gapsOfSolid(s: Solid, ctx: MeasureContext): Measure[] {
       if (dmax === -Infinity) continue;
       const from: P2 = [d[0] * dmax + p[0] * t, d[1] * dmax + p[1] * t];
       const hit = cast(from, d, ctx.obstacles, s.y0, s.y1, s.id);
-      if (hit !== null && (best === null || hit.t < best.t)) best = { t: hit.t, from, name: hit.seg.name };
+      if (hit !== null && (best === null || hit < best.t)) best = { t: hit, from };
     }
     if (best && best.t > 0.005 && best.t <= range) {
-      line(v3(best.from[0], yLine, best.from[1]), v3(best.from[0] + d[0] * best.t, yLine, best.from[1] + d[1] * best.t), `${formatLength(best.t)} · ${best.name}`, d);
+      out.push({ kind: 'gap', a: v3(best.from[0], yMid, best.from[1]), b: v3(best.from[0] + d[0] * best.t, yMid, best.from[1] + d[1] * best.t), text: formatLength(best.t), owner: s.id });
     }
   }
   if (ctx.ceilingY !== null) {
     const h = ctx.ceilingY - s.y1;
-    if (h > 0.01 && h <= range) line(v3(s.c[0], s.y1, s.c[1]), v3(s.c[0], ctx.ceilingY, s.c[1]), `${formatLength(h)} · soffitto`, null);
+    if (h > 0.01 && h <= range) out.push({ kind: 'gap', a: v3(s.c[0], s.y1, s.c[1]), b: v3(s.c[0], ctx.ceilingY, s.c[1]), text: formatLength(h), owner: s.id });
   }
-  if (s.y0 - ctx.floorY > 0.02) line(v3(s.c[0], ctx.floorY, s.c[1]), v3(s.c[0], s.y0, s.c[1]), `${formatLength(s.y0 - ctx.floorY)} · pavimento`, null);
+  if (s.y0 - ctx.floorY > 0.02) out.push({ kind: 'gap', a: v3(s.c[0], ctx.floorY, s.c[1]), b: v3(s.c[0], s.y0, s.c[1]), text: formatLength(s.y0 - ctx.floorY), owner: s.id });
   return out;
 }
