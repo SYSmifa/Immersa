@@ -32,6 +32,7 @@ interface Item {
   shown: boolean;
   failed: boolean;
   checked: boolean; // the first write was checked for GL errors
+  px?: string; // the canvas size the layer was made for
 }
 const item = (canvas: HTMLCanvasElement): Item => ({ canvas, layer: null, frames: 0, stamp: -1, shown: false, failed: false, checked: false });
 
@@ -121,6 +122,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
   const transform = (p: Vector3, q: Quaternion) => new XRRigidTransform({ x: p.x, y: p.y, z: p.z, w: 1 }, { x: q.x, y: q.y, z: q.z, w: q.w });
 
   function create(binding: any, ref: XRSpace, it: Item, width: number, height: number) {
+    it.px = `${it.canvas.width}x${it.canvas.height}`;
     it.layer = binding.createQuadLayer({
       space: ref,
       viewPixelWidth: it.canvas.width,
@@ -157,6 +159,16 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     if (!want || it.failed) {
       it.shown = false;
       return null;
+    }
+    if (it.layer && it.px !== `${it.canvas.width}x${it.canvas.height}`) {
+      // the image changed size (an enlarged label): the layer is made again with a swapchain of the new size
+      try {
+        it.layer.destroy?.();
+      } catch {
+        /* already gone */
+      }
+      it.layer = null;
+      it.shown = false;
     }
     if (!it.layer) create(binding, ref, it, width, height);
     else {

@@ -63,14 +63,22 @@ export function createMeasureView() {
     return { mesh, canvas, texture, key: '', stamp: 0, d: 0 };
   }
 
-  function paint(l: Label, text: string, kind: Measure['kind'], color?: string, selected?: boolean) {
-    const key = `${kind}|${text}|${color ?? ''}|${selected ? 's' : ''}`;
+  function paint(l: Label, text: string, kind: Measure['kind'], color?: string, selected?: boolean, scale = 1) {
+    // A bigger label gets a bigger image (1, 2, 3 or 4 times the pixels), so that it stays sharp when it is enlarged.
+    const q = scale <= 1 ? 1 : Math.min(4, Math.ceil(scale));
+    const key = `${kind}|${text}|${color ?? ''}|${selected ? 's' : ''}|${q}`;
     if (l.key === key) return;
     l.key = key;
     l.stamp++;
+    if (l.canvas.height !== PX_H * q) {
+      l.canvas.width = PX_H * ASPECT * q;
+      l.canvas.height = PX_H * q;
+      l.texture.dispose(); // the image changed size: a new texture on the GPU
+    }
     const c = l.canvas.getContext('2d')!;
-    const w = l.canvas.width;
-    const h = l.canvas.height;
+    c.setTransform(q, 0, 0, q, 0, 0); // drawn in the 1x coordinates below
+    const w = PX_H * ASPECT;
+    const h = PX_H;
     c.clearRect(0, 0, w, h);
     let size = 38;
     c.font = `700 ${size}px Sen, system-ui, sans-serif`;
@@ -151,7 +159,7 @@ export function createMeasureView() {
         l.mesh.visible = !!it;
         if (!it) return;
         l.d = it.d;
-        paint(l, it.m.text, it.m.kind, it.m.color, it.m.selected);
+        paint(l, it.m.text, it.m.kind, it.m.color, it.m.selected, it.m.scale);
         l.mesh.position.set((it.m.a[0] + it.m.b[0]) / 2, (it.m.a[1] + it.m.b[1]) / 2 + 0.03, (it.m.a[2] + it.m.b[2]) / 2);
         const h = Math.min(0.22, Math.max(0.05, it.d * 0.045)); // about the same size on the eye at any distance
         const sc = it.m.scale ?? 1;
