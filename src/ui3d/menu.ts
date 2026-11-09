@@ -3,7 +3,7 @@ import { hsvToHex, type Hsv } from './color';
 import type { IconName } from './icons';
 import type { Widget } from './panel';
 
-export type Tab = 'load' | 'scan' | 'options' | 'account';
+export type Tab = 'load' | 'scan' | 'tools' | 'options' | 'account';
 
 // The selected model's own menu (opened from the floating button above it).
 export interface ObjectView {
@@ -74,6 +74,7 @@ export interface MenuView {
   measures: 'off' | 'sel'; // Options: the selected object's sizes shown or not
   gaps: boolean; // Options: distances of the selected object to the nearest things
   annotations: boolean; // Options: notes and rulers shown
+  tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
   dominant: 'left' | 'right'; // the hand that points with the laser
@@ -109,6 +110,7 @@ export interface MenuActions {
   toggleGaps(): void;
   objGaps(): void;
   toggleAnnotations(): void;
+  startTool(kind: 'note' | 'ruler'): void;
   objAnnotText(): void;
   objAnnotColor(color: string): void;
   toggleSnap(): void;
@@ -153,6 +155,7 @@ const W = MENU_W - 2 * M;
 const TABS: [Tab, string, IconName][] = [
   ['load', 'Progetti', 'folder'],
   ['scan', 'Stanza', 'room_iso'],
+  ['tools', 'Strumenti', 'ruler'],
   ['options', 'Opzioni', 'sliders'],
   ['account', 'Account', 'user'],
 ];
@@ -364,7 +367,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       : v.liveReady
         ? `Stanza non salvata${project}`
         : `Nessuna stanza scansionata${project}`;
-  const heading: Record<Tab, string> = { load: 'Progetti', scan: 'Stanza', options: 'Opzioni', account: 'Account' };
+  const heading: Record<Tab, string> = { load: 'Progetti', scan: 'Stanza', tools: 'Strumenti', options: 'Opzioni', account: 'Account' };
   out.push(title(heading[v.tab]), subtitle(where), closeButton(a));
   saveButton(v, a, out);
   navBar(v, a, out);
@@ -454,6 +457,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 22, iw, 150, 24, T.text2, { wrap: true }));
       out.push(pill('Rileggi', top + 190, a.reread, { primary: true }));
     }
+  } else if (v.tab === 'tools') {
+    out.push(surface(M, top, W, 380));
+    const can = !!v.currentProjectId;
+    out.push(text(can ? 'Scegli lo strumento, poi punta con il laser e pizzica dove metterlo.' : 'Apri un progetto per lasciare note e misure.', M + 24, top + 16, W - 48, 64, 24, T.text2, { wrap: true }));
+    out.push({ kind: 'card', icon: 'pin', rect: { x: M + 20, y: top + 96, w: W - 40, h: 100 }, text: 'Nota', size: 30, sub: 'Un pinch per metterla, poi scrivi il testo', disabled: !can, onClick: () => a.startTool('note') });
+    out.push({ kind: 'card', icon: 'ruler', rect: { x: M + 20, y: top + 212, w: W - 40, h: 100 }, text: 'Metro', size: 30, sub: 'Due pinch: il primo e il secondo punto', disabled: !can, onClick: () => a.startTool('ruler') });
+    out.push(text('Dopo averla messa, tieni il pinch sul punto per spostarla con la mano.', M + 24, top + 334, W - 48, 40, 20, T.dim, { wrap: true }));
   } else if (v.tab === 'options') {
     const half = (W - 14) / 2;
     const STEP = 58; // six rows of cards fit above the info line

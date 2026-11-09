@@ -9,13 +9,13 @@ import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
 import { floorCentre } from '../room/floor';
-import { annotationLength, annotationMeasures, annotationName, ANNOTATION_COLORS } from '../room/annotations';
+import { annotationLength, annotationMeasures, newAnnotation, annotationName, ANNOTATION_COLORS } from '../room/annotations';
 import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
 import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { createPoke } from '../ui3d/poke';
@@ -267,6 +267,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     measures: 'off', // both start off every time
     gaps: false,
     annotations: true, // notes and rulers are shown unless switched off in Options
+    tool: null,
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
@@ -1574,6 +1575,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       measureAt = 0;
       refreshView();
     },
+    startTool(kind) {
+      if (!current) return;
+      cancelTool();
+      view.annotations = true; // what is put down must be seen
+      view.tool = kind;
+      closeMenu();
+      selectAnnot(null);
+      notify(kind === 'note' ? 'Punta il laser e pizzica dove mettere la nota' : 'Punta e pizzica il primo punto del metro', 4000);
+      refreshView();
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);
@@ -1619,6 +1630,88 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const hoverPoint = new Map<string, Vector3>(); // pointer id -> where its ray meets the wall / floor it hovers
   let structHit: Vector3 | null = null; // where the selected wall / floor was pinched: the "Oggetto" button floats there
   let looked: { key: string; node: Object3D } | null = null;
+
+  // ---- Strumenti: a note / a ruler put down from the headset. The tool waits for a pinch on a surface of the project (model, wall,
+  // floor, or the floor of a scanned room); a ruler takes two. Afterwards the point is moved with the hand like any other. ----
+  let toolDraft: string | null = null; // a ruler whose first point is down
+  function cancelTool() {
+    if (toolDraft && current) {
+      current.annotations = current.annotations.filter((x) => x.id !== toolDraft);
+      measureAt = 0;
+    }
+    toolDraft = null;
+    if (view.tool) {
+      view.tool = null;
+      refreshView();
+    }
+  }
+  function toolPoint(id: string): { roomId: string; world: Vector3 } | null {
+    const ray = rays.get(id);
+    if (!ray || !current) return null;
+    const far = visit ? 30 : 8;
+    surfRay.set(ray.origin, ray.dir);
+    surfRay.far = far;
+    let best: { roomId: string; point: Vector3; d: number } | null = null;
+    const consider = (roomId: string, o: Object3D, deep: boolean) => {
+      const hit = surfRay.intersectObject(o, deep)[0];
+      if (hit && (!best || hit.distance < best.d)) best = { roomId, point: hit.point.clone(), d: hit.distance };
+    };
+    for (const m of current.models) {
+      const h = houses.get(m.roomId);
+      const holder = h?.root.visible ? h.layer.holders.get(m.id) : null;
+      if (holder) consider(m.roomId, holder, true);
+    }
+    for (const st of current.structures ?? []) {
+      const mesh = houses.get(st.roomId)?.root.visible ? structMesh(st) : null;
+      if (mesh) consider(st.roomId, mesh, false);
+    }
+    if (ray.dir.y < -0.02) {
+      for (const [roomId, h] of houses) {
+        const room = rooms.find((r) => r.id === roomId);
+        if (!room || !h.root.visible) continue;
+        h.root.updateWorldMatrix(true, false);
+        const floorY = new Vector3(0, floorCentre(room.scan.planes)[1], 0).applyMatrix4(h.root.matrixWorld).y;
+        const t = (floorY - ray.origin.y) / ray.dir.y;
+        if (t > 0 && t <= far && (!best || t < best.d)) best = { roomId, point: ray.origin.clone().addScaledVector(ray.dir, t), d: t };
+      }
+    }
+    const b = best as { roomId: string; point: Vector3; d: number } | null;
+    return b ? { roomId: b.roomId, world: b.point } : null;
+  }
+  function placeTool(id: string) {
+    const kind = view.tool;
+    const hit = toolPoint(id);
+    if (!kind || !hit || !current) return void notify('Punta una superficie del progetto', 1500);
+    const draft = toolDraft ? current.annotations.find((x) => x.id === toolDraft) : null;
+    const house = houses.get(draft ? draft.roomId : hit.roomId);
+    if (!house) return;
+    house.root.updateWorldMatrix(true, false);
+    const l = house.root.worldToLocal(hit.world.clone());
+    const at: Vec3 = [l.x, l.y, l.z];
+    if (draft) {
+      draft.b = at; // the second point of the ruler
+      toolDraft = null;
+      view.tool = null;
+      selectAnnot(draft.id);
+      markUnsaved();
+      measureAt = 0;
+      notify(`Metro: ${formatLength(annotationLength(draft) ?? 0)}`, 2000);
+      return;
+    }
+    const an = newAnnotation(kind, hit.roomId, at, kind === 'ruler' ? at : undefined, '');
+    current.annotations.push(an);
+    markUnsaved();
+    measureAt = 0;
+    if (kind === 'ruler') {
+      toolDraft = an.id; // waits for the second point
+      notify('Ora il secondo punto', 4000);
+      return;
+    }
+    view.tool = null;
+    selectAnnot(an.id);
+    openObjectMenu(); // the note's menu, with its text asked at once
+    void actions.objAnnotText();
+  }
 
   function selectAnnot(id: string | null) {
     if (id === selectedAnnotId) return;
@@ -1786,6 +1879,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let pendingTp: { at: Vector3; t: number } | null = null; // a walk on a floor, waiting to see if a second pinch follows
   function pressModel(id: string) {
     if (warnOpen) return; // the warning must be answered first
+    if (view.tool) return placeTool(id);
     const target = hovered.get(id) ?? null;
     if (!target?.startsWith('a:') && selectedAnnotId) selectAnnot(null); // pinched something else, or nothing
     if (visit) {
@@ -1823,7 +1917,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone() };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), axis: null };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -1956,7 +2050,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (view.annotations) {
         for (const x of (current.annotations ?? []).filter((y) => y.roomId === roomId)) {
           // the chosen one gets the azure outline of selected objects
-          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true } : m)));
+          local.push(...annotationMeasures(x).map((m) => (x.id === selectedAnnotId ? { ...m, selected: true, ...(annotGrab?.axis && annotGrab.id === x.id ? { color: '#2dd4bf' } : {}) } : m)));
         }
       }
       const mtx = house.root.matrix; // the room's place in the world
@@ -2076,9 +2170,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     phase: 'pending' | 'move';
     seen: boolean;
     now: Vector3; // where the point is now, in the world
+    axis: Vector3 | null; // ruler only, other pinch held: the line the point is kept on (unit, world)
   }
   let annotGrab: AnnotGrab | null = null;
   const SNAP_RELEASE = 0.05; // m
+  const AXIS_SNAP = (6 * Math.PI) / 180; // a locked ruler within 6 degrees of a world axis is made exactly parallel to it
   const ANNOT_FOLLOW = 14; // 1/s: how fast the point catches up with the hand
   const surfRay = new Raycaster();
   function surfaceTargets(): Object3D[] {
@@ -2129,7 +2225,24 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       logEvent('nota: vola sulla mano');
     }
     // It glides to the hand (the first moments show the flight) and then follows it, lightly smoothed against the tracking's jitter.
-    g.now.lerp(hand, 1 - Math.exp(-dt * ANNOT_FOLLOW));
+    let goal: Vector3 = hand;
+    const other = an.kind === 'ruler' ? (g.pt === 'a' ? an.b : an.a) : null;
+    if (other && leftHeld) {
+      // The other pinch is held: the point stays on the line through the other end, in the direction the ruler had when it was
+      // pressed (or the nearest axis of the world, if it is within a few degrees), so it can only be lengthened or shortened.
+      const o = new Vector3(...other).applyMatrix4(house.root.matrix);
+      if (!g.axis) {
+        const d = g.now.clone().sub(o);
+        const dir = d.lengthSq() > 1e-8 ? d.normalize() : hand.clone().sub(o).normalize();
+        for (const ax of [new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1)]) {
+          if (Math.abs(dir.dot(ax)) > Math.cos(AXIS_SNAP)) dir.copy(ax).multiplyScalar(Math.sign(dir.dot(ax)));
+        }
+        g.axis = dir;
+        logEvent('metro: in asse');
+      }
+      goal = o.clone().addScaledVector(g.axis, Math.max(0.01, hand.clone().sub(o).dot(g.axis))); // never through the other end
+    } else g.axis = null;
+    g.now.lerp(goal, 1 - Math.exp(-dt * ANNOT_FOLLOW));
     house.root.updateWorldMatrix(true, false);
     const l = house.root.worldToLocal(g.now.clone());
     an[g.pt] = [l.x, l.y, l.z];
@@ -2812,6 +2925,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       tryRecognise(now);
       alignFar(now);
+      if (view.tool && (rig.visible || !current)) cancelTool(); // the menu opened (or the project went): the tool is put away
       if (awaitingModels !== null && current) {
         const total = current.models.length;
         const done = Math.max(0, total - modelsPending());

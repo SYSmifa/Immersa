@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search' | 'google';
+  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search' | 'google' | 'ruler' | 'pin';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -61,6 +61,19 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
     c.lineTo(px + nx * 0.3, py + ny * 0.3);
     c.moveTo(px + tx * 0.34, py + ty * 0.34);
     c.lineTo(px - nx * 0.3, py - ny * 0.3);
+  },
+  ruler: (c) => {
+    poly(c, [-0.95, 0.2, -0.2, 0.95, 0.95, -0.2, 0.2, -0.95]);
+    c.closePath();
+    for (const t of [0.25, 0.5, 0.75]) {
+      const x = -0.2 + 1.15 * t;
+      const y = 0.95 - 1.15 * t;
+      poly(c, [x, y, x - 0.2, y - 0.2]);
+    }
+  },
+  pin: (c) => {
+    c.arc(0, -0.35, 0.5, 0, Math.PI * 2);
+    poly(c, [0, 0.15, 0, 0.95]);
   },
   scale: (c) => {
     poly(c, [-0.75, 0.75, 0.75, -0.75]);
