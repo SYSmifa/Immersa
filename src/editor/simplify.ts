@@ -45,7 +45,7 @@ async function takeWorker(): Promise<Worker> {
   for (;;) {
     const w = idle.pop();
     if (w) return w;
-    if (all.size < Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency ?? 4) - 1))) {
+    if (all.size < Math.max(1, Math.min(MAX_WORKERS, Math.floor((navigator.hardwareConcurrency ?? 4) / 2)))) { // half the cores: the PC stays usable meanwhile
       const nw = new Worker(new URL('./simplifyWorker.ts', import.meta.url), { type: 'module' });
       all.add(nw);
       return nw;
