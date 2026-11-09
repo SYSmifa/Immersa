@@ -62,6 +62,7 @@ export interface EditorHandlers {
   onMissingFromFile(files: File[]): void;
   onMissingFromLibrary(path: string): void;
   onReplaceFromLibrary(oldPath: string, newPath: string): void;
+  onSimplifyModel(path: string): void;
   onPruneModels(): void;
   onSave(): void;
   // toolbar
@@ -598,7 +599,9 @@ export function createEditorUi(h: EditorHandlers) {
         renderModels();
       });
       rep.disabled = !i.usedIn.length;
-      return card(...info, row(rep, del));
+      const simp = pill('Semplifica…', () => h.onSimplifyModel(i.path));
+      simp.disabled = !i.usedIn.length; // an unused file is deleted anyway
+      return card(...info, row(rep, simp, del));
     });
     const clean = pill(`Elimina i non usati (${unused.length})`, h.onPruneModels, 'bad');
     clean.disabled = !unused.length;
@@ -1227,7 +1230,7 @@ export function createEditorUi(h: EditorHandlers) {
 
     // Before saving: the models with too many triangles for the headset, each with the size to bring it down to.
     // Resolves with the chosen target per model id (null = keep as it is), or null if the user cancels the save.
-    askSimplify(items: { id: string; name: string; triangles: number }[], limit: number, targets: number[]) {
+    askSimplify(items: { id: string; name: string; triangles: number }[], limit: number, targets: number[], intro?: { title: string; text: string; ok: string }) {
       return new Promise<Map<string, number | null> | null>((resolve) => {
         const chosen = new Map<string, number | null>(items.map((i) => [i.id, targets.find((t) => t <= limit && t < i.triangles) ?? null]));
         const overlay = el('div', '', 'ed-modal');
@@ -1261,12 +1264,12 @@ export function createEditorUi(h: EditorHandlers) {
         };
         window.addEventListener('keydown', key, true);
         panel.append(
-          el('h3', 'Modelli troppo pesanti per il visore'),
-          el('div', `Questi modelli hanno più di ${num(limit)} triangoli. Nel visore faranno scendere i fotogrammi al secondo e il movimento sarà a scatti. Sul cloud va solo la versione semplificata, che pesa anche meno; l'originale non si conserva.`, 'ed-meta'),
+          el('h3', intro?.title ?? 'Modelli troppo pesanti per il visore'),
+          el('div', intro?.text ?? `Questi modelli hanno più di ${num(limit)} triangoli. Nel visore faranno scendere i fotogrammi al secondo e il movimento sarà a scatti. Sul cloud va solo la versione semplificata, che pesa anche meno; l'originale non si conserva.`, 'ed-meta'),
           ...cards,
           row(
-            pill('Semplifica e salva', () => done(chosen), 'acc'),
-            pill('Salva senza semplificare', () => done(new Map(items.map((i) => [i.id, null])))),
+            pill(intro?.ok ?? 'Semplifica e salva', () => done(chosen), 'acc'),
+            ...(intro ? [] : [pill('Salva senza semplificare', () => done(new Map(items.map((i) => [i.id, null]))))]),
             pill('Annulla', () => done(null)),
           ),
         );

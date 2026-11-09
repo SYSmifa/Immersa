@@ -30,7 +30,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { isPendingModel, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
+import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
@@ -1030,7 +1030,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   // Library: every model that uses the file `oldPath`, in every project, now uses `newPath` with the same position, rotation,
   // tilt, scale and name. Colours and edited components are dropped (they point at materials / nodes of the old file).
-  async function replaceModel(oldPath: string, newPath: string, newSource?: string) {
+  async function replaceModel(oldPath: string, newPath: string, newSource?: string, keepLook = false) {
     if (oldPath === newPath) return ui.setStatus('È già lo stesso modello.');
     if (dirty) return ui.setStatus('Salva (o scarta) prima le modifiche al progetto aperto, poi sostituisci.');
     const fresh = await backend.listProjects();
@@ -1038,10 +1038,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (!hit.length) return ui.setStatus('Nessun progetto usa questo modello: niente da sostituire.');
     const count = hit.reduce((n, p) => n + p.models.filter((m) => m.path === oldPath).length, 0);
     const list = hit.map((p) => `${p.name} (${p.models.filter((m) => m.path === oldPath).length})`).join(', ');
-    if (!confirm(`Sostituire il modello in ${count} posizioni, in questi progetti: ${list}?\nPosizione, rotazione, scala e nome restano; colori e componenti modificati si azzerano.`)) return;
+    if (!confirm(`Sostituire il modello in ${count} posizioni, in questi progetti: ${list}?\nPosizione, rotazione, scala e nome restano; ${keepLook ? 'colori e componenti restano.' : 'colori e componenti modificati si azzerano.'}`)) return;
     const swap = (m: RoomModel) => {
       if (m.path !== oldPath) return;
       m.path = newPath;
+      if (keepLook) return; // the same model, lighter: source, colours and edited components still fit
       if (newSource) m.source = newSource;
       else delete m.source;
       delete m.color;
@@ -1244,6 +1245,26 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const { path } = await withLoading('Carico il modello', prepared.file.name, () => upload(file.get('f')!));
         await replaceModel(oldPath, path, prepared.source);
         await loadLibrary('Modello sostituito.');
+      }),
+    onSimplifyModel: (path) =>
+      run(async () => {
+        if (dirty) return ui.setStatus('Salva (o scarta) prima le modifiche al progetto aperto, poi semplifica.');
+        const used = (await usage()).get(path);
+        const name = used ? [...used.names].join(' / ') : path;
+        const file = await withLoading('Scarico il modello', name, async () => new File([await (await fetch(await modelUrl(path))).blob()], `${name}.glb`));
+        const triangles = await withLoading('Controllo il modello', name, () => countTriangles(file));
+        if (triangles <= Math.min(...SIMPLIFY_TARGETS)) return ui.setStatus(`${name}: ${triangles.toLocaleString('it-IT')} triangoli, è già leggero.`);
+        const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, SIMPLIFY_TARGETS, {
+          title: 'Semplifica il modello',
+          text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione semplificata (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
+          ok: 'Semplifica',
+        });
+        const target = choice?.get(path);
+        if (!target) return ui.setStatus('Semplificazione annullata.');
+        const res = await withLoading('Semplifico il modello', `${name} · ${triangles.toLocaleString('it-IT')} → ${target.toLocaleString('it-IT')} triangoli`, () => simplifyGlb(file, target));
+        const { path: newPath } = await withLoading('Carico il modello', name, () => upload(res.file));
+        await replaceModel(path, newPath, undefined, true);
+        await loadLibrary(`${name}: da ${res.before.toLocaleString('it-IT')} a ${res.after.toLocaleString('it-IT')} triangoli.`);
       }),
     onReplaceFromLibrary: (oldPath, newPath) =>
       run(async () => {
