@@ -1263,13 +1263,14 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         project.name = name;
         refreshLists();
       }),
-    // A copy of a project as it is saved in the cloud (from the list of projects): the same rooms, models (the same files, nothing
-    // is uploaded again) and walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only
-    // appears in the list.
-    onDuplicateProject: (id) =>
+    // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
+    // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
+    onDuplicateProject: () =>
       run(async () => {
-        const saved = (await backend.listProjects()).find((x) => x.id === id);
-        if (!saved) return ui.setStatus('Questo progetto non è più sul cloud.');
+        if (!project) return;
+        const saved = (await backend.listProjects()).find((x) => x.id === project!.id);
+        if (!saved) return ui.setStatus('Salva prima il progetto: non è ancora sul cloud.');
+        if (dirty && !confirm("Ci sono modifiche non salvate: la copia parte dall'ultima versione salvata. Continuare?")) return;
         let text = `${saved.name} (copia)`;
         for (let i = 2; projectNameError(text); i++) text = `${saved.name} (copia ${i})`;
         let title = 'Nome della copia';
