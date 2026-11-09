@@ -2604,6 +2604,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
     layerPanels: () => [menu, menuToast, warn, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab,
     keyboard,

@@ -2,6 +2,7 @@
 import { Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, Vector3, type WebGLRenderer } from 'three';
 import { FADE, LASER_OPACITY, MOVING_COLOR, RADIUS } from './laser';
 import type { Panel } from './panel';
+import type { LabelLayer } from '../room/measureView';
 
 // Panels as WebXR quad layers (the equivalent of Unreal's stereo layers). The headset's compositor samples the panel's
 // canvas straight to the display, with the lens correction applied once, instead of the panel being drawn into the
@@ -20,6 +21,7 @@ export const layersPreferred = () => {
 const FLIP_Y = new URLSearchParams(location.search).get('flipy') !== '0'; // ?flipy=0 if a headset shows panels upside down
 // The headset's quad layers come out about twice the size asked for here (measured on a Quest 3): sizes are given halved.
 const QUAD_SIZE = 0.5;
+const MAX_LABEL_LAYERS = 10; // the compositor handles a limited number of layers: the nearest labels get one
 const REFRESH_FRAMES = 3; // a layer's image is a swapchain: after a change write it a few frames in a row
 
 interface Item {
@@ -41,6 +43,9 @@ const visible = (o: Object3D | null) => {
 export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) => void) {
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const panels = new Map<Panel, Item>();
+  const labelItems = new Map<HTMLCanvasElement, Item>();
+  const labelMats = new Map<HTMLCanvasElement, MeshBasicMaterial>();
+  let labelSource: ((max: number) => LabelLayer[]) | null = null;
   let enabled = layersPreferred();
   let active = false; // layers are drawing the panels right now
   let session: XRSession | null = null;
@@ -187,6 +192,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     register(panel: Panel) {
       panels.set(panel, item(panel.canvas));
     },
+    // Measure and annotation labels: asked every frame for the ones that should be layers.
+    setLabelSource(fn: (max: number) => LabelLayer[]) {
+      labelSource = fn;
+    },
     setEnabled(on: boolean) {
       enabled = on;
       try {
@@ -209,7 +218,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         session = frame.session;
         applied = [];
         announced = false;
-        for (const it of [...panels.values(), reticle, beam]) {
+        for (const it of [...panels.values(), ...labelItems.values(), reticle, beam]) {
           it.layer = null;
           it.shown = false;
         }
@@ -219,6 +228,26 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
       const can = enabled && !!binding && typeof binding.createQuadLayer === 'function' && !!proj && 'textureWidth' in proj;
       const list: any[] = [];
       try {
+        // Labels first: layers are drawn in this order, and the menu must stay above them.
+        const wanted = can && labelSource ? labelSource(MAX_LABEL_LAYERS) : [];
+        const seen = new Set<HTMLCanvasElement>();
+        for (const lab of wanted) {
+          let it = labelItems.get(lab.canvas);
+          if (!it) labelItems.set(lab.canvas, (it = item(lab.canvas)));
+          seen.add(lab.canvas);
+          lab.mesh.updateWorldMatrix(true, false);
+          lab.mesh.matrixWorld.decompose(pos, quat, scl);
+          const layer = sync(binding, frame, ref, it, true, lab.stamp, scl.x, scl.y, 'etichetta');
+          if (layer) list.push(layer);
+          const lm = lab.mesh.material as MeshBasicMaterial;
+          labelMats.set(lab.canvas, lm);
+          lm.visible = !layer;
+        }
+        for (const [canvas, it] of labelItems)
+          if (!seen.has(canvas)) {
+            it.shown = false;
+            if (labelMats.has(canvas)) labelMats.get(canvas)!.visible = true; // back in the scene
+          }
         for (const [panel, it] of panels) {
           const mat = panel.mesh.material as MeshBasicMaterial;
           const want = can && visible(panel.mesh);
@@ -279,6 +308,8 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
         // Anything unexpected: back to panels in the scene, for good in this session.
         for (const [panel] of panels) (panel.mesh.material as MeshBasicMaterial).visible = true;
         for (const it of panels.values()) it.failed = true;
+        for (const m of labelMats.values()) m.visible = true;
+        for (const it of labelItems.values()) it.failed = true;
         reticle.failed = true;
         beam.failed = true;
         active = false;

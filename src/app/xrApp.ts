@@ -66,6 +66,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   });
 
   for (const p of core.layerPanels()) layers.register(p);
+  layers.setLabelSource((max) => core.layerLabels(max));
 
   // Laser from the right hand (hand tracking or controller).
   const laser = createLaser();

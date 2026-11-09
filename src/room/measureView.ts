@@ -11,13 +11,22 @@ const MAX_LABELS = 28;
 const LINE_DIM = 0.004; // m
 const LINE_GAP = 0.005;
 const ASPECT = 4; // label width / height
-const PX_H = 64;
+const PX_H = 96; // sharp enough for a quad layer, which the compositor samples straight to the display
 
 interface Label {
   mesh: Mesh;
   canvas: HTMLCanvasElement;
   texture: CanvasTexture;
   key: string;
+  stamp: number; // grows with every repaint (layers redraw their image when it changes)
+  d: number; // distance from the head, set on every update
+}
+
+/** A label that can be drawn as a WebXR quad layer (see ui3d/layers.ts); the mesh is only the placement and the fallback. */
+export interface LabelLayer {
+  canvas: HTMLCanvasElement;
+  mesh: Mesh;
+  stamp: number;
 }
 
 export function createMeasureView() {
@@ -47,13 +56,14 @@ export function createMeasureView() {
     mesh.renderOrder = 1200;
     mesh.frustumCulled = false;
     root.add(mesh);
-    return { mesh, canvas, texture, key: '' };
+    return { mesh, canvas, texture, key: '', stamp: 0, d: 0 };
   }
 
   function paint(l: Label, text: string, kind: Measure['kind'], color?: string) {
     const key = `${kind}|${text}|${color ?? ''}`;
     if (l.key === key) return;
     l.key = key;
+    l.stamp++;
     const c = l.canvas.getContext('2d')!;
     const w = l.canvas.width;
     const h = l.canvas.height;
@@ -129,12 +139,22 @@ export function createMeasureView() {
         const it = sorted[i];
         l.mesh.visible = !!it;
         if (!it) return;
+        l.d = it.d;
         paint(l, it.m.text, it.m.kind, it.m.color);
         l.mesh.position.set((it.m.a[0] + it.m.b[0]) / 2, (it.m.a[1] + it.m.b[1]) / 2 + 0.03, (it.m.a[2] + it.m.b[2]) / 2);
         const h = Math.min(0.22, Math.max(0.05, it.d * 0.045)); // about the same size on the eye at any distance
         l.mesh.scale.set(h * ASPECT, h, 1);
         l.mesh.lookAt(head);
       });
+    },
+    // The nearest `max` visible labels, for the layers (the others stay in the scene).
+    layerLabels(max: number): LabelLayer[] {
+      if (!root.visible) return [];
+      return labels
+        .filter((l) => l.mesh.visible)
+        .sort((p, q) => p.d - q.d)
+        .slice(0, max)
+        .map((l) => ({ canvas: l.canvas, mesh: l.mesh, stamp: l.stamp }));
     },
     hide() {
       root.visible = false;
