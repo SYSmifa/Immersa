@@ -127,3 +127,40 @@ export async function simplifyGlb(file: File, target: number): Promise<Simplifie
   const buffer = (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
   return { file: new File([buffer], file.name, { type: 'model/gltf-binary' }), before, after: all.reduce((n, m) => n + trianglesOf(m.geometry), 0) };
 }
+
+// Triangles of a GLB read from its JSON chunk alone (accessor counts x nodes that use each mesh): no geometry is decoded, so
+// it is cheap, and only the first bytes of the file are fetched when the server honours a Range request.
+interface GltfJson {
+  accessors?: { count: number }[];
+  meshes?: { primitives: { mode?: number; indices?: number; attributes: { POSITION?: number } }[] }[];
+  nodes?: { mesh?: number }[];
+}
+export async function glbTrianglesAt(url: string): Promise<number> {
+  const head = await fetch(url, { headers: { Range: 'bytes=0-19' } }).catch(() => fetch(url)); // a refused Range header (CORS): the whole file
+  let json: ArrayBuffer;
+  if (head.status === 206) {
+    const h = new DataView(await head.arrayBuffer());
+    const len = h.getUint32(12, true);
+    const res = await fetch(url, { headers: { Range: `bytes=20-${19 + len}` } });
+    json = await res.arrayBuffer();
+  } else {
+    const all = await head.arrayBuffer(); // no ranges: the whole file came
+    const len = new DataView(all).getUint32(12, true);
+    json = all.slice(20, 20 + len);
+  }
+  const g = JSON.parse(new TextDecoder().decode(json)) as GltfJson;
+  const uses = new Map<number, number>();
+  for (const n of g.nodes ?? []) if (n.mesh !== undefined) uses.set(n.mesh, (uses.get(n.mesh) ?? 0) + 1);
+  let total = 0;
+  (g.meshes ?? []).forEach((m, i) => {
+    let tris = 0;
+    for (const p of m.primitives) {
+      const a = g.accessors?.[p.indices ?? p.attributes.POSITION ?? -1];
+      if (!a) continue;
+      const mode = p.mode ?? 4;
+      tris += mode === 4 ? Math.floor(a.count / 3) : mode === 5 || mode === 6 ? Math.max(0, a.count - 2) : 0;
+    }
+    total += tris * (uses.get(i) ?? (g.nodes?.length ? 0 : 1));
+  });
+  return total;
+}

@@ -15,11 +15,13 @@ export type Gizmo = 'translate' | 'rotate' | 'scale';
 export type View = 'home' | 'projects' | 'rooms' | 'models' | 'new' | 'project';
 
 // A file of the model library (the user's cloud storage) and where it is used.
+const HEAVY = 300000; // same budget as HEAVY_TRIANGLES in simplify.ts
 export interface LibraryItem {
   path: string;
   name: string;
   sub: string;
   usedIn: string[];
+  triangles?: number; // known after the library has looked inside the file
 }
 
 export interface LookEdit {
@@ -575,7 +577,7 @@ export function createEditorUi(h: EditorHandlers) {
       t.style.fontWeight = '700';
       const del = pill('Elimina', () => h.onDeleteModel(i.path), 'bad');
       del.disabled = i.usedIn.length > 0;
-      const info = [t, el('div', i.sub, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta')];
+      const info = [t, el('div', i.triangles === undefined ? i.sub : `${i.sub} · ${i.triangles.toLocaleString('it-IT')} triangoli`, 'ed-meta'), el('div', i.usedIn.length ? `Usato in: ${i.usedIn.join(', ')}` : 'Non usato da nessun progetto', 'ed-meta')];
       if (replacing === i.path) {
         // Choosing the replacement: another file of the library, or a new one from the PC.
         const others = select();
@@ -594,13 +596,14 @@ export function createEditorUi(h: EditorHandlers) {
           })),
         );
       }
-      const rep = pill('Sostituisci…', () => {
+      const rep = pill('Sostituisci', () => {
         replacing = i.path;
         renderModels();
       });
       rep.disabled = !i.usedIn.length;
-      const simp = pill('Semplifica…', () => h.onSimplifyModel(i.path));
-      simp.disabled = !i.usedIn.length; // an unused file is deleted anyway
+      const simp = pill('Semplifica', () => h.onSimplifyModel(i.path));
+      simp.disabled = !i.usedIn.length || (i.triangles !== undefined && i.triangles <= HEAVY); // unused: deleted anyway; light: nothing to gain
+      if (i.triangles !== undefined && i.triangles <= HEAVY) simp.title = 'Già leggero';
       return card(...info, row(rep, simp, del));
     });
     const clean = pill(`Elimina i non usati (${unused.length})`, h.onPruneModels, 'bad');

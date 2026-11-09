@@ -36,7 +36,7 @@ import { drawBoxes, drawPlanes } from '../room/draw';
 import { floorCentre } from '../room/floor';
 import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
-import { countTriangles, HEAVY_TRIANGLES, SIMPLIFY_TARGETS, simplifyGlb } from './simplify';
+import { countTriangles, glbTrianglesAt, HEAVY_TRIANGLES, SIMPLIFY_TARGETS, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelSize as localModelSize } from '../room/selection';
@@ -862,21 +862,47 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     return used;
   }
+  // Triangles per cloud file, remembered in the browser: a path is the hash of the content, so the number never changes.
+  const trisKey = (path: string) => `immersa.tris.${path}`;
+  const knownTris = (path: string): number | undefined => {
+    try {
+      const v = localStorage.getItem(trisKey(path));
+      return v === null ? undefined : Number(v);
+    } catch {
+      return undefined;
+    }
+  };
+  let libraryLoad = 0;
   async function loadLibrary(note = '') {
+    const token = ++libraryLoad;
     ui.setLibrary(null);
     try {
       const [files, used] = await Promise.all([library.list(), usage()]);
-      ui.setLibrary(
-        files.map((f) => {
-          const u = used.get(f.path);
-          const fallback = f.path.split('/').pop()!.replace(/^\d{10,}-/, '').replace(/\.glb$/i, '');
-          const name = u ? [...u.names].join(' / ') : /^[0-9a-f]{64}$/.test(fallback) ? 'Modello senza progetto' : fallback;
-          const left = f.createdAt ? Math.ceil((24 * 3600 * 1000 - (Date.now() - new Date(f.createdAt).getTime())) / 3600000) : 0;
-          const wait = !u && left > 0 ? ` · si elimina da solo fra ${left} h` : '';
-          return { path: f.path, name, sub: `${sizeText(f.size)}${f.createdAt ? ` · caricato il ${dateOf(f.createdAt)}` : ''}${wait}`, usedIn: u ? [...u.projects] : [] };
-        }),
-        note,
-      );
+      const items = files.map((f) => {
+        const u = used.get(f.path);
+        const fallback = f.path.split('/').pop()!.replace(/^\d{10,}-/, '').replace(/\.glb$/i, '');
+        const name = u ? [...u.names].join(' / ') : /^[0-9a-f]{64}$/.test(fallback) ? 'Modello senza progetto' : fallback;
+        const left = f.createdAt ? Math.ceil((24 * 3600 * 1000 - (Date.now() - new Date(f.createdAt).getTime())) / 3600000) : 0;
+        const wait = !u && left > 0 ? ` · si elimina da solo fra ${left} h` : '';
+        return { path: f.path, name, sub: `${sizeText(f.size)}${f.createdAt ? ` · caricato il ${dateOf(f.createdAt)}` : ''}${wait}`, usedIn: u ? [...u.projects] : [], triangles: knownTris(f.path) };
+      });
+      ui.setLibrary(items, note);
+      // Look inside the used files whose triangles are not known yet (one after the other, a few bytes each) and update the list.
+      for (const it of items) {
+        if (token !== libraryLoad) return;
+        if (it.triangles !== undefined || !it.usedIn.length || it.path.startsWith('local:')) continue;
+        try {
+          it.triangles = await glbTrianglesAt(await modelUrl(it.path));
+          try {
+            localStorage.setItem(trisKey(it.path), String(it.triangles));
+          } catch {
+            /* no storage: asked again next time */
+          }
+          if (token === libraryLoad) ui.setLibrary(items, note);
+        } catch {
+          /* unreadable: the button stays on and the check is made when it is pressed */
+        }
+      }
     } catch (e) {
       ui.setLibrary([], `Errore: ${errText(e)}`);
     }
@@ -1253,7 +1279,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const name = used ? [...used.names].join(' / ') : path;
         const file = await withLoading('Scarico il modello', name, async () => new File([await (await fetch(await modelUrl(path))).blob()], `${name}.glb`));
         const triangles = await withLoading('Controllo il modello', name, () => countTriangles(file));
-        if (triangles <= Math.min(...SIMPLIFY_TARGETS)) return ui.setStatus(`${name}: ${triangles.toLocaleString('it-IT')} triangoli, è già leggero.`);
+        if (triangles <= HEAVY_TRIANGLES) return ui.setStatus(`${name}: ${triangles.toLocaleString('it-IT')} triangoli, è già leggero.`);
         const choice = await ui.askSimplify([{ id: path, name, triangles }], HEAVY_TRIANGLES, SIMPLIFY_TARGETS, {
           title: 'Semplifica il modello',
           text: `Il modello sarà sostituito, in tutti i progetti che lo usano, dalla versione semplificata (che pesa anche meno): posizione, rotazione, scala, nome e colori restano. L'originale non si conserva.`,
