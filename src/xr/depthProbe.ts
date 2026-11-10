@@ -1,6 +1,6 @@
-import { CanvasTexture, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from 'three';
+import { BufferGeometry, CanvasTexture, DoubleSide, Group, LineBasicMaterial, LineLoop, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { createStage } from '../scene/stage';
-import { cm, findWalls, floorBand, mean, median, std } from './depthMath';
+import { cm, findWalls, floorBand, floorExtent, mean, median, std, type Wall } from './depthMath';
 import { createGpuDepthReader, GRID_U, GRID_V, PATCH, rawToMeters } from './depthGpu';
 import { planeNormal } from '../room/align';
 import { readPlanes } from '../room/capture';
@@ -57,6 +57,15 @@ export function runDepthProbe(auto = false) {
     texture.needsUpdate = true;
   };
 
+  const paintSmall = (lines: string[]) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, PANEL_W, PANEL_H);
+    ctx.fillStyle = '#ffe94d';
+    ctx.font = '52px monospace';
+    lines.forEach((l, i) => ctx.fillText(l, 20, 80 + i * 70));
+    texture.needsUpdate = true;
+  };
+
   // Entry page (outside XR).
   const box = document.createElement('div');
   box.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;background:#12151c;color:#e8edf5;font:16px system-ui;text-align:center';
@@ -72,8 +81,65 @@ export function runDepthProbe(auto = false) {
   box.append(hint, go, note);
   document.body.append(box);
 
-  const readings: string[] = [];
   const recent: number[] = []; // centre distance, last frames
+  // Pinch cycles the views: both reconstructions drawn over the real room, only the one from depth (cyan), only Meta's (pink), the numbers.
+  const MODES = ['profondità + Meta', 'solo profondità (ciano)', 'solo Meta (rosa)', 'numeri'] as const;
+  let mode = 3;
+  const viz = new Group();
+  scene.add(viz);
+  const depthViz = new Group();
+  const metaViz = new Group();
+  viz.add(depthViz, metaViz);
+  let lastWalls: Wall[] = [];
+  let lastFloor: { y: number; ext: ReturnType<typeof floorExtent> } | null = null;
+  const fillMat = new MeshBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.22, side: DoubleSide, depthTest: false, depthWrite: false });
+  const edgeMat = new LineBasicMaterial({ color: 0x2dd4bf, depthTest: false, transparent: true });
+  const metaMat = new LineBasicMaterial({ color: 0xff3df0, depthTest: false, transparent: true });
+  const STRUCTURAL = new Set(['floor', 'ceiling', 'wall', 'door', 'window', 'wall face', 'invisible wall']);
+  const WALL_H = 2.4; // the depth walls are drawn this high above the floor
+  function applyMode() {
+    depthViz.visible = mode === 0 || mode === 1;
+    metaViz.visible = mode === 0 || mode === 2;
+    panel.scale.setScalar(mode === 3 ? 1 : 0.5);
+    panel.position.set(0, mode === 3 ? -0.12 : 0.3, -0.95);
+  }
+  const clear = (g: Group) => {
+    for (const c of [...g.children]) {
+      g.remove(c);
+      (c as Mesh).geometry?.dispose();
+    }
+  };
+  // A flat quad from four corners: a translucent face and its outline.
+  function quad(g: Group, c: Vector3[]) {
+    const geo = new BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]);
+    g.add(new Mesh(geo, fillMat));
+    g.add(new LineLoop(new BufferGeometry().setFromPoints(c), edgeMat));
+  }
+  function rebuildViz(metaPlanes: RoomPlane[]) {
+    clear(depthViz);
+    clear(metaViz);
+    const fy = lastFloor?.y ?? 0;
+    for (const w of lastWalls) {
+      const tx = -w.nz;
+      const tz = w.nx;
+      const at = (t: number, y: number) => new Vector3(w.nx * w.d + tx * t, y, w.nz * w.d + tz * t);
+      quad(depthViz, [at(w.lo, fy), at(w.hi, fy), at(w.hi, fy + WALL_H), at(w.lo, fy + WALL_H)]);
+    }
+    const w0 = lastWalls[0];
+    if (w0 && lastFloor?.ext) {
+      const e = lastFloor.ext;
+      const at = (t: number, n: number) => new Vector3(-w0.nz * t + w0.nx * n, fy, w0.nx * t + w0.nz * n);
+      quad(depthViz, [at(e.t0, e.n0), at(e.t1, e.n0), at(e.t1, e.n1), at(e.t0, e.n1)]);
+    }
+    const q = new Quaternion();
+    for (const p of metaPlanes) {
+      if (!p.quat || !p.poly || p.poly.length < 6 || !STRUCTURAL.has(p.label)) continue;
+      q.set(...p.quat);
+      const pts: Vector3[] = [];
+      for (let i = 0; i < p.poly.length; i += 2) pts.push(new Vector3(p.poly[i], 0, p.poly[i + 1]).applyQuaternion(q).add(new Vector3(...p.pos)));
+      metaViz.add(new LineLoop(new BufferGeometry().setFromPoints(pts), metaMat));
+    }
+  }
   let message = '';
   let session: XRSession | null = null;
   let lastAnalyse = 0;
@@ -108,10 +174,10 @@ export function runDepthProbe(auto = false) {
       session = s;
       box.style.display = 'none';
       panel.visible = true;
+      applyMode();
       s.addEventListener('select', () => {
-        if (recent.length < 10) return void (message = 'ancora pochi dati');
-        readings.push(`${mean(recent).toFixed(3)}m ±${(std(recent) * 100).toFixed(1)}cm`);
-        if (readings.length > 4) readings.shift();
+        mode = (mode + 1) % MODES.length; // pinch: the next view
+        applyMode();
       });
       s.addEventListener('end', () => {
         box.style.display = 'flex';
@@ -221,6 +287,8 @@ export function runDepthProbe(auto = false) {
     const floor = metaPlanes.find((p) => p.label === 'floor');
     out.push(`pav y=${cm(best.y)} sd ${(best.sd * 100).toFixed(1)}cm${floor ? `  Meta ${cm(floor.pos[1])} -> diff ${cm(floor.pos[1] - best.y)}` : '  (Meta: nessun pavimento)'}`);
     const walls = findWalls(bufs[best.k], filled, head);
+    lastWalls = walls;
+    lastFloor = Number.isFinite(best.y) ? { y: best.y, ext: walls[0] ? floorExtent(bufs[best.k], filled, best.y, walls[0].nx, walls[0].nz) : null } : null;
     if (!walls.length) out.push('nessuna parete trovata (serve vedere un muro intero)');
     walls.forEach((w, i) => {
       let meta = 'Meta: nessun piano parallelo';
@@ -269,11 +337,13 @@ export function runDepthProbe(auto = false) {
       `buffer ${infoLine || '-'}`,
       `${depthFps}/s  validi ${validPct}%${gpu.error ? `  ERR ${gpu.error}` : ''}`,
       `centro: ${centre}`,
-      `letture (pinch): ${readings.join(' | ') || 'nessuna'}`,
+      `pinch cambia vista: ${MODES.join(' > ')}`,
       ...analyse(meta),
       message,
     ].slice(0, 22);
-    paint(lines);
+    rebuildViz(meta);
+    if (mode === 3) paint(lines);
+    else paintSmall([`VISTA: ${MODES[mode]}`, 'ciano = profondita\', rosa = Meta', 'pinch: cambia vista']);
     console.log(`[depth] ${lines.join(' | ')}`);
   });
 }

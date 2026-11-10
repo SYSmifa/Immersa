@@ -9,6 +9,8 @@ export interface Wall {
   count: number;
   rms: number; // m
   span: number; // m along the wall
+  lo: number; // extent along the wall, on the tangent (-nz, nx): from lo to hi (1st to 99th percentile)
+  hi: number;
 }
 
 export const median = (v: number[]) => {
@@ -117,14 +119,6 @@ export function findWalls(P: Float32Array, n: number, head: Vector3): Wall[] {
       line = fitLine(ix, iz);
     }
     if (ix.length < 400) break;
-    // extent along the wall
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (let i = 0; i < ix.length; i++) {
-      const t = -line.nz * ix[i] + line.nx * iz[i];
-      lo = Math.min(lo, t);
-      hi = Math.max(hi, t);
-    }
     // the normal points toward the head
     let { nx, nz, d } = line;
     if (nx * head.x + nz * head.z - d < 0) {
@@ -132,7 +126,11 @@ export function findWalls(P: Float32Array, n: number, head: Vector3): Wall[] {
       nz = -nz;
       d = -d;
     }
-    if (hi - lo >= 0.8) walls.push({ nx, nz, d, count: ix.length, rms: line.rms, span: hi - lo });
+    // extent along the wall, on the final tangent (-nz, nx)
+    const ts = ix.map((x, i) => -nz * x + nx * iz[i]).sort((a, b) => a - b);
+    const lo = ts[Math.floor(ts.length * 0.01)];
+    const hi = ts[Math.floor(ts.length * 0.99)];
+    if (hi - lo >= 0.8) walls.push({ nx, nz, d, count: ix.length, rms: line.rms, span: hi - lo, lo, hi });
     // remove the inliers and look for the next wall
     const keepX: number[] = [];
     const keepZ: number[] = [];
@@ -148,3 +146,20 @@ export function findWalls(P: Float32Array, n: number, head: Vector3): Wall[] {
   return walls;
 }
 
+
+// Extent of the floor points (within 3 cm of height y) along a wall's tangent and normal, from the 1st to the 99th percentile:
+// the rectangle the floor quad is drawn in. null with too few points.
+export function floorExtent(P: Float32Array, n: number, y: number, nx: number, nz: number) {
+  const ts: number[] = [];
+  const ns: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(P[3 * i + 1] - y) > 0.03) continue;
+    ts.push(-nz * P[3 * i] + nx * P[3 * i + 2]);
+    ns.push(nx * P[3 * i] + nz * P[3 * i + 2]);
+  }
+  if (ts.length < 300) return null;
+  ts.sort((a, b) => a - b);
+  ns.sort((a, b) => a - b);
+  const q = (v: number[], f: number) => v[Math.floor(v.length * f)];
+  return { t0: q(ts, 0.01), t1: q(ts, 0.99), n0: q(ns, 0.01), n1: q(ns, 0.99) };
+}
