@@ -324,8 +324,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let lastHead: Head | null = null;
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const pendingName = () => sessionStorage.getItem(PENDING_KEY) === '1';
-  const setPendingName = (on: boolean) => (on ? sessionStorage.setItem(PENDING_KEY, '1') : sessionStorage.removeItem(PENDING_KEY));
+  // A scan is waiting for its planes. What it is for: 'new' (a room not saved yet) or the id of the saved room that is scanned again.
+  const pendingTarget = () => sessionStorage.getItem(PENDING_KEY);
+  const pendingName = () => !!pendingTarget();
+  const setPendingName = (on: boolean, target = 'new') => (on ? sessionStorage.setItem(PENDING_KEY, target) : sessionStorage.removeItem(PENDING_KEY));
 
   function render() {
     menu.set(buildMenu(view, actions));
@@ -1482,7 +1484,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   async function startScan() {
     if (!capture?.available) return say('Scansione non disponibile in questo browser');
-    setPendingName(true); // after the scan (even if the session restarts) ask for a name
+    // Scanning the room we are in again, or a new one? The room that is recognised may be stale (a room just saved, and you have
+    // walked on to the next one): it only counts as scanned again if your head is really inside it.
+    const h = lastHead;
+    const again = !!recognised && !!h && isInside(recognised, [h.pos.x, h.pos.y, h.pos.z]);
+    setPendingName(true, again ? recognised!.room.id : 'new'); // after the scan (even if the session restarts) ask for a name
     say('Scansione in corso...', 60000);
     closeMenu();
     scanning = true;
@@ -1495,6 +1501,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return say(`Scansione non riuscita: ${errText(e)}`);
     }
     scanning = false;
+    if (!again && recognised) setRecognised(null); // a new room: the stale one must not take the new planes
     lastTry = 0;
     failedTries = 0;
     readyAt = performance.now() + 2500; // let the new planes arrive
@@ -1505,12 +1512,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // After a scan: once the new planes arrive, offer to name and save the room.
   function checkPending() {
     if (!pendingName() || !roomsLoaded || live.length < MIN_PLANES || keyboard.isOpen()) return;
-    if (recognised) {
+    if (recognised && pendingTarget() === recognised.room.id) {
       // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
       if (performance.now() < readyAt + 1500 || lastTry < readyAt) return;
       setPendingName(false);
       return void refreshRoomScan(recognised);
     }
+    if (recognised) return; // another room is recognised (not the one scanned): wait until it lets go, then the new room is offered
     if (failedTries < 1) return; // recognition has not had its chance yet
     setPendingName(false);
     if (changed) {

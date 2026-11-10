@@ -55,6 +55,7 @@ export function runUiTest() {
 
   (window as any).__test = {
     core,
+    camera, // to walk the head to another room
     backend,
     // Pretend the headset now reports this room, in a fresh session frame.
     // 'Nuova', 'Nuova2', 'Nuova3' = rooms that are not saved anywhere; null = nothing scanned.
