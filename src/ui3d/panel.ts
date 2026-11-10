@@ -22,7 +22,7 @@ export interface Widget {
   // button / row / key / field: the basic controls. surface: a white card behind other widgets. card: a tappable card
   // (project, setting). chip: a small pill label. nav: a bottom-bar tab. iconbtn: a round icon button. pill: a
   // call-to-action pill. wheel / slider / bar: pickers.
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar' | 'scroll';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar' | 'scroll' | 'canvas';
   onClick?: () => void;
   active?: boolean; // selected tab / current item
   primary?: boolean; // gradient fill
@@ -50,6 +50,7 @@ export interface Widget {
   // Wheel / slider: the pointed place inside the widget, 0..1 from its top-left; fires on press and while the pinch is
   // held and the ray stays over the widget.
   onPoint?(fx: number, fy: number): void;
+  paint?: (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => void; // canvas: draws its own picture in the rect
   span?: number; // scroll: the visible part of the list, 0..1 (the length of the thumb); `value` = where the thumb is, 0..1
 }
 
@@ -301,7 +302,7 @@ export class Panel {
     const y = (1 - v) * this.pxH;
     for (let i = this.widgets.length - 1; i >= 0; i--) {
       const w = this.widgets[i];
-      if (w.kind === 'label' || w.kind === 'chip' || (w.kind === 'surface' && !w.onClick)) continue;
+      if (w.kind === 'label' || w.kind === 'chip' || w.kind === 'canvas' || (w.kind === 'surface' && !w.onClick)) continue;
       const r = w.rect;
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return w;
     }
@@ -365,6 +366,10 @@ export class Panel {
     const { x, y, w: ww, h } = w.rect;
     const kind = w.kind ?? 'button';
     if (kind === 'wheel' || kind === 'slider' || kind === 'bar') return drawColorPicker(c, w);
+    if (kind === 'canvas') {
+      w.paint?.(c, x, y, ww, h);
+      return;
+    }
     const T = theme();
     const hover = w === this.hover && !w.disabled;
     const down = w === this.pressed && !w.disabled;

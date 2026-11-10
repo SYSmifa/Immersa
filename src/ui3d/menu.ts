@@ -54,6 +54,7 @@ export interface MenuView {
   linkCode: string | null; // the code being shown while it waits for the PC
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
+  alignRoom: string | null; // a room of the open project that can be placed by touching two of its corners (its name)
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
   changedRoom: string | null; // saved room that only partly fits the live scan: probably this room, with a moved or changed scan
   resid: number | null; // alignment error of that room, metres
@@ -96,6 +97,7 @@ export interface MenuActions {
   startLink(): void;
   cancelLink(): void;
   toggleLog(): void;
+  alignRoom(): void;
   openDepthProbe(): void;
   askSearch(): void;
   clearSearch(): void;
@@ -493,6 +495,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
+    out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Allinea la stanza', size: 22, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push(surface(M, top + 6 * STEP + 2, W, 44));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 6 * STEP + 6, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 6 * STEP + 26, W - 48, 18, 14, T.dim)));

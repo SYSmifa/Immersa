@@ -15,6 +15,7 @@ import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
+import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
@@ -248,6 +249,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     linkCode: null,
     roomName: null,
     candidate: null,
+    alignRoom: null,
     changedRoom: null,
     info: '',
     resid: null,
@@ -348,6 +350,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
     view.captureAvailable = !!capture?.available;
     view.canVisit = canVisit(current);
+    view.alignRoom = alignableRoom()?.name ?? null;
     view.visit = visit;
     const roomName = (id: string) => rooms.find((r) => r.id === id)?.name ?? '?';
     const here = (p: Project) => !!recognised && p.roomIds.includes(recognised.room.id);
@@ -556,6 +559,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
+    if (alignRun) return; // the alignment card is up: it has its own Cancel
     if (splash || warnOpen) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
@@ -617,6 +621,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    cancelAlign();
+    manual.clear();
     measureOverride.clear();
     gapOverride.clear();
     selectedAnnotId = null;
@@ -762,6 +768,205 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     warn.mesh.visible = true;
   }
 
+
+  // ---- manual alignment: the user touches two corners of the real room (see room/anchors.ts). It places a saved room when the
+  // headset does not report it (Meta forgot it, or never had it), and needs nothing from Meta.
+  const manual = new Set<string>(); // rooms placed by hand in this session: the headset's planes do not take them back
+  const alignCard = new Panel(0.62, 0.7, 1200, 'ink');
+  alignCard.mesh.visible = false;
+  host.root.add(alignCard.mesh);
+  host.add(alignCard);
+  const alignMarks = new Group(); // where the touches were taken
+  scene.add(alignMarks);
+  type AlignRun = { room: Room; plan: CornerPlan; step: 0 | 1 | 2; touches: Vector3[]; error: string };
+  let alignRun: AlignRun | null = null;
+
+  // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
+  function alignableRoom(): Room | null {
+    if (!current) return null;
+    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !!suggestCorners(r.scan.planes));
+    return rs.find((r) => !aligns.has(r.id)) ?? rs.find((r) => r.id === recognised?.room.id) ?? rs[0] ?? null;
+  }
+
+  // Where the real floor is in the session: the floor the headset reports below you, else about a head's height down.
+  function liveFloorGuess(): number | null {
+    if (!lastHead) return null;
+    const below = rawLive.filter((q) => q.label === 'floor' && q.pos[1] < lastHead!.pos.y - 0.3).map((q) => q.pos[1]);
+    return below.length ? Math.max(...below) : null;
+  }
+
+  function paintPlan(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, run: AlignRun) {
+    const { plan } = run;
+    const pts: [number, number][] = [[plan.a[0], plan.a[2]], [plan.b[0], plan.b[2]]];
+    for (const s of plan.segs) pts.push([s.x1, s.z1], [s.x2, s.z2]);
+    const minX = Math.min(...pts.map((p) => p[0]));
+    const maxX = Math.max(...pts.map((p) => p[0]));
+    const minZ = Math.min(...pts.map((p) => p[1]));
+    const maxZ = Math.max(...pts.map((p) => p[1]));
+    const pad = 44;
+    const k = Math.min((w - 2 * pad) / Math.max(0.5, maxX - minX), (h - 2 * pad) / Math.max(0.5, maxZ - minZ));
+    const ox = x + (w - k * (maxX - minX)) / 2 - k * minX;
+    const oz = y + (h - k * (maxZ - minZ)) / 2 - k * minZ;
+    const X = (v: number) => ox + k * v;
+    const Z = (v: number) => oz + k * v;
+    c.save();
+    c.fillStyle = 'rgba(255,255,255,0.07)';
+    c.beginPath();
+    c.roundRect(x, y, w, h, 24);
+    c.fill();
+    c.lineCap = 'round';
+    const color = { wall: '#e8edf5', door: '#fbbf24', window: '#60a5fa' } as const;
+    for (const kind of ['wall', 'window', 'door'] as const) {
+      c.strokeStyle = color[kind];
+      c.lineWidth = kind === 'wall' ? 7 : 11;
+      for (const s of plan.segs.filter((q) => q.kind === kind)) {
+        c.beginPath();
+        c.moveTo(X(s.x1), Z(s.z1));
+        c.lineTo(X(s.x2), Z(s.z2));
+        c.stroke();
+      }
+    }
+    const mark = (p: [number, number], name: string, i: number) => {
+      const done = run.touches.length > i;
+      const current = run.step === i;
+      c.fillStyle = done ? '#22c55e' : current ? '#2dd4bf' : 'rgba(255,255,255,0.35)';
+      c.beginPath();
+      c.arc(X(p[0]), Z(p[1]), current ? 26 : 22, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = '#04211d';
+      c.font = '700 28px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(name, X(p[0]), Z(p[1]) + 2);
+    };
+    mark([plan.a[0], plan.a[2]], 'A', 0);
+    mark([plan.b[0], plan.b[2]], 'B', 1);
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.font = '20px sans-serif';
+    c.textAlign = 'left';
+    c.fillText('porta', x + 18, y + h - 26);
+    c.fillStyle = color.door;
+    c.fillRect(x + 78, y + h - 31, 22, 8);
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillText('finestra', x + 116, y + h - 26);
+    c.fillStyle = color.window;
+    c.fillRect(x + 196, y + h - 31, 22, 8);
+    c.restore();
+  }
+
+  function drawAlignCard() {
+    const run = alignRun;
+    if (!run) return;
+    const w = alignCard.pxW;
+    const step = run.step;
+    const text =
+      step === 0
+        ? "Vai all'angolo A del disegno. Tocca con un dito lo spigolo dove si incontrano le due pareti (a qualsiasi altezza) e pizzica."
+        : step === 1
+          ? 'Bene. Ora vai all\'angolo B e fai lo stesso.'
+          : 'Ultimo passo: appoggia la mano sul pavimento e pizzica, così sistemo anche l\'altezza.';
+    alignCard.set([
+      { kind: 'label', rect: { x: 36, y: 22, w: w - 72, h: 46 }, text: `Allinea: ${run.room.name}`, size: 34, bold: true, color: '#ffffff' },
+      { kind: 'canvas', rect: { x: 36, y: 82, w: w - 72, h: 340 }, text: '', paint: (c, x, y, ww, hh) => paintPlan(c, x, y, ww, hh, run) },
+      { kind: 'label', rect: { x: 36, y: 436, w: w - 72, h: 130 }, text: run.error || text, size: 27, color: run.error ? '#f87171' : '#ffffff', wrap: true },
+      ...(step === 2 ? [{ kind: 'pill' as const, rect: { x: 36, y: alignCard.pxH - 168, w: w - 72, h: 60 }, text: 'Salta (altezza approssimata)', size: 25, onClick: () => finishAlign(null) }] : []),
+      { kind: 'pill', rect: { x: 36, y: alignCard.pxH - 96, w: w - 72, h: 60 }, text: 'Annulla', size: 27, color: '#f87171', onClick: cancelAlign },
+    ]);
+  }
+
+  function placeAlignCard(head: Head) {
+    if (!alignRun) return;
+    // low in front of you, a little to the left: the corner stays in view above it
+    const f = new Vector3(head.fwd.x, 0, head.fwd.z);
+    if (f.length() < 0.2) f.set(0, 0, -1);
+    f.normalize();
+    const right = new Vector3(-f.z, 0, f.x);
+    alignCard.mesh.position.set(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
+    alignCard.mesh.rotation.set(0, Math.atan2(head.pos.x - alignCard.mesh.position.x, head.pos.z - alignCard.mesh.position.z), 0);
+  }
+
+  function clearAlignMarks() {
+    for (const m of [...alignMarks.children]) alignMarks.remove(m);
+  }
+
+  function startAlign(room: Room | null = alignableRoom()) {
+    if (!room) return say('Serve un progetto con una stanza scansionata');
+    const plan = suggestCorners(room.scan.planes);
+    if (!plan) return say('Di questa stanza non riesco a trovare due angoli: rifai la scansione');
+    closeMenu();
+    selectModel(null);
+    selectStruct(null);
+    clearAlignMarks();
+    alignRun = { room, plan, step: 0, touches: [], error: '' };
+    alignCard.mesh.visible = true;
+    if (lastHead) placeAlignCard(lastHead);
+    drawAlignCard();
+    logEvent(`allineamento a mano: ${room.name}`);
+  }
+
+  function cancelAlign() {
+    if (!alignRun) return;
+    alignRun = null;
+    alignCard.mesh.visible = false;
+    clearAlignMarks();
+    refreshView();
+  }
+
+  // A pinch while aligning: the touched point is where the pinch is (between thumb and index finger).
+  function alignTouch(): boolean {
+    const run = alignRun;
+    if (!run) return false;
+    if (!pinchR) {
+      run.error = 'Non vedo la mano: tienila davanti al visore e pizzica di nuovo.';
+      drawAlignCard();
+      return true;
+    }
+    const at = pinchR.clone();
+    const dot = new Mesh(new SphereGeometry(0.018, 12, 8), new MeshBasicMaterial({ color: 0x2dd4bf, depthTest: false, transparent: true }));
+    dot.renderOrder = 998;
+    dot.position.copy(at);
+    alignMarks.add(dot);
+    run.touches.push(at);
+    run.error = '';
+    if (run.step === 0) run.step = 1;
+    else if (run.step === 1) {
+      const r = alignFromTouches(run.plan.a, run.plan.b, [run.touches[0].x, run.touches[0].y, run.touches[0].z], [at.x, at.y, at.z], null);
+      if (!r.ok) {
+        // not the corners that were asked for: start again from A
+        run.error = `Le distanze non tornano: tra i due punti ci sono ${r.measured.toFixed(2)} m, tra A e B nel disegno ${r.expected.toFixed(2)} m. Sono gli angoli giusti? Ricomincia da A.`;
+        run.touches = [];
+        run.step = 0;
+        clearAlignMarks();
+      } else run.step = 2;
+    } else {
+      finishAlign(at.y - 0.01);
+      return true;
+    }
+    drawAlignCard();
+    return true;
+  }
+
+  // `floorLive`: the real floor's height (the hand on the floor), or null to use the headset's estimate.
+  function finishAlign(floorLive: number | null) {
+    const run = alignRun;
+    if (!run || run.touches.length < 2) return;
+    const [ta, tb] = run.touches;
+    const floor = floorLive ?? liveFloorGuess() ?? (lastHead ? lastHead.pos.y - 1.5 : 0);
+    const r = alignFromTouches(run.plan.a, run.plan.b, [ta.x, ta.y, ta.z], [tb.x, tb.y, tb.z], floor);
+    const id = run.room.id;
+    aligns.set(id, r.alignment);
+    manual.add(id);
+    misses.delete(id);
+    foreignMode = false;
+    alignRun = null;
+    alignCard.mesh.visible = false;
+    clearAlignMarks();
+    logEvent(`${run.room.name}: allineata a mano, scarto ${(r.alignment.resid * 100).toFixed(1)} cm, ${floorLive === null ? 'altezza stimata' : 'altezza dalla mano'}`);
+    syncHouses();
+    refreshView();
+    notify(`Stanza allineata (scarto ${(r.alignment.resid * 100).toFixed(1)} cm)`, 2200);
+  }
+
   // A pinch on the floor in the visit: it is moved so that the pointed place is under you.
   function teleportTo(world: Vector3) {
     if (!freeFrame || !lastHead) return;
@@ -857,11 +1062,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (fit) {
       misses.delete(room.id);
       if (!old || moved(old, fit, room.id)) {
+        manual.delete(room.id); // the headset reports the room itself again
         aligns.set(room.id, fit);
         syncHouses();
         refreshView();
       }
-    } else if (old) {
+    } else if (old && !manual.has(room.id)) {
       const n = (misses.get(room.id) ?? 0) + 1;
       misses.set(room.id, n);
       if (n >= 2) {
@@ -1180,7 +1386,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       setLoadingText('Carico il progetto', `Modelli 0 / ${p.models.length}`, 0);
       loading.mesh.visible = true;
     }
-    if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
+    if (foreign && alignableRoom()) {
+      // none of its rooms is where the headset reports: place one by touching two corners
+      say(`Aperto: ${p.name}: la stanza non è stata ritrovata, allineala toccando due angoli`, 6000);
+      startAlign(alignableRoom());
+    } else if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
     else if (foreign) say(`Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)`, 9000);
   }
 
@@ -1282,6 +1492,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     toggleLog() {
       view.showLog = !view.showLog;
       render();
+    },
+    alignRoom() {
+      startAlign();
     },
     // The depth measuring page (see xr/depthProbe.ts): the next start from the Library opens it, once (leaving the session would close the app).
     openDepthProbe() {
@@ -2716,6 +2929,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // main hand is already pinching: then it is the second hand of the turn / scale gesture.
   let mainHeld = false;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
+    if (alignRun && hand === 'right' && !consumedByUi && alignTouch()) {
+      mainHeld = true;
+      return;
+    }
     if (hand === 'left') {
       leftDownAt = performance.now();
       leftHeld = !consumedByUi;
@@ -2990,7 +3207,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, alignCard, listLoader, loading, splashPanel, hud, objButton, notice],
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
@@ -3029,6 +3246,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       ignored.clear();
       aligns.clear(); // a new session has a new origin
+      manual.clear();
+      cancelAlign();
       misses.clear();
       fits.clear();
       closeCurrent();
@@ -3198,6 +3417,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       checkPending();
       followHead(head, dt);
+      placeAlignCard(head);
       updateGrab(dt);
       updatePartGrab(dt);
       updateStructGrab(dt);
@@ -3240,6 +3460,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       logEvent('reset del riferimento');
       aligns.clear();
+      manual.clear();
       misses.clear();
       lastTry = 0;
       lastFar = 0;
@@ -3266,6 +3487,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selectedStruct: () => selectedStructId,
     selectedPart: () => selectedPart,
     openObject: () => openObjectMenu(), // test hook
+    startAlign: () => startAlign(), // test hook
+    alignTouchAt: (x: number, y: number, z: number) => {
+      pinchR = new Vector3(x, y, z);
+      return alignTouch();
+    }, // test hook
     say,
     // Test hook.
     debug: () => ({ loading: loading.mesh.visible, rooms, recognised, projects: allProjects, current, aligned: [...aligns.keys()], foreign: foreign?.roomId ?? null, view, live: live.length, raw: rawLive.length, pending: pendingName() }),
