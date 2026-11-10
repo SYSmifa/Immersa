@@ -53,6 +53,7 @@ export interface MenuView {
   loginCode: string; // the code typed so far
   linkCode: string | null; // the code being shown while it waits for the PC
   roomName: string | null; // recognised (saved) room
+  roomPlace: string | null; // its place
   info: string; // how many planes the headset reports / belong to this room
   alignRoom: string | null; // a room of the open project that can be placed by touching two of its corners (its name)
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
@@ -446,7 +447,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const manual = () => add('Allineamento manuale', a.alignRoom, { disabled: !v.alignRoom, icon: 'room' });
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
-      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, inner, top + 20, iw, 80, 25, T.text2, { wrap: true }));
+      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\n${v.roomPlace ? `Luogo: ${v.roomPlace}` : 'Senza luogo: assegnalo dal PC (Le mie stanze).'}`, inner, top + 20, iw, 80, 25, T.text2, { wrap: true }));
       y = top + 104;
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);

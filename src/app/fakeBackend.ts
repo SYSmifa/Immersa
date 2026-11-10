@@ -124,14 +124,22 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     pendingDeviceLinks: async () => [{ code: 'ABC234', ageSec: 12 }],
     approveDeviceLink: async (code: string) => (code === 'ABC234' ? { ok: true as const } : { ok: false as const, message: 'Codice non valido o scaduto.' }),
     listRooms: async () => rooms.map((r) => ({ ...r })),
-    async createRoom(name: string, scan: RoomScan) {
-      const room = { id: `r${rooms.length + 1}`, name, createdAt: now(), updatedAt: now(), scan };
+    async createRoom(name: string, scan: RoomScan, place?: string) {
+      const room: Room = { id: `r${rooms.length + 1}`, name, createdAt: now(), updatedAt: now(), scan, place };
       rooms.push(room);
       return room;
     },
     async renameRoom(id, name) {
       const r = rooms.find((x) => x.id === id);
       if (r) r.name = name;
+    },
+    async setRoomPlace(id, place) {
+      const r = rooms.find((x) => x.id === id);
+      if (r) r.place = place ?? undefined;
+    },
+    async saveRoomData(id, scan) {
+      const r = rooms.find((x) => x.id === id);
+      if (r) r.scan = scan;
     },
     async updateRoomScan(id, scan) {
       const r = rooms.find((x) => x.id === id);

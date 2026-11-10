@@ -9,6 +9,7 @@ interface RoomRow {
   data: RoomScan;
   created_at: string | null;
   updated_at: string;
+  place?: string | null;
 }
 interface ProjectRow {
   id: string;
@@ -22,7 +23,8 @@ interface ProjectRow {
   updated_at: string;
 }
 
-const ROOM_COLS = 'id,name,data,created_at,updated_at';
+const ROOM_COLS = 'id,name,data,created_at,updated_at,place';
+const ROOM_COLS_NOPLACE = 'id,name,data,created_at,updated_at';
 // Until supabase/schema.sql has been re-run the newer columns do not exist: read (and write) without them instead of failing.
 // The lists go from the newest schema to the oldest; each step drops the most recent column.
 const PROJECT_BASE = 'id,room_id,room_ids,name,models,updated_at';
@@ -30,7 +32,7 @@ const PROJECT_COLS = [`${PROJECT_BASE},structures,tone,annotations`, `${PROJECT_
 const ROOM_COLS_OLD = 'id,name,data,updated_at';
 const missingColumn = (e: { message?: string } | null) => !!e && /column|schema cache/i.test(e.message ?? '');
 
-const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, createdAt: r.created_at ?? r.updated_at, updatedAt: r.updated_at, scan: r.data });
+const toRoom = (r: RoomRow): Room => ({ id: r.id, name: r.name, createdAt: r.created_at ?? r.updated_at, updatedAt: r.updated_at, scan: r.data, place: r.place ?? undefined });
 const toProject = (r: ProjectRow): Project => {
   const roomIds = r.room_ids?.length ? r.room_ids : r.room_id ? [r.room_id] : [];
   return {
@@ -137,18 +139,34 @@ export function createSupabaseBackend(): Backend {
       await supabase?.auth.signOut({ scope: 'local' }); // only this device: the default ('global') signs out every device of the account
     },
     async listRooms() {
-      const res = await client().from('rooms').select(ROOM_COLS).order('updated_at', { ascending: false });
-      let { data, error } = res;
-      if (missingColumn(error)) ({ data, error } = (await client().from('rooms').select(ROOM_COLS_OLD).order('updated_at', { ascending: false })) as unknown as typeof res);
-      check(error);
-      return (data as RoomRow[]).map(toRoom);
+      // newest schema first, each step drops the most recent column (place, then created_at)
+      for (const cols of [ROOM_COLS, ROOM_COLS_NOPLACE, ROOM_COLS_OLD]) {
+        const { data, error } = await client().from('rooms').select(cols).order('updated_at', { ascending: false });
+        if (missingColumn(error)) continue;
+        check(error);
+        return (data as unknown as RoomRow[]).map(toRoom);
+      }
+      throw new Error('Impossibile leggere le stanze');
     },
-    async createRoom(name, scan) {
-      const res = await client().from('rooms').insert({ name, data: scan }).select(ROOM_COLS).single();
-      let { data, error } = res;
-      if (missingColumn(error)) ({ data, error } = (await client().from('rooms').insert({ name, data: scan }).select(ROOM_COLS_OLD).single()) as unknown as typeof res);
+    async createRoom(name, scan, place) {
+      for (const cols of [ROOM_COLS, ROOM_COLS_NOPLACE, ROOM_COLS_OLD]) {
+        const row: Record<string, unknown> = { name, data: scan };
+        if (cols === ROOM_COLS && place) row.place = place;
+        const { data, error } = await client().from('rooms').insert(row).select(cols).single();
+        if (missingColumn(error)) continue;
+        check(error);
+        return toRoom(data as unknown as RoomRow);
+      }
+      throw new Error('Impossibile salvare la stanza');
+    },
+    async setRoomPlace(id, place) {
+      const { error } = await client().from('rooms').update({ place, updated_at: now() }).eq('id', id);
+      if (missingColumn(error)) throw new Error('Il luogo non si può salvare: va rieseguito supabase/schema.sql');
       check(error);
-      return toRoom(data as RoomRow);
+    },
+    async saveRoomData(id, scan) {
+      const { error } = await client().from('rooms').update({ data: scan }).eq('id', id); // not `updated_at`: this is not a new scan
+      check(error);
     },
     async renameRoom(id, name) {
       const { error } = await client().from('rooms').update({ name, updated_at: now() }).eq('id', id);

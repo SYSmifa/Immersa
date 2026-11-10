@@ -18,6 +18,9 @@ alter table public.rooms alter column created_at set not null;
 -- The scan replaced by the last automatic update (one backup).
 alter table public.rooms add column if not exists previous_data jsonb;
 
+-- The place a room belongs to (a house, a site): rooms of one place can be put in the same project and know where the others are.
+alter table public.rooms add column if not exists place text;
+
 alter table public.rooms enable row level security;
 
 drop policy if exists "rooms: owner only" on public.rooms;

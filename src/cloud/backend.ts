@@ -23,7 +23,9 @@ export interface Backend {
   // The headsets waiting for approval that asked from the same network as this PC (so nothing has to be typed).
   pendingDeviceLinks?(): Promise<{ code: string; ageSec: number }[]>;
   listRooms(): Promise<Room[]>;
-  createRoom(name: string, scan: RoomScan): Promise<Room>;
+  createRoom(name: string, scan: RoomScan, place?: string): Promise<Room>;
+  setRoomPlace(id: string, place: string | null): Promise<void>; // null: no place
+  saveRoomData(id: string, scan: RoomScan): Promise<void>; // rewrites the scan JSON (links to other rooms) without making a backup
   renameRoom(id: string, name: string): Promise<void>;
   updateRoomScan(id: string, scan: RoomScan, previous: RoomScan): Promise<void>; // keeps `previous` as a backup
   deleteRoom(id: string): Promise<void>; // also deletes its projects

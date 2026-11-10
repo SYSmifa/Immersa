@@ -50,11 +50,24 @@ export interface RoomScan {
   savedAt: number;
   planes: RoomPlane[];
   boxes?: RoomBox[]; // absent in scans saved by older versions
+  links?: Record<string, RoomLink>; // where the other rooms of the same place are, by room id (see room/layout.ts)
+}
+
+// Where another room is, seen from this one: a point of the OTHER room's frame becomes a point of THIS room's frame through
+// x' = c x - s z + tx, y' = y + ty, z' = s x + c z + tz with c = cos(yaw), s = sin(yaw) (the convention of Alignment in align.ts).
+export interface RoomLink {
+  yaw: number;
+  tx: number;
+  ty: number;
+  tz: number;
+  at: number; // when it was measured (ms since the epoch)
+  src: 'meta' | 'manual'; // placed by the headset's own planes, or by touching two corners (less exact: never replaces a 'meta' one)
 }
 
 export interface Room {
   id: string;
   name: string;
+  place?: string; // the place it belongs to (a house, a site...): a project only uses rooms of one place; absent = not assigned yet
   createdAt: string;
   updatedAt: string;
   scan: RoomScan;

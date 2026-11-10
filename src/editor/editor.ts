@@ -47,6 +47,7 @@ import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
+import { addRoomError, knownPlaces, normPlace, placeChangeConflict } from '../room/places';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -750,12 +751,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function refreshLists() {
     const tones = projectTones(projects);
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, place: r.place, sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
       projectRoomsList().map((r) => ({ id: r.id, name: r.name, hidden: hiddenRooms.has(r.id) })),
       room?.id ?? null,
-      rooms.filter((r) => !project?.roomIds.includes(r.id)).map((r) => ({ id: r.id, name: r.name })),
+      // only rooms of the project's place can be added (a project uses one place)
+      rooms.filter((r) => !project?.roomIds.includes(r.id) && !addRoomError(projectRoomsList(), r)).map((r) => ({ id: r.id, name: r.place ? `${r.name} · ${r.place}` : r.name })),
     );
     ui.setState(!!project, !!room);
   }
@@ -1388,6 +1390,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     projectNameError,
     onCreateProject: (name, roomIds) =>
       run(async () => {
+        const chosen = roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
+        const bad = chosen.map((r, i) => addRoomError(chosen.slice(0, i), r)).find((m) => m);
+        if (bad) return ui.setStatus(bad);
         if (!(await confirmLeave())) return;
         const p = await backend.createProject(name, roomIds, [], [], newTone(projects));
         projects.unshift(p);
@@ -1452,6 +1457,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onAddRoom(id) {
       const r = rooms.find((x) => x.id === id);
       if (!project || !r) return;
+      const why = addRoomError(projectRoomsList(), r);
+      if (why) return ui.setStatus(why);
       project.roomIds.push(id);
       markDirty();
       showRoom(r);
@@ -1485,6 +1492,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         if (!name || name === r.name) return;
         await backend.renameRoom(id, name);
         r.name = name;
+        refreshLists();
+      }),
+    onRoomPlace: (id) =>
+      run(async () => {
+        const r = rooms.find((x) => x.id === id);
+        if (!r) return;
+        let why = '';
+        const place = await ui.askText('Luogo della stanza', r.place ?? '', {
+          ok: 'Salva',
+          placeholder: 'Es. Casa mia, Capannone Rossi (vuoto: nessun luogo)',
+          text: 'Un progetto usa stanze di un solo luogo. Le stanze dello stesso luogo si ritrovano tra loro e si allineano insieme.',
+          suggestions: knownPlaces(rooms),
+          validate: (v) => {
+            why = placeChangeConflict(id, v || null, rooms, projects);
+            return why ? `Il progetto "${why}" usa questa stanza insieme a stanze di un altro luogo.` : '';
+          },
+        });
+        if (place === null || place === (r.place ?? '')) return;
+        const spelled = knownPlaces(rooms.filter((x) => x.id !== id)).find((p) => normPlace(p) === normPlace(place)) ?? place; // an existing place under another spelling is the same one
+        await backend.setRoomPlace(id, spelled || null);
+        r.place = spelled || undefined;
         refreshLists();
       }),
     listVisors: async () => (await backend.pendingDeviceLinks?.()) ?? [],

@@ -57,6 +57,7 @@ export interface EditorHandlers {
   onUpload(files: File[]): void;
   onImportPlan(file: File): void;
   onRenameRoom(id: string): void;
+  onRoomPlace(id: string): void;
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
@@ -167,7 +168,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[] };
+export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string };
 
 const A = AURA;
 const CSS = `
@@ -460,14 +461,29 @@ export function createEditorUi(h: EditorHandlers) {
     name.type = 'text';
     name.placeholder = 'Nome del progetto';
     const nameError = el('div', '', 'ed-warn');
+    const norm = (v?: string) => (v ?? '').trim().toLowerCase();
     const checks = roomItems.map((r) => {
       const c = el('input');
       c.type = 'checkbox';
       c.value = r.id;
       const l = el('label', '', 'ed-check');
-      l.append(c, document.createTextNode(r.name));
+      l.append(c, document.createTextNode(r.place ? `${r.name} · ${r.place}` : r.name));
       return l;
     });
+    // A project uses the rooms of one place: once a room with a place is ticked, the rooms of other places are greyed out.
+    const syncChecks = () => {
+      const ticked = checks.map((l) => l.firstChild as HTMLInputElement).filter((c) => c.checked).map((c) => roomItems.find((r) => r.id === c.value)!);
+      const place = ticked.map((r) => norm(r.place)).find((p) => p);
+      checks.forEach((l) => {
+        const c = l.firstChild as HTMLInputElement;
+        const r = roomItems.find((x) => x.id === c.value)!;
+        const blocked = !!place && !!norm(r.place) && norm(r.place) !== place || !!place && !norm(r.place);
+        c.disabled = blocked && !c.checked;
+        l.style.opacity = c.disabled ? '0.4' : '';
+        l.title = c.disabled ? 'Un progetto usa stanze di un solo luogo' : '';
+      });
+    };
+    checks.forEach((l) => ((l.firstChild as HTMLInputElement).onchange = syncChecks));
     const create = pill('Crea progetto', () => {
       const n = name.value.trim();
       if (!n) return name.focus();
@@ -496,15 +512,29 @@ export function createEditorUi(h: EditorHandlers) {
   }
 
   function renderRooms() {
-    const cards = roomItems.map((r) => {
+    const roomCard = (r: Option) => {
       const t = el('div', r.name);
       t.style.fontWeight = '700';
-      return card(t, ...(r.sub ? [el('div', r.sub, 'ed-meta')] : []), el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'), row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')));
-    });
+      return card(
+        t,
+        ...(r.sub ? [el('div', r.sub, 'ed-meta')] : []),
+        el('div', r.place ? `Luogo: ${r.place}` : 'Senza luogo: assegnalo per poterla usare con altre stanze', 'ed-meta'),
+        el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'),
+        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo…', () => h.onRoomPlace(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
+      );
+    };
+    // Grouped by place (in the order the rooms come: the most recently used place first), the rooms without one at the end.
+    const groups = new Map<string, Option[]>();
+    for (const r of roomItems) {
+      const k = r.place ? r.place.trim().toLowerCase() : '';
+      groups.set(k, [...(groups.get(k) ?? []), r]);
+    }
+    const keys = [...groups.keys()].filter((k) => k).concat(groups.has('') ? [''] : []);
+    const blocks = keys.flatMap((k) => [title(k ? `Luogo · ${groups.get(k)![0].place}` : 'Senza luogo'), ...groups.get(k)!.map(roomCard)]);
     body.replaceChildren(
       back('Indietro', goHome),
       el('div', 'Le mie stanze', 'ed-h'),
-      ...(cards.length ? cards : [el('div', 'Nessuna stanza: scansionala e salvala dal visore (tab Scan).', 'ed-title')]),
+      ...(blocks.length ? blocks : [el('div', 'Nessuna stanza: scansionala e salvala dal visore (tab Scan).', 'ed-title')]),
     );
   }
 
@@ -1357,7 +1387,7 @@ export function createEditorUi(h: EditorHandlers) {
     },
     // In-app replacements for prompt(): a text field with OK/Cancel. `validate` returns an error text (shown under the field,
     // the card stays open) or '' when the value is fine. Resolves with the trimmed text, or null if cancelled.
-    askText(title: string, initial: string, opts: { text?: string; ok?: string; placeholder?: string; multiline?: boolean; validate?: (v: string) => string } = {}) {
+    askText(title: string, initial: string, opts: { text?: string; ok?: string; placeholder?: string; multiline?: boolean; suggestions?: string[]; validate?: (v: string) => string } = {}) {
       return new Promise<string | null>((resolve) => {
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel ed-login');
@@ -1365,6 +1395,13 @@ export function createEditorUi(h: EditorHandlers) {
         const input: HTMLInputElement | HTMLTextAreaElement = opts.multiline ? Object.assign(document.createElement('textarea'), { rows: 4, className: 'ed-area' }) : Object.assign(document.createElement('input'), { type: 'text' });
         input.value = initial;
         input.placeholder = opts.placeholder ?? '';
+        // suggestions: the browser's own drop-down under the field (existing places)
+        const list = document.createElement('datalist');
+        if (opts.suggestions?.length && input instanceof HTMLInputElement) {
+          list.id = `sug${Date.now()}`;
+          input.setAttribute('list', list.id);
+          for (const v of opts.suggestions) list.append(Object.assign(document.createElement('option'), { value: v }));
+        }
         const err = el('div', '', 'ed-warn');
         const done = (v: string | null) => {
           window.removeEventListener('keydown', key, true);
@@ -1391,7 +1428,7 @@ export function createEditorUi(h: EditorHandlers) {
         panel.append(el('h3', title));
         if (opts.text) panel.append(el('div', opts.text, 'ed-sub'));
         if (opts.multiline) panel.append(el('div', 'Invio per andare a capo, Ctrl+Invio per confermare', 'ed-sub'));
-        panel.append(input, err, row(pill(opts.ok ?? 'OK', submit, 'acc'), pill('Annulla', () => done(null))));
+        panel.append(input, list, err, row(pill(opts.ok ?? 'OK', submit, 'acc'), pill('Annulla', () => done(null))));
         overlay.append(panel);
         root.append(overlay);
         input.focus();

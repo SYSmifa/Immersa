@@ -16,6 +16,7 @@ import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelS
 import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
+import { knownPlaces, normPlace, placeOfRooms } from '../room/places';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
@@ -248,6 +249,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     canGoogle: false, // Google's page ends the AR session: hidden in the headset (a code from the PC / phone does the job); `!!backend.signInWith` would show it again
     linkCode: null,
     roomName: null,
+    roomPlace: null,
     candidate: null,
     alignRoom: null,
     changedRoom: null,
@@ -343,6 +345,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   function refreshView() {
     view.roomName = recognised?.room.name ?? null;
+    view.roomPlace = recognised?.room.place ?? null;
     view.candidate = candidate?.room.name ?? null;
     view.changedRoom = changed?.room.name ?? null;
     view.resid = recognised?.alignment.resid ?? null;
@@ -559,7 +562,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
-    if (alignRun) return; // the alignment card is up: it has its own Cancel
+    if (alignRun || choiceRun) return; // a card is up: it has its own Cancel
     if (splash || warnOpen) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
@@ -768,6 +771,71 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     warn.mesh.visible = true;
   }
 
+
+
+  // ---- a card in front of you to choose one of a few things (the place of a room, the room you are in): the laser clicks a
+  // button; a long list goes on over pages. Nothing else works while it is up (it has its own Cancel).
+  const choiceCard = new Panel(0.62, 0.8, 1200, 'ink');
+  choiceCard.mesh.visible = false;
+  host.root.add(choiceCard.mesh);
+  host.add(choiceCard);
+  type ChoiceRun = { title: string; text: string; options: string[]; page: number; done: (i: number | null) => void };
+  let choiceRun: ChoiceRun | null = null;
+  const CHOICE_PAGE = 5;
+  function drawChoiceCard() {
+    const run = choiceRun;
+    if (!run) return;
+    const w = choiceCard.pxW;
+    const pages = Math.ceil(run.options.length / CHOICE_PAGE);
+    const first = run.page * CHOICE_PAGE;
+    const shown = run.options.slice(first, first + CHOICE_PAGE);
+    choiceCard.set([
+      { kind: 'label', rect: { x: 36, y: 24, w: w - 72, h: 46 }, text: run.title, size: 34, bold: true, color: '#ffffff' },
+      { kind: 'label', rect: { x: 36, y: 78, w: w - 72, h: 96 }, text: run.text, size: 24, color: '#cbd5e1', wrap: true },
+      ...shown.map((label, i) => ({ kind: 'pill' as const, primary: first + i === 0, rect: { x: 36, y: 184 + i * 72, w: w - 72, h: 62 }, text: label, size: 26, onClick: () => finishChoice(first + i) })),
+      ...(pages > 1 ? [{ kind: 'pill' as const, rect: { x: 36, y: 184 + CHOICE_PAGE * 72, w: w - 72, h: 52 }, text: `Altre (${run.page + 1}/${pages})`, size: 22, onClick: () => { run.page = (run.page + 1) % pages; drawChoiceCard(); } }] : []),
+      { kind: 'pill', rect: { x: 36, y: choiceCard.pxH - 90, w: w - 72, h: 58 }, text: 'Annulla', size: 26, color: '#f87171', onClick: () => finishChoice(null) },
+    ]);
+  }
+  function finishChoice(i: number | null) {
+    const run = choiceRun;
+    if (!run) return;
+    choiceRun = null;
+    choiceCard.mesh.visible = false;
+    run.done(i);
+  }
+  function choose(title: string, text: string, options: string[]): Promise<number | null> {
+    finishChoice(null);
+    return new Promise((resolve) => {
+      choiceRun = { title, text, options, page: 0, done: resolve };
+      closeMenu();
+      if (lastHead) {
+        const f = new Vector3(lastHead.fwd.x, 0, lastHead.fwd.z);
+        if (f.length() < 0.2) f.set(0, 0, -1);
+        f.normalize();
+        choiceCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y - 0.12, lastHead.pos.z + f.z * 0.85);
+        choiceCard.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - choiceCard.mesh.position.x, lastHead.pos.z - choiceCard.mesh.position.z), 0);
+      }
+      drawChoiceCard();
+      choiceCard.mesh.visible = true;
+    });
+  }
+
+  // Which place does a new room belong to? A card with the places that exist (the one of what is open first), a new one, or none.
+  // undefined = cancelled, '' = no place.
+  async function pickPlace(): Promise<string | undefined> {
+    const mine = placeOfRooms(current ? current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r) : []) ?? recognised?.room.place;
+    const all = knownPlaces(rooms);
+    const places = mine ? [mine, ...all.filter((p) => normPlace(p) !== normPlace(mine))] : all;
+    for (;;) {
+      const i = await choose('Di che luogo è la stanza?', 'Un luogo è una casa, una sede, un cantiere. Le stanze dello stesso luogo possono stare nello stesso progetto.', [...places, 'Nuovo luogo…', 'Nessun luogo (lo scelgo dopo)']);
+      if (i === null) return undefined;
+      if (i < places.length) return places[i];
+      if (i === places.length + 1) return '';
+      const name = (await ask('Nome del luogo', '', { max: 40 }))?.trim();
+      if (name) return places.find((p) => normPlace(p) === normPlace(name)) ?? name; // an existing one under another spelling is the same place
+    }
+  }
 
   // ---- manual alignment: the user touches two corners of the real room (see room/anchors.ts). It places a saved room when the
   // headset does not report it (Meta forgot it, or never had it), and needs nothing from Meta.
@@ -1258,9 +1326,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (planes.length < MIN_PLANES) return say('Nessuna scansione da salvare');
     const name = await askRoomName('Nome della stanza', '');
     if (!name) return;
+    const place = await pickPlace();
+    if (place === undefined) return;
+    openMenu();
     say('Salvo la stanza...');
     try {
-      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes });
+      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes }, place || undefined);
       rooms.unshift(room);
       setRecognised({ room, alignment: identity(planes.length) });
       say(`Stanza "${name}" salvata`);
@@ -3242,7 +3313,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, alignCard, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, listLoader, loading, splashPanel, hud, objButton, notice],
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
