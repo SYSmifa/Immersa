@@ -178,6 +178,7 @@ const CSS = `
 .ed button,.ed select,.ed input{font-size:14px}
 .ed-panel{background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));box-shadow:0 10px 40px #0008;border-radius:22px}
 .ed-side{position:fixed;top:12px;left:12px;bottom:12px;width:310px;z-index:10;display:flex;flex-direction:column;gap:10px;padding:14px}
+.ed-roomlist{display:flex;flex-direction:column;gap:8px;max-height:172px;overflow:auto;flex-shrink:0}
 .ed-body{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0}
 .ed-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:.02em}
 .ed-brand i{width:12px;height:12px;border-radius:4px;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 0 12px var(--acc)}
@@ -742,9 +743,13 @@ export function createEditorUi(h: EditorHandlers) {
     remove.disabled = !hasRoom;
     return [
       el('div', 'Stanze del progetto', 'ed-h'),
-      ...(rooms.length ? rooms : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
+      // a long list scrolls inside its own box, so the buttons under it (add a model, CAD plan) stay in view
+      ...(rooms.length ? [el('div', '', 'ed-roomlist')] : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
       card(row(addable, add), remove),
-    ];
+    ].map((node) => {
+      if (node.classList.contains('ed-roomlist')) node.append(...rooms);
+      return node;
+    });
   }
 
   function renderProject() {
