@@ -5,6 +5,7 @@ import { createEnterAr } from './enterAr';
 import { createLauncher } from './launcher';
 import { fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
+import { takeDepthProbeRequest } from '../xr/depthFlag';
 
 const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking', 'layers'];
 
@@ -16,6 +17,7 @@ const UNBOUNDED = new URLSearchParams(location.search).get('ref') !== 'local-flo
 // Headset entry point: tries to start AR straight away (works when launched from the installed app; otherwise one "Entra in AR" button), then
 // the in-AR menu (sign-in, Load / Scan / Options / Account).
 export async function runHeadsetApp() {
+  if (takeDepthProbeRequest()) return (await import('../xr/depthProbe')).runDepthProbe(true); // asked in Account: this start is the depth measuring page, once
   const backend = createSupabaseBackend();
   const features = UNBOUNDED ? [...FEATURES, 'unbounded'] : FEATURES;
   const { renderer, scene, camera } = createStage({ features, arButton: false });

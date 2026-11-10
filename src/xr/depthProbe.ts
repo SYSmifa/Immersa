@@ -34,7 +34,7 @@ const VARIANTS = [
   { name: 'raggio/basso', radial: true, flip: true },
 ] as const;
 
-export function runDepthProbe() {
+export function runDepthProbe(auto = false) {
   const { renderer, scene, camera } = createStage({ arButton: false });
 
   // Panel on the camera (head-locked): the DOM is not visible in XR.
@@ -124,6 +124,7 @@ export function runDepthProbe() {
     }
   }
   go.onclick = () => void start();
+  if (auto) void start(); // started from the installed app: its launch is the gesture
 
   function sample(frame: XRFrame, ref: XRReferenceSpace) {
     const pose = frame.getViewerPose(ref);

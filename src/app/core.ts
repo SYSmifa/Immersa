@@ -14,6 +14,7 @@ import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, pl
 import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
+import { askDepthProbe } from '../xr/depthFlag';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
@@ -1282,10 +1283,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       view.showLog = !view.showLog;
       render();
     },
-    // The depth measuring page (see xr/depthProbe.ts): leaving the page ends the AR session; it starts its own.
+    // The depth measuring page (see xr/depthProbe.ts): the next start from the Library opens it, once (leaving the session would close the app).
     openDepthProbe() {
-      logEvent('apro la prova della profondità');
-      location.assign(`${location.origin}/?depth`);
+      askDepthProbe();
+      logEvent('prova profondità richiesta');
+      say('Chiudi Immersa e riaprila dalla Libreria: si apre la prova della profondità (una volta sola)', 15000);
     },
     askSearch() {
       // The list is filtered after every key; OK or closing the keyboard keeps the filter.
