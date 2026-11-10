@@ -1282,6 +1282,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       view.showLog = !view.showLog;
       render();
     },
+    // The depth measuring page (see xr/depthProbe.ts): leaving the page ends the AR session; it starts its own.
+    openDepthProbe() {
+      logEvent('apro la prova della profondità');
+      location.assign(`${location.origin}/?depth`);
+    },
     askSearch() {
       // The list is filtered after every key; OK or closing the keyboard keeps the filter.
       const apply = (text: string) => {
