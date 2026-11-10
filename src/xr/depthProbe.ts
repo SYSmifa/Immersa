@@ -1,6 +1,7 @@
 import { CanvasTexture, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from 'three';
 import { createStage } from '../scene/stage';
 import { cm, findWalls, floorBand, mean, median, std } from './depthMath';
+import { createGpuDepthReader, GRID_U, GRID_V, PATCH, rawToMeters } from './depthGpu';
 import { planeNormal } from '../room/align';
 import { readPlanes } from '../room/capture';
 import type { RoomPlane } from '../room/types';
@@ -15,8 +16,6 @@ import type { RoomPlane } from '../room/types';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
 
-const GRID_U = 32; // samples per view and sampled frame
-const GRID_V = 24;
 const CAP = 24000; // points kept per variant (ring buffer)
 const MAX_RANGE = 4.5; // m: farther depth is too coarse
 const MIN_RANGE = 0.25;
@@ -126,6 +125,37 @@ export function runDepthProbe(auto = false) {
   go.onclick = () => void start();
   if (auto) void start(); // started from the installed app: its launch is the gesture
 
+  const gpu = createGpuDepthReader(renderer);
+
+  // One view of the frame: the depth at the centre patch and at a grid of points, in metres (0 = nothing measured), from the
+  // CPU depth if the browser gives it, otherwise from the GPU texture.
+  function readView(frame: XRFrame, view: XRView, vi: number, wantGrid: boolean) {
+    let info: Any = null;
+    try {
+      info = (frame as Any).getDepthInformation(view);
+    } catch {
+      info = null;
+    }
+    if (info && typeof info.getDepthInMeters === 'function') {
+      const patch: number[] = [];
+      for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) patch.push(info.getDepthInMeters(0.5 + a * 0.008, 0.5 + b * 0.008));
+      let grid: Float32Array | null = null;
+      if (wantGrid) {
+        grid = new Float32Array(GRID_U * GRID_V);
+        for (let a = 0; a < GRID_U; a++) for (let b = 0; b < GRID_V; b++) grid[b * GRID_U + a] = info.getDepthInMeters((a + 0.5) / GRID_U, (b + 0.5) / GRID_V);
+      }
+      return { patch, grid, jitter: [0.5, 0.5] as [number, number], note: `CPU ${info.width}x${info.height}` };
+    }
+    const g = gpu.read(session!, view, vi);
+    if (!g) return null;
+    const m = (d: number) => rawToMeters(d, g.near, g.far);
+    const patch = Array.from(g.patch, m);
+    const raw = g.patch[(PATCH * PATCH) >> 1];
+    let grid: Float32Array | null = null;
+    if (wantGrid) grid = g.grid.map(m);
+    return { patch, grid, jitter: g.jitter, note: `GPU ${g.width}x${g.height} raw ${raw.toFixed(4)} n${g.near.toFixed(2)} f${Number.isFinite(g.far) ? g.far.toFixed(0) : 'inf'}` };
+  }
+
   function sample(frame: XRFrame, ref: XRReferenceSpace) {
     const pose = frame.getViewerPose(ref);
     if (!pose) return;
@@ -134,38 +164,26 @@ export function runDepthProbe(auto = false) {
     let valid = 0;
     let total = 0;
     pose.views.forEach((view, vi) => {
-      let info: Any = null;
-      try {
-        info = (frame as Any).getDepthInformation(view);
-      } catch {
-        info = null;
-      }
-      if (!info) return;
+      const r = readView(frame, view, vi, sampleGrid);
+      if (!r) return;
       if (vi === 0) {
         depthFrames++;
-        infoLine = `${info.width}x${info.height} x${info.rawValueToMeters}`;
-        // centre of the view: a 7x7 patch of the middle
-        const vals: number[] = [];
-        for (let a = -3; a <= 3; a++) {
-          for (let b = -3; b <= 3; b++) {
-            const d = info.getDepthInMeters(0.5 + a * 0.008, 0.5 + b * 0.008);
-            if (d > 0.1 && d < 8) vals.push(d);
-          }
-        }
+        infoLine = r.note;
+        const vals = r.patch.filter((d) => d > 0.1 && d < 8);
         if (vals.length > 10) {
           recent.push(median(vals));
           if (recent.length > 90) recent.shift();
         }
       }
-      if (!sampleGrid) return;
+      if (!r.grid) return;
       invP.fromArray(view.projectionMatrix as unknown as number[]).invert();
       viewM.fromArray(view.transform.matrix as unknown as number[]);
       for (let a = 0; a < GRID_U; a++) {
         for (let b = 0; b < GRID_V; b++) {
-          const u = (a + Math.random()) / GRID_U;
-          const v = (b + Math.random()) / GRID_V;
+          const u = (a + r.jitter[0]) / GRID_U;
+          const v = (b + r.jitter[1]) / GRID_V;
           total++;
-          const d: number = info.getDepthInMeters(u, v);
+          const d = r.grid[b * GRID_U + a];
           if (!(d > MIN_RANGE && d < MAX_RANGE)) continue;
           valid++;
           // ndc: u to the right; v either from the top (flip false) or from the bottom
@@ -248,7 +266,8 @@ export function runDepthProbe(auto = false) {
     lines = [
       'PROVA PROFONDITA',
       `depth: ${feats.includes('depth-sensing') ? 'SI' : 'NO'}  camera: ${feats.includes('camera-access') ? 'SI' : 'NO'}  piani Meta: ${meta.length}`,
-      `buffer ${infoLine || '-'}  ${depthFps}/s  validi ${validPct}%`,
+      `buffer ${infoLine || '-'}`,
+      `${depthFps}/s  validi ${validPct}%${gpu.error ? `  ERR ${gpu.error}` : ''}`,
       `centro: ${centre}`,
       `letture (pinch): ${readings.join(' | ') || 'nessuna'}`,
       ...analyse(meta),
