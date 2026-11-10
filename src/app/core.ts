@@ -1056,7 +1056,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     lastFar = now;
     const ids = current.roomIds.filter((id) => id !== recognised?.room.id && rooms.some((r) => r.id === id));
     if (!ids.length) return;
-    const room = rooms.find((r) => r.id === ids[farIndex++ % ids.length])!;
+    const nextId = ids[farIndex++ % ids.length]; // once: inside the callback it advanced for every room tried
+    const room = rooms.find((r) => r.id === nextId)!;
     const fit = bestFit(room);
     const old = aligns.get(room.id);
     if (fit) {
@@ -1386,10 +1387,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       setLoadingText('Carico il progetto', `Modelli 0 / ${p.models.length}`, 0);
       loading.mesh.visible = true;
     }
-    if (foreign && alignableRoom()) {
-      // none of its rooms is where the headset reports: place one by touching two corners
-      say(`Aperto: ${p.name}: la stanza non è stata ritrovata, allineala toccando due angoli`, 6000);
-      startAlign(alignableRoom());
+    // Rooms of the project the headset does not report (it forgot them, or never had them) can be placed by touching two corners. If
+    // you stand in none of the rooms that were placed, this is almost surely the one that is missing: start at once. Otherwise
+    // (you are in a placed room, the missing one is elsewhere) only a hint, so the other room is not asked for while you work.
+    const lost = alignableRoom();
+    const unplaced = !!lost && !aligns.has(lost.id);
+    const inPlaced = !!lastHead && p.roomIds.some((id) => {
+      const room = rooms.find((r) => r.id === id);
+      const a = aligns.get(id);
+      return !!room && !!a && isInside({ room, alignment: a }, [lastHead!.pos.x, lastHead!.pos.y, lastHead!.pos.z]);
+    });
+    if (unplaced && !inPlaced) {
+      say(`Aperto: ${p.name}: la stanza "${lost!.name}" non è stata ritrovata, allineala toccando due angoli`, 6000);
+      startAlign(lost);
+    } else if (unplaced) {
+      notify(`Stanza "${lost!.name}" non ritrovata: Stanza → Allineamento manuale`, 5000);
     } else if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
     else if (foreign) say(`Aperto: ${p.name} (nessuna sua stanza è qui: posizione e orientamento approssimativi)`, 9000);
   }
@@ -2342,6 +2354,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     anchorCache.set(an.id, { key, at: now, p });
     return p;
   }
+  // Is this point hidden from your eyes by a wall of any room (their invisible depth-only surfaces)? Labels are quad layers and the
+  // lines are drawn without a depth test, so the walls cannot hide them: they are left out of the list instead. The ray stops
+  // 12 cm short, so something on a wall is not hidden by that same wall; doors and windows are holes in the surfaces.
+  const occRay = new Raycaster();
+  function behindWalls(p: Vector3): boolean {
+    if (!lastHead) return false;
+    const d = p.distanceTo(lastHead.pos);
+    if (d < 0.3) return false;
+    occRay.set(lastHead.pos, p.clone().sub(lastHead.pos).normalize());
+    occRay.far = d - 0.12;
+    for (const h of houses.values()) {
+      if (!h.root.visible || !h.occluder.visible) continue;
+      if (occRay.intersectObject(h.occluder, true).length) return true;
+    }
+    return false;
+  }
+
   function computeMeasures(): Measure[] {
     const out: Measure[] = [];
     if (!current) return out;
@@ -2379,7 +2408,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       const mtx = house.root.matrix; // the room's place in the world
       const world = (p: [number, number, number]) => new Vector3(...p).applyMatrix4(mtx).toArray() as [number, number, number];
-      for (const m of local) out.push({ ...m, a: world(m.a), b: world(m.b) });
+      const notes = new Set((current.annotations ?? []).filter((y) => y.roomId === roomId && y.id !== selectedAnnotId).map((y) => y.id));
+      for (const m of local) {
+        const w = { ...m, a: world(m.a), b: world(m.b) };
+        // a note (or ruler) of another room, behind a wall: not shown (the one you have selected always is)
+        if (notes.has(m.owner) && behindWalls(new Vector3((w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2, (w.a[2] + w.b[2]) / 2))) continue;
+        out.push(w);
+      }
     }
     return out;
   }
