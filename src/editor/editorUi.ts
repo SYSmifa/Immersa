@@ -230,7 +230,7 @@ const CSS = `
 .ed-ib:hover:not(:disabled){background:#ffffff1f}
 .ed-ib:disabled{opacity:.3;cursor:default}
 .ed-measures{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
-.ed-mlabel{position:absolute;left:0;top:0;will-change:transform;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px #0006}
+.ed-mlabel{position:absolute;left:0;top:0;will-change:transform;padding:2px 7px;border-radius:9px;background:#10131ad9;color:#fff;font:600 12px/1.3 Sen,system-ui,sans-serif;white-space:pre-line;width:max-content;max-width:220px;text-align:center;box-shadow:0 1px 4px #0006}
 .ed-sw-pick{width:28px;height:28px;border-radius:50%;border:3px solid transparent;cursor:pointer}
 .ed-sw-pick.on{border-color:#12151c}
 .ed-mlabel.gap{background:#14b8a6;color:#04211d}
@@ -290,6 +290,8 @@ const CSS = `
 .ed-login .ed-sub{text-align:center;color:#9aa4b8;font-size:13px;margin-top:-6px}
 .ed-login input{width:100%;padding:11px 12px;border-radius:12px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:15px}
 .ed-login input:focus{border-color:var(--acc)}
+.ed-area{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font:15px/1.4 Sen,system-ui,sans-serif;resize:vertical}
+.ed-area:focus{border-color:var(--acc)}
 .ed-login .ed-pill{width:100%;justify-content:center;padding:11px 14px;font-size:15px}
 .ed-login .ed-err{color:#fca5a5;font-size:13px;min-height:16px;text-align:center}
 .ed-visor{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;background:#fff;color:#12151c;border-radius:14px;padding:10px 12px;font-weight:600}
@@ -989,10 +991,11 @@ export function createEditorUi(h: EditorHandlers) {
       return;
     }
     if (d.kind === 'annotation') {
-      const text = el('input');
-      text.type = 'text';
+      const text = el('textarea');
+      text.className = 'ed-area';
+      text.rows = 3;
       text.value = d.text;
-      text.maxLength = 120;
+      text.maxLength = 200;
       text.placeholder = d.type === 'note' ? 'Scrivi la nota…' : 'Etichetta (facoltativa)';
       text.oninput = () => h.onAnnotText(text.value, false);
       text.onchange = () => h.onAnnotText(text.value, true);
@@ -1354,12 +1357,12 @@ export function createEditorUi(h: EditorHandlers) {
     },
     // In-app replacements for prompt(): a text field with OK/Cancel. `validate` returns an error text (shown under the field,
     // the card stays open) or '' when the value is fine. Resolves with the trimmed text, or null if cancelled.
-    askText(title: string, initial: string, opts: { text?: string; ok?: string; placeholder?: string; validate?: (v: string) => string } = {}) {
+    askText(title: string, initial: string, opts: { text?: string; ok?: string; placeholder?: string; multiline?: boolean; validate?: (v: string) => string } = {}) {
       return new Promise<string | null>((resolve) => {
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel ed-login');
-        const input = document.createElement('input');
-        input.type = 'text';
+        // multiline (the text of a note): Enter starts a new line, Ctrl+Enter (or the button) confirms
+        const input: HTMLInputElement | HTMLTextAreaElement = opts.multiline ? Object.assign(document.createElement('textarea'), { rows: 4, className: 'ed-area' }) : Object.assign(document.createElement('input'), { type: 'text' });
         input.value = initial;
         input.placeholder = opts.placeholder ?? '';
         const err = el('div', '', 'ed-warn');
@@ -1380,13 +1383,14 @@ export function createEditorUi(h: EditorHandlers) {
         };
         const key = (e: KeyboardEvent) => {
           if (e.key === 'Escape') done(null);
-          else if (e.key === 'Enter' && e.target === input) submit();
+          else if (e.key === 'Enter' && e.target === input && (!opts.multiline || e.ctrlKey || e.metaKey)) submit();
           e.stopPropagation();
         };
         window.addEventListener('keydown', key, true);
         input.addEventListener('input', () => (err.textContent = ''));
         panel.append(el('h3', title));
         if (opts.text) panel.append(el('div', opts.text, 'ed-sub'));
+        if (opts.multiline) panel.append(el('div', 'Invio per andare a capo, Ctrl+Invio per confermare', 'ed-sub'));
         panel.append(input, err, row(pill(opts.ok ?? 'OK', submit, 'acc'), pill('Annulla', () => done(null))));
         overlay.append(panel);
         root.append(overlay);
@@ -1595,7 +1599,8 @@ export function createEditorUi(h: EditorHandlers) {
       const sig = JSON.stringify(d);
       if (sig === lastSig) return;
       // While typing in a field, a refresh of the same kind of object must not rewrite it under the cursor.
-      const typing = document.activeElement instanceof HTMLInputElement && ['number', 'text'].includes(document.activeElement.type);
+      const ae = document.activeElement;
+      const typing = ae instanceof HTMLTextAreaElement || (ae instanceof HTMLInputElement && ['number', 'text'].includes(ae.type));
       if (d && lastSig && typing && details.contains(document.activeElement) && JSON.parse(lastSig)?.kind === d.kind) return;
       lastSig = sig;
       renderDetails(d);

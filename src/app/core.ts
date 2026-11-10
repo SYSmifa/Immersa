@@ -533,7 +533,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       finish: shownFinish(m, colorTarget, mats),
     };
   }
-  const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean } = {}) =>
+  const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean; multiline?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
   // Start-up timeline (seconds since the page loaded), shown in the Account tab to see where the time goes.
   const marks = new Map<string, number>();
@@ -1622,7 +1622,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     async objAnnotText() {
       const an = annotOf(selectedAnnotId);
       if (!an) return;
-      const text = await ask(an.kind === 'note' ? 'Testo della nota' : 'Etichetta del metro', an.text, { max: 60, capital: true });
+      const text = await ask(an.kind === 'note' ? 'Testo della nota' : 'Etichetta del metro', an.text, { max: 200, capital: true, multiline: true });
       if (text === null) return;
       an.text = text.trim();
       markUnsaved();

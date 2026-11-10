@@ -80,10 +80,13 @@ function restyleGizmo(t: TransformControls) {
   const axis = { X: 0xf2545b, Y: 0x2dd4bf, Z: 0x4c8dff } as Record<string, number>;
   const plane = { XY: axis.Z, YZ: axis.X, XZ: axis.Y } as Record<string, number>;
   t.size = 0.8;
-  // The centre handle that grabs the three axes at once is gone: it sat on top of the corner handles of walls and floors.
+  // The centre handle that grabs the three axes at once is gone from the move gizmo: it sat on top of the corner handles of
+  // walls and floors. It stays in the scale gizmo (models and components only), where it scales everything uniformly.
   const centres: Object3D[] = [];
+  const inner = t.getHelper().children.find((c) => (c as any).gizmo && (c as any).picker) as { gizmo: Record<string, Object3D>; picker: Record<string, Object3D> } | undefined;
+  const scaleGroups = new Set<Object3D | undefined>([inner?.gizmo.scale, inner?.picker.scale]);
   // Also gone: the big outer ring of the rotation gizmo (it turns about the camera's line of sight).
-  t.getHelper().traverse((o) => (o.name === 'XYZ' || o.name === 'E') && centres.push(o));
+  t.getHelper().traverse((o) => (o.name === 'E' || (o.name === 'XYZ' && !scaleGroups.has(o.parent ?? undefined))) && centres.push(o));
   for (const o of centres) o.parent?.remove(o);
   t.getHelper().traverse((o) => {
     const m = (o as Mesh).material as (MeshBasicMaterial & { _color?: Color; _opacity?: number }) | undefined;
@@ -1847,7 +1850,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const keep = e.shiftKey; // Shift: stay in the tool for the next one
     let made: Annotation | null = null;
     if (annotMode === 'note') {
-      const text = await ui.askText('Testo della nota', '', { ok: 'Aggiungi', placeholder: 'Scrivi la nota' });
+      const text = await ui.askText('Testo della nota', '', { ok: 'Aggiungi', placeholder: 'Scrivi la nota', multiline: true });
       if (text === null) return; // cancelled: nothing is put down
       made = newAnnotation('note', spaceId(), toVec3(p), undefined, text);
     } else if (!annotFirst) {

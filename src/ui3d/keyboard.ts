@@ -10,6 +10,7 @@ export interface KeyboardRequest {
   max?: number;
   secret?: boolean; // show dots instead of the typed text (passwords)
   capital?: boolean; // start with a capital letter (names); false for emails and passwords
+  multiline?: boolean; // a key adds a line break (the text of a note)
   allowEmpty?: boolean; // OK works with nothing typed (a search that is being cleared)
   onChange?(text: string): void; // after every key that changes the text (a live filter)
   onDone(text: string): void;
@@ -22,18 +23,19 @@ interface Key {
   label: string;
   w: number;
   ch?: string; // character typed
-  act?: 'shift' | 'back' | 'space' | 'ok' | 'sym' | 'acc' | 'abc';
+  act?: 'shift' | 'back' | 'space' | 'ok' | 'sym' | 'acc' | 'abc' | 'enter';
 }
 
 const chars = (s: string): Key[] => [...s].map((c) => ({ label: c, ch: c, w: 1 }));
 const DIGITS = chars('1234567890');
 
 // QWERTY like the Meta keyboard: number row, shift, backspace, ?123 page, space, OK.
-function rows(mode: Mode): Key[][] {
+function rows(mode: Mode, multiline = false): Key[][] {
   const bottom = (first: Key): Key[] => [
     first,
+    ...(multiline ? [{ label: '↵', act: 'enter' as const, w: 1 }] : []),
     { label: ',', ch: ',', w: 1 },
-    { label: '', act: 'space', w: 5 },
+    { label: '', act: 'space', w: multiline ? 4 : 5 },
     { label: '.', ch: '.', w: 1 },
     { label: 'OK', act: 'ok', w: 1.5 },
   ];
@@ -158,7 +160,10 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
     if (k.ch) return type(k.ch);
     switch (k.act) {
       case 'space':
-        if (text && !text.endsWith(' ')) type(' ');
+        if (text && !text.endsWith(' ') && !text.endsWith('\n')) type(' ');
+        break;
+      case 'enter':
+        if (text && !text.endsWith('\n')) type('\n');
         break;
       case 'back':
         text = text.slice(0, -1);
@@ -203,7 +208,7 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
   function render() {
     const widgets: Widget[] = [
       { kind: 'label', rect: { x: PAD, y: 6, w: 280, h: 44 }, text: req?.title ?? '', size: 24, color: theme().headerSub },
-      { kind: 'row', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: req?.secret ? '•'.repeat(text.length) : text, caret: true, size: 40, fill: 'rgba(14,16,22,0.9)', hoverFill: 'rgba(14,16,22,0.9)', color: '#ffffff', glass: true },
+      { kind: 'row', rect: { x: PAD, y: 8 + 40, w: W - 2 * PAD - 190, h: 70 }, text: req?.secret ? '•'.repeat(text.length) : text.replace(/\n/g, ' ↵ '), caret: true, size: 40, fill: 'rgba(14,16,22,0.9)', hoverFill: 'rgba(14,16,22,0.9)', color: '#ffffff', glass: true },
       ...(text
         ? [
             {
@@ -225,7 +230,7 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
     ];
     const unit = (W - 2 * PAD - 9 * GAP) / 10;
     const keyH = 76;
-    rows(mode).forEach((row, r) => {
+    rows(mode, !!req?.multiline).forEach((row, r) => {
       // A key of weight w spans w columns plus the gaps between them, so rows line up.
       const width = (k: Key) => k.w * unit + (k.w - 1) * GAP;
       const total = row.reduce((sum, k) => sum + width(k), 0) + (row.length - 1) * GAP;
@@ -238,7 +243,7 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
           kind: 'key',
           rect: { x, y, w, h: keyH },
           text: k.ch ? (upper() ? k.label.toUpperCase() : k.label) : k.label,
-          size: k.ch || k.act === 'space' ? 38 : 30,
+          size: k.ch || k.act === 'space' || k.act === 'enter' ? 38 : 30,
           primary: k.act === 'ok',
           active: isShift && shift !== 'off',
           glass: true,

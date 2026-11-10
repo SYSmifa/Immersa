@@ -28,7 +28,7 @@ export function annotationLabel(a: Annotation): string {
 }
 
 // The name it has in lists.
-export const annotationName = (a: Annotation) => (a.kind === 'ruler' ? `Metro ${formatLength(annotationLength(a) ?? 0)}` : a.text.trim() ? `Nota: ${a.text.trim().slice(0, 24)}` : 'Nota');
+export const annotationName = (a: Annotation) => (a.kind === 'ruler' ? `Metro ${formatLength(annotationLength(a) ?? 0)}` : a.text.trim() ? `Nota: ${a.text.trim().replace(/\s+/g, ' ').slice(0, 24)}` : 'Nota');
 
 function cross(p: Vec3, owner: string, color: string): Measure[] {
   const seg = (dx: number, dy: number, dz: number): Measure => ({ kind: 'pin', a: [p[0] - dx, p[1] - dy, p[2] - dz], b: [p[0] + dx, p[1] + dy, p[2] + dz], text: '', owner, color });

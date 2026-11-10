@@ -239,7 +239,7 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   const half = (W - 16) / 2;
   if (o.annotation) {
     const an = o.annotation;
-    out.push({ kind: 'card', icon: 'room_plan', rect: { x: M, y: 112, w: W, h: 104 }, text: an.text || (an.kind === 'note' ? 'Nota senza testo' : 'Nessuna etichetta'), sub: an.length ? `Metro: ${an.length} · tocca per cambiare l'etichetta` : 'Tocca per cambiare il testo', size: 30, onClick: a.objAnnotText });
+    out.push({ kind: 'card', icon: 'room_plan', rect: { x: M, y: 112, w: W, h: 104 }, text: an.text.replace(/\s*\n\s*/g, ' · ') || (an.kind === 'note' ? 'Nota senza testo' : 'Nessuna etichetta'), sub: an.length ? `Metro: ${an.length} · tocca per cambiare l'etichetta` : 'Tocca per cambiare il testo', size: 30, onClick: a.objAnnotText });
     const cw = (W - 3 * 14) / 4;
     an.colors.forEach((c, i) => out.push({ kind: 'chip', rect: { x: M + i * (cw + 14), y: 232, w: cw, h: 56 }, text: c === an.color ? '✓' : '', size: 30, fill: c, color: '#1a1205', onClick: () => a.objAnnotColor(c) }));
     if (o.confirmDelete) {
