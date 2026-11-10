@@ -627,6 +627,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function closeCurrent() {
+    modelsHeld = false;
     cancelAlign();
     finishChoice(null);
     manual.clear();
@@ -845,6 +846,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // ---- manual alignment: the user touches two corners of the real room (see room/anchors.ts). It places a saved room when the
   // headset does not report it (Meta forgot it, or never had it), and needs nothing from Meta.
   const manual = new Set<string>(); // rooms placed by hand in this session: the headset's planes do not take them back
+  let modelsHeld = false; // the project's models wait: its room is being placed by hand first (they load once it is placed or cancelled)
   const layoutPlaced = new Set<string>(); // rooms placed through their links to another room (see room/layout.ts): the headset does not report them
   const alignCard = new Panel(0.62, 0.7, 1200, 'ink');
   alignCard.mesh.visible = false;
@@ -999,6 +1001,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     alignCard.mesh.visible = false;
     clearAlignMarks();
     refreshView();
+    releaseModels();
   }
 
   // A pinch while aligning: the touched point is where the pinch is (between thumb and index finger).
@@ -1051,7 +1054,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     alignCard.mesh.visible = false;
     clearAlignMarks();
     logEvent(`${run.room.name}: allineata a mano, scarto ${(r.alignment.resid * 100).toFixed(1)} cm, ${floorLive === null ? 'altezza stimata' : 'altezza dalla mano'}`);
+    modelsHeld = false; // the room is placed: the models of the project load in their places
     syncHouses();
+    beginModelLoad();
     learnLinks(true); // with another room placed by the headset, how they sit in relation to each other is kept
     refreshView();
     const follow = layoutPlaced.size;
@@ -1163,7 +1168,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       else if (foreign?.roomId === id) h.root.matrix.copy(foreign.matrix);
       h.root.visible = !gap && (!!a || foreign?.roomId === id);
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
-      h.layer.sync(modelsOf(id));
+      h.layer.sync(modelsHeld ? [] : modelsOf(id));
       h.structs.sync(current.structures?.filter((x) => x.roomId === id) ?? []);
     }
     if (free) {
@@ -1172,7 +1177,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       h.root.matrix.copy(freeFrame);
       h.root.visible = !gap;
       h.occluder.visible = false;
-      h.layer.sync(modelsOf(''));
+      h.layer.sync(modelsHeld ? [] : modelsOf(''));
       h.structs.sync(current.structures?.filter((x) => x.roomId === '') ?? []);
     }
   }
@@ -1532,6 +1537,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     void saveRoom();
   }
 
+  // The card "Carico il progetto" and the wait for the models (see awaitingModels).
+  function beginModelLoad() {
+    if (!current?.models.length) return;
+    awaitingModels = performance.now(); // the card stays until every model is in
+    setLoadingText('Carico il progetto', `Modelli 0 / ${current.models.length}`, 0);
+    loading.mesh.visible = true;
+  }
+  // The alignment is over (done or cancelled): now the models of the project load, in the place the room was given.
+  function releaseModels() {
+    if (!modelsHeld) return;
+    modelsHeld = false;
+    if (!current) return;
+    syncHouses();
+    beginModelLoad();
+  }
+
   function openProject(p: Project) {
     closeCurrent();
     unsaved = false;
@@ -1548,17 +1569,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     freeFrame = needsFreeSpace(p) ? makeFreeFrame() : null;
     lastProject.save(p.id, p.models.map((x) => x.path));
     mark('progetto');
-    syncHouses();
-    closeMenu();
-    refreshView();
-    if (p.models.length) {
-      awaitingModels = performance.now(); // the card stays until every model is in
-      setLoadingText('Carico il progetto', `Modelli 0 / ${p.models.length}`, 0);
-      loading.mesh.visible = true;
-    }
+    placeByLayout(); // rooms the headset does not report but that follow a placed one
     // Rooms of the project the headset does not report (it forgot them, or never had them) can be placed by touching two corners. If
-    // you stand in none of the rooms that were placed, this is almost surely the one that is missing: start at once. Otherwise
-    // (you are in a placed room, the missing one is elsewhere) only a hint, so the other room is not asked for while you work.
+    // you stand in none of the rooms that were placed, this is almost surely the one that is missing: start at once, and the models
+    // wait for it. Otherwise (you are in a placed room, the missing one is elsewhere) only a hint, so the other room is not asked
+    // for while you work.
     const lost = alignableRoom();
     const unplaced = !!lost && !aligns.has(lost.id);
     const inPlaced = !!lastHead && p.roomIds.some((id) => {
@@ -1566,9 +1581,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const a = aligns.get(id);
       return !!room && !!a && isInside({ room, alignment: a }, [lastHead!.pos.x, lastHead!.pos.y, lastHead!.pos.z]);
     });
-    if (unplaced && !inPlaced) {
+    modelsHeld = unplaced && !inPlaced;
+    syncHouses();
+    closeMenu();
+    refreshView();
+    if (!modelsHeld) beginModelLoad();
+    if (modelsHeld) {
       say(`Aperto: ${p.name}: nessuna stanza è stata ritrovata qui, scegli in quale sei e allineala`, 6000);
-      void startAlign();
+      // the chooser or the card up = still aligning; if neither came (nothing to do, or cancelled) the models load now
+      void startAlign().finally(() => {
+        if (!alignRun && !choiceRun) releaseModels();
+      });
     } else if (unplaced) {
       notify(`Stanza "${lost!.name}" non ritrovata: Stanza → Allineamento manuale`, 5000);
     } else if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
