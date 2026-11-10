@@ -16,9 +16,10 @@ import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelS
 import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
-import { knownPlaces, normPlace, placeOfRooms } from '../room/places';
+import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
+import { compose, invert, learnedLinks, placeByLinks } from '../room/layout';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
-import type { Annotation, PartEdit, Project, Room, RoomBox, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomBox, RoomLink, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
 import { createKeyboard } from '../ui3d/keyboard';
 import { createPoke } from '../ui3d/poke';
@@ -625,7 +626,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   function closeCurrent() {
     cancelAlign();
+    finishChoice(null);
     manual.clear();
+    layoutPlaced.clear();
     measureOverride.clear();
     gapOverride.clear();
     selectedAnnotId = null;
@@ -775,7 +778,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // ---- a card in front of you to choose one of a few things (the place of a room, the room you are in): the laser clicks a
   // button; a long list goes on over pages. Nothing else works while it is up (it has its own Cancel).
-  const choiceCard = new Panel(0.62, 0.8, 1200, 'ink');
+  const choiceCard = new Panel(0.62, 0.7, 1200, 'ink');
   choiceCard.mesh.visible = false;
   host.root.add(choiceCard.mesh);
   host.add(choiceCard);
@@ -840,6 +843,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // ---- manual alignment: the user touches two corners of the real room (see room/anchors.ts). It places a saved room when the
   // headset does not report it (Meta forgot it, or never had it), and needs nothing from Meta.
   const manual = new Set<string>(); // rooms placed by hand in this session: the headset's planes do not take them back
+  const layoutPlaced = new Set<string>(); // rooms placed through their links to another room (see room/layout.ts): the headset does not report them
   const alignCard = new Panel(0.62, 0.7, 1200, 'ink');
   alignCard.mesh.visible = false;
   host.root.add(alignCard.mesh);
@@ -957,8 +961,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     for (const m of [...alignMarks.children]) alignMarks.remove(m);
   }
 
-  function startAlign(room: Room | null = alignableRoom()) {
-    if (!room) return say('Serve un progetto con una stanza scansionata');
+  // `room`: the room to place; without it the user says which one of the project's rooms he is in now (the headset does not know
+  // when it has forgotten them) and that one is placed: the others of the place follow through their links.
+  async function startAlign(room?: Room | null) {
+    if (!current) return say('Serve un progetto con una stanza scansionata');
+    if (!room) {
+      const cands = current.roomIds
+        .map((id) => rooms.find((r) => r.id === id))
+        .filter((r): r is Room => !!r && !!suggestCorners(r.scan.planes))
+        .sort((a, b) => Number(aligns.has(a.id)) - Number(aligns.has(b.id))); // the ones not placed first
+      if (!cands.length) return say('Di queste stanze non riesco a trovare due angoli: rifai la scansione');
+      if (cands.length === 1) room = cands[0];
+      else {
+        const i = await choose('In quale stanza sei?', 'Scegli la stanza in cui ti trovi adesso: la allinei toccando due angoli e le altre stanze del luogo si mettono al loro posto.', cands.map((r) => (aligns.has(r.id) ? `${r.name} (già posizionata)` : r.name)));
+        if (i === null) return;
+        room = cands[i];
+      }
+    }
     const plan = suggestCorners(room.scan.planes);
     if (!plan) return say('Di questa stanza non riesco a trovare due angoli: rifai la scansione');
     closeMenu();
@@ -1031,8 +1050,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     clearAlignMarks();
     logEvent(`${run.room.name}: allineata a mano, scarto ${(r.alignment.resid * 100).toFixed(1)} cm, ${floorLive === null ? 'altezza stimata' : 'altezza dalla mano'}`);
     syncHouses();
+    learnLinks(true); // with another room placed by the headset, how they sit in relation to each other is kept
     refreshView();
-    notify(`Stanza allineata (scarto ${(r.alignment.resid * 100).toFixed(1)} cm)`, 2200);
+    const follow = layoutPlaced.size;
+    notify(follow ? `Allineata · ${follow} ${follow === 1 ? 'stanza segue' : 'stanze seguono'}` : `Stanza allineata (scarto ${(r.alignment.resid * 100).toFixed(1)} cm)`, 2800);
   }
 
   // A pinch on the floor in the visit: it is moved so that the pointed place is under you.
@@ -1059,9 +1080,63 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
   const needsFreeSpace = (p: Project) => p.roomIds.length === 0 || p.models.some((m) => m.roomId === '') || (p.structures ?? []).some((x) => x.roomId === '');
 
+  // Rooms the headset does not report (and nobody touched corners for) are placed through the links they have to a placed room of
+  // the project: allign one room and the others of its place follow. A room placed by the headset or by hand is never touched.
+  function placeByLayout() {
+    if (!current) return;
+    const members = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
+    const explicit = new Map<string, Alignment>();
+    for (const r of members) {
+      const a = aligns.get(r.id);
+      if (a && !layoutPlaced.has(r.id)) explicit.set(r.id, a);
+    }
+    const derived = explicit.size ? placeByLinks(members, explicit) : new Map<string, Alignment>();
+    for (const id of [...layoutPlaced]) {
+      if (derived.has(id)) continue;
+      aligns.delete(id); // what it hung on is gone
+      layoutPlaced.delete(id);
+    }
+    for (const [id, a] of derived) {
+      aligns.set(id, a);
+      layoutPlaced.add(id);
+    }
+  }
+
+  // Whenever two rooms of one place are both placed in this session (by the headset's own planes, or by hand), the way they sit
+  // in relation to each other is learned and kept in their scans, so that a later session can place one from the other.
+  let learnSig = '';
+  let learnAt = 0;
+  function learnLinks(force = false) {
+    const now = performance.now();
+    if (!force && now - learnAt < 8000) return;
+    const placed = rooms.filter((r) => normPlace(r.place) && aligns.has(r.id) && !layoutPlaced.has(r.id));
+    if (placed.length < 2) return;
+    const sig = placed.map((r) => { const a = aligns.get(r.id)!; return `${r.id}:${a.yaw.toFixed(2)},${a.tx.toFixed(1)},${a.tz.toFixed(1)}`; }).join('|');
+    if (!force && sig === learnSig) return;
+    learnSig = sig;
+    learnAt = now;
+    const good = (r: Room) => manual.has(r.id) || (r.id === recognised?.room.id ? recognised.alignment.resid < 0.03 : !!fits.get(r.id)?.good);
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i];
+        const b = placed[j];
+        if (!samePlace(a.place, b.place) || !good(a) || !good(b)) continue;
+        const src = manual.has(a.id) || manual.has(b.id) ? 'manual' : 'meta';
+        const res = learnedLinks(a, b, aligns.get(a.id)!, aligns.get(b.id)!, src);
+        if (!res) continue;
+        a.scan = { ...a.scan, links: { ...a.scan.links, [b.id]: res[0] } };
+        b.scan = { ...b.scan, links: { ...b.scan.links, [a.id]: res[1] } };
+        for (const r of [a, b]) void backend.saveRoomData(r.id, r.scan).catch((e) => logEvent(`posizione relativa non salvata: ${errText(e)}`));
+        logEvent(`${a.name} ↔ ${b.name}: posizione relativa salvata (${src === 'meta' ? 'dal visore' : 'a mano'})`);
+      }
+    }
+  }
+
   // Bring the scene in line with the open project and the alignments found so far.
   function syncHouses() {
     if (!current) return;
+    placeByLayout();
+    learnLinks();
     const ids = current.roomIds.filter((id) => rooms.some((r) => r.id === id));
     const free = needsFreeSpace(current);
     for (const id of [...houses.keys()]) {
@@ -1132,11 +1207,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       misses.delete(room.id);
       if (!old || moved(old, fit, room.id)) {
         manual.delete(room.id); // the headset reports the room itself again
+        layoutPlaced.delete(room.id);
         aligns.set(room.id, fit);
         syncHouses();
         refreshView();
       }
-    } else if (old && !manual.has(room.id)) {
+    } else if (old && !manual.has(room.id) && !layoutPlaced.has(room.id)) {
       const n = (misses.get(room.id) ?? 0) + 1;
       misses.set(room.id, n);
       if (n >= 2) {
@@ -1175,6 +1251,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     recognised = r;
     outline.clear();
     if (r) {
+      layoutPlaced.delete(r.room.id); // the headset reports it: that placement wins
+      manual.delete(r.room.id);
       gap = false; // found again: trust the session
       mark('stanza');
     }
@@ -1334,6 +1412,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes }, place || undefined);
       rooms.unshift(room);
       setRecognised({ room, alignment: identity(planes.length) });
+      fits.set(room.id, { resid: 0, matched: planes.length, total: planes.length, good: true });
+      learnLinks(true); // the other rooms of its place that are placed right now: where they are in relation to this one
       say(`Stanza "${name}" salvata`);
     } catch (e) {
       say(`Salvataggio fallito: ${errText(e)}`);
@@ -1370,7 +1450,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const v = new Vector3(...x.pos).applyMatrix4(m);
       return { ...x, pos: [v.x, v.y, v.z], yaw: x.yaw - a.yaw };
     };
-    const scan = { version: 1 as const, savedAt: Date.now(), planes, boxes };
+    // The room's frame becomes the session's: the links to the other rooms are carried over (a point of the old frame is, in the
+    // new one, `a` of it): its own links go through `a`, the links the others have to it through the inverse.
+    const ownLinks: Record<string, RoomLink> = {};
+    for (const [id, l] of Object.entries(room.scan.links ?? {})) ownLinks[id] = { ...l, ...compose(a, l) };
+    const scan = { version: 1 as const, savedAt: Date.now(), planes, boxes, ...(Object.keys(ownLinks).length ? { links: ownLinks } : {}) };
+    const others = rooms.filter((x) => x.id !== room.id && x.scan.links?.[room.id]);
     const affected = allProjects.filter((p) => p.models.some((x) => x.roomId === room.id));
     try {
       await backend.updateRoomScan(room.id, scan, room.scan);
@@ -1380,6 +1465,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return say(`Room update failed: ${errText(e)}`);
     }
     room.scan = scan;
+    for (const x of others) {
+      const l = x.scan.links![room.id];
+      x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)) } } };
+      void backend.saveRoomData(x.id, x.scan).catch((e) => logEvent(`posizione relativa non salvata: ${errText(e)}`));
+    }
     for (const p of affected) p.models = p.models.map(convert);
     const h = houses.get(room.id); // its invisible walls were built from the old scan
     if (h) {
@@ -1469,8 +1559,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return !!room && !!a && isInside({ room, alignment: a }, [lastHead!.pos.x, lastHead!.pos.y, lastHead!.pos.z]);
     });
     if (unplaced && !inPlaced) {
-      say(`Aperto: ${p.name}: la stanza "${lost!.name}" non è stata ritrovata, allineala toccando due angoli`, 6000);
-      startAlign(lost);
+      say(`Aperto: ${p.name}: nessuna stanza è stata ritrovata qui, scegli in quale sei e allineala`, 6000);
+      void startAlign();
     } else if (unplaced) {
       notify(`Stanza "${lost!.name}" non ritrovata: Stanza → Allineamento manuale`, 5000);
     } else if (p.roomIds.length === 0) say(`Aperto: ${p.name} · senza stanza: ${p.models.length} ${p.models.length === 1 ? 'modello' : 'modelli'} davanti a te`, 9000);
@@ -1577,7 +1667,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       render();
     },
     alignRoom() {
-      startAlign();
+      void startAlign();
     },
     // The depth measuring page (see xr/depthProbe.ts): the next start from the Library opens it, once (leaving the session would close the app).
     openDepthProbe() {
@@ -3353,6 +3443,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       ignored.clear();
       aligns.clear(); // a new session has a new origin
       manual.clear();
+      layoutPlaced.clear();
       cancelAlign();
       misses.clear();
       fits.clear();
@@ -3567,6 +3658,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       logEvent('reset del riferimento');
       aligns.clear();
       manual.clear();
+      layoutPlaced.clear();
       misses.clear();
       lastTry = 0;
       lastFar = 0;
@@ -3594,6 +3686,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selectedPart: () => selectedPart,
     openObject: () => openObjectMenu(), // test hook
     startAlign: () => startAlign(), // test hook
+    choiceOptions: () => choiceRun?.options ?? null, // test hooks
+    pickChoice: (i: number | null) => finishChoice(i),
     alignTouchAt: (x: number, y: number, z: number) => {
       pinchR = new Vector3(x, y, z);
       return alignTouch();
