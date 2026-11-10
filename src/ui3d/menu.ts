@@ -437,37 +437,55 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(surface(M, top, W, 380));
     const inner = M + 28;
     const iw = W - 56;
-    const pill = (label: string, y: number, onClick: () => void, o: Partial<Widget> = {}): Widget => ({ kind: 'pill', rect: { x: inner, y, w: iw, h: 60 }, text: label, size: 25, onClick, ...o });
+    // The buttons stack from `y`; the last one is always "Allineamento manuale" (place the room by touching two corners).
+    let y = top;
+    const add = (label: string, onClick: () => void, o: Partial<Widget> = {}) => {
+      out.push({ kind: 'pill', rect: { x: inner, y, w: iw, h: 56 }, text: label, size: 24, onClick, ...o });
+      y += 66;
+    };
+    const manual = () => add('Allineamento manuale', a.alignRoom, { disabled: !v.alignRoom, icon: 'room' });
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
-      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, inner, top + 22, iw, 90, 26, T.text2, { wrap: true }));
-      out.push(pill('Rinomina stanza', top + 130, a.renameRoom));
-      out.push(pill('Non è questa stanza', top + 204, a.notThisRoom));
-      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 278, a.scan, { primary: true, icon: 'scan' }));
+      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\nÈ già salvata nel tuo account.`, inner, top + 20, iw, 80, 25, T.text2, { wrap: true }));
+      y = top + 104;
+      add('Rinomina stanza', a.renameRoom);
+      add('Non è questa stanza', a.notThisRoom);
+      if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
+      manual();
     } else if (v.candidate) {
-      out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 22, iw, 100, 26, T.text2, { wrap: true }));
-      out.push(pill('Sì, sono in questa stanza', top + 140, a.confirmCandidate, { primary: true }));
-      out.push(
-        v.captureAvailable
-          ? pill('No, scansiona la stanza in cui sono', top + 214, a.scan)
-          : text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 214, iw, 90, 22, T.dim, { wrap: true }),
-      );
+      out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
+      y = top + 114;
+      add('Sì, sono in questa stanza', a.confirmCandidate, { primary: true });
+      if (v.captureAvailable) add('No, scansiona la stanza in cui sono', a.scan);
+      else {
+        out.push(text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, y, iw, 60, 21, T.dim, { wrap: true }));
+        y += 66;
+      }
+      manual();
     } else if (v.changedRoom) {
-      out.push(text(`Sembra la stanza "${v.changedRoom}", ma la scansione del visore è cambiata. Aggiorno quella salvata: i modelli restano al loro posto.`, inner, top + 22, iw, 110, 25, T.text2, { wrap: true }));
-      out.push(pill(`Aggiorna "${v.changedRoom}"`, top + 140, a.updateChanged, { primary: true }));
-      out.push(pill('Salva come stanza nuova', top + 214, a.saveRoom));
-      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 288, a.scan, { icon: 'scan' }));
+      out.push(text(`Sembra la stanza "${v.changedRoom}", ma la scansione del visore è cambiata. Aggiorno quella salvata: i modelli restano al loro posto.`, inner, top + 18, iw, 96, 24, T.text2, { wrap: true }));
+      y = top + 118;
+      add(`Aggiorna "${v.changedRoom}"`, a.updateChanged, { primary: true });
+      add('Salva come stanza nuova', a.saveRoom);
+      if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
+      manual();
     } else if (v.liveReady) {
-      out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 22, iw, 100, 26, T.text2, { wrap: true }));
-      out.push(pill('Salva stanza', top + 140, a.saveRoom, { primary: true }));
-      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 214, a.scan, { icon: 'scan' }));
+      out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
+      y = top + 114;
+      add('Salva stanza', a.saveRoom, { primary: true });
+      if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
+      manual();
     } else if (v.captureAvailable) {
-      out.push(text('Nessuna scansione trovata in questa stanza.', inner, top + 22, iw, 60, 26, T.text2, { wrap: true }));
-      out.push(pill('Scansiona la stanza', top + 100, a.scan, { primary: true, icon: 'scan' }));
-      out.push(pill('Rileggi', top + 174, a.reread));
+      out.push(text('Nessuna scansione trovata in questa stanza.', inner, top + 20, iw, 50, 25, T.text2, { wrap: true }));
+      y = top + 84;
+      add('Scansiona la stanza', a.scan, { primary: true, icon: 'scan' });
+      add('Rileggi', a.reread);
+      manual();
     } else {
-      out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 22, iw, 150, 24, T.text2, { wrap: true }));
-      out.push(pill('Rileggi', top + 190, a.reread, { primary: true }));
+      out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 20, iw, 130, 23, T.text2, { wrap: true }));
+      y = top + 156;
+      add('Rileggi', a.reread, { primary: true });
+      manual();
     }
   } else if (v.tab === 'tools') {
     out.push(surface(M, top, W, 380));
