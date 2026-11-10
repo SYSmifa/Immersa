@@ -220,3 +220,34 @@ export function alignPlanes(from: RoomPlane[], to: RoomPlane[]): Alignment | nul
   }
   return best;
 }
+
+// Why did a saved room not fit? For each saved structural plane that is NOT found within MATCHED of a live
+// plane (same orientation, measured along the live normal), say what is there instead: the same label a few
+// cm away ("wall 7cm"), another label in the right place ("door>other"), or nothing ("wall x"). Diagnostics only.
+export function describeMisses(from: RoomPlane[], to: RoomPlane[], a: Alignment): string {
+  const f = structural(from).filter((p) => p.quat);
+  const t = structural(to).filter((p) => p.quat);
+  const c = Math.cos(a.yaw);
+  const s = Math.sin(a.yaw);
+  const out: string[] = [];
+  let ok = 0;
+  for (const p of f) {
+    const P: Vec3 = [c * p.pos[0] - s * p.pos[2] + a.tx, p.pos[1] + a.ty, s * p.pos[0] + c * p.pos[2] + a.tz];
+    const n0 = planeNormal(p.quat!);
+    const n: Vec3 = [c * n0[0] - s * n0[2], n0[1], s * n0[0] + c * n0[2]];
+    let same = Infinity; // closest plane with the same label
+    let other: { e: number; label: string } | null = null; // closest plane with another label
+    for (const q of t) {
+      const m = planeNormal(q.quat!);
+      if (Math.abs(n[0] * m[0] + n[1] * m[1] + n[2] * m[2]) < 0.9) continue;
+      const e = Math.abs(m[0] * (P[0] - q.pos[0]) + m[1] * (P[1] - q.pos[1]) + m[2] * (P[2] - q.pos[2]));
+      if (q.label === p.label) same = Math.min(same, e);
+      else if (!other || e < other.e) other = { e, label: q.label };
+    }
+    if (same < MATCHED) ok++;
+    else if (other && other.e < MATCHED && other.e < same) out.push(`${p.label}>${other.label}`);
+    else out.push(same < 1 ? `${p.label} ${(same * 100).toFixed(0)}cm` : `${p.label} x`);
+  }
+  const noQuat = structural(from).length - f.length;
+  return `${ok}/${f.length} ok${noQuat ? `, ${noQuat} senza orientamento` : ''}${out.length ? `; ${out.slice(0, 6).join(', ')}${out.length > 6 ? ` +${out.length - 6}` : ''}` : ''}`;
+}

@@ -55,6 +55,7 @@ export interface MenuView {
   roomName: string | null; // recognised (saved) room
   info: string; // how many planes the headset reports / belong to this room
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
+  changedRoom: string | null; // saved room that only partly fits the live scan: probably this room, with a moved or changed scan
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
@@ -101,6 +102,7 @@ export interface MenuActions {
   saveRoom(): void;
   renameRoom(): void;
   confirmCandidate(): void;
+  updateChanged(): void;
   notThisRoom(): void;
   scan(): void;
   reread(): void;
@@ -364,6 +366,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     ? `Stanza aperta${project}`
     : v.candidate
       ? 'Stanza non confermata'
+      : v.changedRoom
+        ? 'Stanza da aggiornare'
       : v.liveReady
         ? `Stanza non salvata${project}`
         : `Nessuna stanza scansionata${project}`;
@@ -445,6 +449,11 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
           ? pill('No, scansiona la stanza in cui sono', top + 214, a.scan)
           : text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 214, iw, 90, 22, T.dim, { wrap: true }),
       );
+    } else if (v.changedRoom) {
+      out.push(text(`Sembra la stanza "${v.changedRoom}", ma la scansione del visore è cambiata. Aggiorno quella salvata: i modelli restano al loro posto.`, inner, top + 22, iw, 110, 25, T.text2, { wrap: true }));
+      out.push(pill(`Aggiorna "${v.changedRoom}"`, top + 140, a.updateChanged, { primary: true }));
+      out.push(pill('Salva come stanza nuova', top + 214, a.saveRoom));
+      if (v.captureAvailable) out.push(pill('Scansiona di nuovo', top + 288, a.scan, { icon: 'scan' }));
     } else if (v.liveReady) {
       out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 22, iw, 100, 26, T.text2, { wrap: true }));
       out.push(pill('Salva stanza', top + 140, a.saveRoom, { primary: true }));

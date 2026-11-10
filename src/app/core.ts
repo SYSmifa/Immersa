@@ -1,6 +1,6 @@
 import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
-import { alignPlanes, planeNormal, type Alignment } from '../room/align';
+import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { buildOccluders, createOccluderMaterial, showOccluders } from '../room/occluders';
 import { createStructureLayer, effective, hasXf, structMeasure, type StructureLayer } from '../room/structures';
@@ -46,6 +46,7 @@ const SPLASH_MS = 2400; // at least this long on screen, to be seen
 const MENU_DISTANCE = 0.85;
 const OUTLINE_WIDTH = 0.015; // m: thickness of the room outline in the headset
 const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than this has a stale saved scan
+const NEAR_MATCH = 0.35; // a saved room with at least this share of its planes found again is probably the same room, changed
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
 const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
@@ -246,6 +247,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     linkCode: null,
     roomName: null,
     candidate: null,
+    changedRoom: null,
     info: '',
     resid: null,
     liveReady: false,
@@ -280,6 +282,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let recognised: Recognised | null = null;
   let candidate: Recognised | null = null; // matches the live scan but the user is not inside
   const ignored = new Set<string>(); // rooms the user said are not the one they are in
+  let changed: Recognised | null = null; // a saved room that only partly fits what the headset reports now: its scan may have moved or changed
+  let lastMissLog = '';
+  let lastMissAt = 0;
+  const loggedFit = new Set<string>(); // rooms whose fit was logged in this session
   let allProjects: Project[] = []; // every project of the account
   let projectsLoaded = false;
   let current: Project | null = null;
@@ -335,6 +341,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function refreshView() {
     view.roomName = recognised?.room.name ?? null;
     view.candidate = candidate?.room.name ?? null;
+    view.changedRoom = changed?.room.name ?? null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
@@ -946,6 +953,31 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
   }
 
+  // Nothing was recognised: write down why (for the closest saved room), so we can tell drift from relabelled planes.
+  function logMiss(near: Recognised | null) {
+    let r = near;
+    if (!r) {
+      let best = -1; // no near room: report the best fit anyway
+      for (const room of rooms) {
+        if (ignored.has(room.id)) continue;
+        const a = alignPlanes(room.scan.planes, live);
+        if (a && a.matched / a.total > best) {
+          best = a.matched / a.total;
+          r = { room, alignment: a };
+        }
+      }
+    }
+    const now = performance.now();
+    const sig = r ? `${r.room.id}:${r.alignment.matched}` : 'none';
+    if (sig === lastMissLog && now - lastMissAt < 30000) return;
+    lastMissLog = sig;
+    lastMissAt = now;
+    if (!r) return logEvent(`stanza non trovata: ${live.length} piani, nessun accordo`);
+    const detail = describeMisses(r.room.scan.planes, live, r.alignment);
+    logEvent(`${r.room.name}: ${r.alignment.matched}/${r.alignment.total} (${near ? 'quasi' : 'no'}), scarto ${(r.alignment.resid * 100).toFixed(1)} cm; ${detail}`);
+    console.log('[immersa] live labels', live.map((p) => p.label).join(','));
+  }
+
   function tryRecognise(now: number) {
     if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < 2500) return;
     lastTry = now;
@@ -953,20 +985,37 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // room, so the recognised room and its alignment stay as they are until the planes come back.
     if (recognised && rawLive.length === 0) return;
     const h = lastHead.pos;
+    let near: Recognised | null = null; // best partial fit: not good enough to trust, but probably the same room
+    let nearScore = -Infinity;
     const found =
       live.length >= MIN_PLANES
         ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id)), (room, a) => {
-            if (a) fits.set(room.id, { resid: a.resid, matched: a.matched, total: a.total, good: isGoodFit(a) });
+            if (!a) return;
+            const good: boolean = isGoodFit(a);
+            fits.set(room.id, { resid: a.resid, matched: a.matched, total: a.total, good });
+            const score = a.matched / a.total;
+            if (!good && a.matched >= 3 && score >= NEAR_MATCH && score > nearScore) {
+              nearScore = score;
+              near = { room, alignment: a };
+            }
           })
         : null;
     const inside = !!found && isInside(found, [h.x, h.y, h.z]);
+    if (found && !loggedFit.has(found.room.id)) {
+      loggedFit.add(found.room.id); // one line per room and session, to follow how the headset's copy ages
+      logEvent(`${found.room.name}: ${found.alignment.matched}/${found.alignment.total} piani, scarto ${(found.alignment.resid * 100).toFixed(1)} cm`);
+    }
     if (recognised) return reconsider(found && inside ? found : null);
     if (live.length < MIN_PLANES) return;
     if (!found) {
       candidate = null;
       failedTries++;
+      const n = near as Recognised | null;
+      changed = n && isInside(n, [h.x, h.y, h.z]) ? n : null;
+      logMiss(n);
       return refreshView();
     }
+    changed = null;
     if (inside) {
       candidate = null;
       return setRecognised(found);
@@ -1095,6 +1144,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     if (failedTries < 1) return; // recognition has not had its chance yet
     setPendingName(false);
+    if (changed) {
+      // A saved room that probably is this one (its scan moved): offer to update it instead of saving a duplicate.
+      view.tab = 'scan';
+      openMenu();
+      return;
+    }
     view.tab = 'scan';
     openMenu();
     void saveRoom();
@@ -1254,6 +1309,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const r = candidate;
       candidate = null;
       setRecognised(r);
+    },
+    updateChanged() {
+      if (!changed) return;
+      const r = changed;
+      changed = null;
+      say(`Aggiorno "${r.room.name}"...`);
+      void refreshRoomScan(r).then(() => say(`"${r.room.name}" aggiornata: i modelli sono rimasti al loro posto`));
     },
     notThisRoom() {
       const id = recognised?.room.id ?? candidate?.room.id;
