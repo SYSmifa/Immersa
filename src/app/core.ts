@@ -1517,13 +1517,26 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     say('Scansione in corso...', 60000);
     closeMenu();
     scanning = true;
-    try {
-      await capture.start();
-    } catch (e) {
+    // A second scan in one session was refused by the system ("could not open the Meta function"): the cause is not known, so
+    // the error is logged in full (name + message) and the call is retried a couple of times after a pause.
+    let failure: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, attempt * 1500));
+      try {
+        await capture.start();
+        failure = null;
+        break;
+      } catch (e) {
+        failure = e;
+        const n = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        logEvent(`scansione: tentativo ${attempt + 1} fallito (${n.slice(0, 90)})`);
+      }
+    }
+    if (failure) {
       scanning = false;
       setPendingName(false);
       openMenu();
-      return say(`Scansione non riuscita: ${errText(e)}`);
+      return say(`Scansione non riuscita: ${errText(failure)}. Chiudi e riapri Immersa dalla Libreria`, 8000);
     }
     scanning = false;
     if (!again && recognised) setRecognised(null); // a new room: the stale one must not take the new planes
