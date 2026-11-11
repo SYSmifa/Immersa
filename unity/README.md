@@ -23,3 +23,9 @@ Per abbandonare Unity basta cancellare la cartella `unity/` (e il branch).
 
 ## Ponte MCP (strada 2, dopo il punto 4)
 Da fare su Claude Code locale nella cartella `unity/`; i passi esatti si verificano sulla documentazione del pacchetto scelto.
+
+## Stato (11/11)
+- Fatto: progetto creato, ponte MCP di Unity attivo e Claude Code configurato (Project Settings → AI → Unity MCP Server → Integrations).
+- Da verificare: se i passi 2-3 (Android, package name) sono già stati fatti.
+- PROSSIMO: passo 4 (pacchetti). Niente XR Interaction Toolkit: per le mani si usa l'Interaction SDK di Meta.
+- Poi: prototipo di rischio (`docs/unity-port.md` §5, gradino 0): passthrough senza Guardian, login Supabase, elenco progetti, GLB, due scansioni nella stessa sessione.
