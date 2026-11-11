@@ -1529,7 +1529,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       } catch (e) {
         failure = e;
         const n = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-        logEvent(`scansione: tentativo ${attempt + 1} fallito (${n.slice(0, 90)})`);
+        logEvent(`scansione: tentativo ${attempt + 1} fallito`);
+        for (let i = 0; i < n.length && i < 270; i += 60) logEvent(`  ${n.slice(i, i + 60)}`); // the full text, in lines that fit the log page
       }
     }
     if (failure) {
