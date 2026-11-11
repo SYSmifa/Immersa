@@ -25,14 +25,15 @@ Per abbandonare Unity basta cancellare la cartella `unity/` (e il branch).
 Da fare su Claude Code locale nella cartella `unity/`; i passi esatti si verificano sulla documentazione del pacchetto scelto.
 
 ## Stato (11/11)
-- Fatto: progetto creato (Unity 6.3 LTS 6000.3.28f1, URP), ponte MCP attivo, Claude Code configurato, `.gitignore`/`.gitattributes`.
-- Passo 4 (pacchetti) eseguito dalla sessione locale: controllare `Packages/manifest.json` (OpenXR Meta, glTFast, Newtonsoft, Meta XR SDK) e committare se non è già fatto.
-- Al 11/11 `ProjectSettings` ha ancora i valori del template: Product Name `unity`, package `com.UnityTechnologies...`, Min API 25, architettura da verificare. Vanno sistemati (punto A).
+- Fatto: progetto, pacchetti (Meta XR SDK 209, Unity OpenXR Meta 2.7.0, glTFast 6.0.0, Newtonsoft 3.2.2), ponte MCP, XR Plug-in Management + OpenXR, impostazioni Meta (mani, ancore, scena, boundary visibility, passthrough), Product Name `Immersa`, Vulkan, Mobile quality.
+- PUNTO A FATTO E PROVATO SUL VISORE (APK di prova): parte in passthrough e il Guardian/confini non compaiono all'avvio.
+- Non ancora provato: Guardian dopo standby e dopo una scansione; è il primo controllo del punto B1.
+- PROSSIMO: punto B (prototipo di rischio), un gradino alla volta.
 
 ## Cosa fare (sessione locale)
 Regole: un gradino alla volta; prima dire cosa si farà e aspettare l'ok; commit piccoli dopo ogni gradino (con i `.meta`); non toccare `src/`, `supabase/` né il deploy web; dopo ogni cambio importante far controllare la Console (niente errori rossi); se un'API Meta/Unity è incerta, cercare la documentazione prima di scrivere codice; le prove sul visore le fa l'utente (APK con `adb install`), chiedere foto/log e raggruppare le modifiche prima di una build.
 
-A. Configurazione Android/Quest (con MCP)
+A. Configurazione Android/Quest (con MCP) — FATTO e provato sul visore
 1. Player: Company/Product Name `Immersa`, package `app.immersa.quest.unity`, IL2CPP, solo ARM64, Min API 32 (target massimo), Color Space Linear, Graphics API Vulkan (via OpenGLES3 se non serve).
 2. XR Plug-in Management → Android: OpenXR, feature group Meta Quest (Meta Quest Support, Touch Controller Profile, Hand Tracking Subsystem, Meta Quest: Camera/Anchors/Boundary Visibility/Occlusion se presenti); Initialize XR on Startup.
 3. Meta XR SDK: Project Setup Tool → applicare le correzioni consigliate (non tutte alla cieca: dire quali). Manifest: permessi scena (`com.oculus.permission.USE_SCENE`), anchor spaziali, hand tracking, passthrough.
