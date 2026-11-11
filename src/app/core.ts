@@ -139,6 +139,7 @@ const lastProject = {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawOf = (f: Vector3) => Math.atan2(f.x, f.z); // horizontal direction (sin a, cos a)
+const ONE_SCAN_MSG = 'Meta permette una sola scansione per sessione: salva questa stanza, chiudi e riapri Immersa dalla Libreria, poi scansiona la prossima';
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
@@ -315,6 +316,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let lost = 0; // consecutive checks that found none
   const refreshed = new Set<string>(); // rooms whose saved scan was already renewed in this session
   let stale = 0; // consecutive checks where the recognised room fits poorly
+  let scannedThisSession = false; // Meta allows ONE room capture per XR session ("room capture was already called for this session")
   let scanning = false; // the system room scan is running (the session must not be restarted meanwhile)
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
@@ -1509,6 +1511,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   async function startScan() {
     if (!capture?.available) return say('Scansione non disponibile in questo browser');
+    if (scannedThisSession) return say(ONE_SCAN_MSG, 9000);
     // Scanning the room we are in again, or a new one? The room that is recognised may be stale (a room just saved, and you have
     // walked on to the next one): it only counts as scanned again if your head is really inside it.
     const h = lastHead;
@@ -1528,6 +1531,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         break;
       } catch (e) {
         failure = e;
+        if (/already called/i.test(errText(e))) {
+          scannedThisSession = true;
+          break; // retrying cannot help
+        }
         const n = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
         logEvent(`scansione: tentativo ${attempt + 1} fallito`);
         for (let i = 0; i < n.length && i < 270; i += 60) logEvent(`  ${n.slice(i, i + 60)}`); // the full text, in lines that fit the log page
@@ -1537,9 +1544,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       scanning = false;
       setPendingName(false);
       openMenu();
-      return say(`Scansione non riuscita: ${errText(failure)}. Chiudi e riapri Immersa dalla Libreria`, 8000);
+      return say(scannedThisSession ? ONE_SCAN_MSG : `Scansione non riuscita: ${errText(failure)}`, 9000);
     }
     scanning = false;
+    scannedThisSession = true;
     if (!again && recognised) setRecognised(null); // a new room: the stale one must not take the new planes
     lastTry = 0;
     failedTries = 0;
@@ -3531,7 +3539,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // After a long standby the headset hands over no planes. Meta's own scan window makes it read the room again: it is opened
     // here (choose "Non ora" in it) without touching the saved scans (no pending name, so nothing is renewed).
     async recoverRooms() {
-      if (!capture?.available || scanning) return;
+      if (!capture?.available || scanning || scannedThisSession) return;
       scanning = true; // the standby logic waits while the system window is up
       closeMenu();
       searching = false;
