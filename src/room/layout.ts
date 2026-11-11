@@ -165,3 +165,54 @@ export function linkSummary(room: Room, rooms: Room[]): { name: string; state: L
   }
   return out;
 }
+
+export interface Placement {
+  pose: Pose; // where the room's frame is, in the frame of the room we look from
+  state: LinkState | 'unknown'; // how sure the position is: the weakest link on the way ('unknown': no link, put aside)
+}
+
+const RANK: Record<LinkState, number> = { tentative: 0, confirmed: 1, manual: 2 };
+
+// Where every other room of the project is, seen from `current` (the room being edited): through the links, hopping from room to
+// room, whatever their state (the editor shows a guess too, marked as such, so that a wrong one is seen). A room with no link at
+// all is put aside, on the floor level of `current` and to the east of it, one after the other, with state 'unknown'.
+export function placeAround(current: Room, members: Room[]): Map<string, Placement> {
+  const out = new Map<string, Placement>();
+  const byId = new Map(members.map((r) => [r.id, r]));
+  byId.set(current.id, current);
+  const known = new Map<string, { pose: Pose; rank: number }>([[current.id, { pose: IDENTITY, rank: RANK.manual }]]);
+  for (let pass = 0; pass < members.length; pass++) {
+    let grew = false;
+    for (const target of members) {
+      if (known.has(target.id)) continue;
+      let best: { pose: Pose; rank: number } | null = null;
+      for (const [id, k] of known) {
+        const base = byId.get(id);
+        const link = base && linkBetween(base, target);
+        if (!base || !link || !samePlace(base.place, target.place)) continue;
+        const rank = Math.min(k.rank, RANK[linkState(link.link)]);
+        if (!best || rank > best.rank) best = { pose: compose(k.pose, link.pose), rank };
+      }
+      if (best) {
+        known.set(target.id, best);
+        grew = true;
+      }
+    }
+    if (!grew) break;
+  }
+  const states: LinkState[] = ['tentative', 'confirmed', 'manual'];
+  for (const [id, k] of known) if (id !== current.id) out.set(id, { pose: k.pose, state: states[k.rank] });
+  // the rest: aside
+  const floorOf = (r: Room) => floorCentre(r.scan.planes);
+  const cur = floorOf(current);
+  let east = Math.max(...current.scan.planes.flatMap((p) => (p.poly ?? []).length >= 6 ? [p.pos[0] + 3] : [p.pos[0]]), cur[0]) + 4;
+  for (const r of members) {
+    if (r.id === current.id || known.has(r.id)) continue;
+    const c = floorOf(r);
+    const xs = r.scan.planes.map((p) => p.pos[0]);
+    const width = xs.length ? Math.max(...xs) - Math.min(...xs) + 2 : 4;
+    out.set(r.id, { pose: { yaw: 0, tx: east + width / 2 - c[0], ty: cur[1] - c[1], tz: cur[2] - c[2] }, state: 'unknown' });
+    east += width + 3;
+  }
+  return out;
+}

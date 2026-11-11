@@ -6,6 +6,12 @@ import { createFakeBackend } from './fakeBackend';
 export function runEditTest() {
   const backend = createFakeBackend(new URLSearchParams(location.search).has('loggedout')); // ?loggedout: the login card
   (window as any).__backend = backend;
+  // ?links=confirmed|tentative|manual|none: the two rooms get a place, and a link of that kind (Cucina 6 m east of Salotto, turned a little)
+  const kind = new URLSearchParams(location.search).get('links');
+  if (kind) {
+    backend.rooms.forEach((r) => (r.place = 'Casa mia'));
+    if (kind !== 'none') backend.rooms[0].scan.links = { r2: { yaw: 0.3, tx: 6, ty: 0, tz: 1, at: 1, src: kind === 'manual' ? 'manual' : 'meta', n: kind === 'tentative' ? 1 : 2 } };
+  }
   let files = [
     { path: 'u/aaaa.glb', size: 3_400_000, createdAt: new Date().toISOString() },
     { path: 'u/bbbb.glb', size: 120_000, createdAt: new Date().toISOString() },

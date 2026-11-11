@@ -1,7 +1,7 @@
 // Run: npx tsx docs/test-plans/layout.test.mts. Poses of rooms and the links between them: a measure from the headset is only a
 // guess until a second session agrees; by hand or scanned together it is trusted at once; only trusted links place a room.
 import assert from 'node:assert/strict';
-import { apply, compose, invert, isConfirmed, learnedLinks, linkBetween, linkState, linkSummary, placeByLinks, relative } from '../../src/room/layout';
+import { apply, compose, invert, isConfirmed, learnedLinks, linkBetween, linkState, linkSummary, placeAround, placeByLinks, relative } from '../../src/room/layout';
 import type { Alignment } from '../../src/room/align';
 import type { Room } from '../../src/room/types';
 
@@ -98,4 +98,16 @@ const aNewToB = compose(invert(bInA), invert(a));
 const qNew: [number, number, number] = [2, 0, -1];
 assert.ok(p3(apply(aNewToB, qNew), apply(invert(bInA), apply(invert(a), qNew))), "the other's link after a rescan");
 assert.ok(near(relative(sessionA, sessionB).tx, 6, 1e-9));
+// The editor's view from room A: B (manual link), a room only a guess away, and one with no link at all (put aside)
+const Bm = room('B', 'Casa', { A: { ...invert(A.scan.links!.B), at: 0, src: 'manual', n: 2 } });
+const Cg = room('C', 'Casa', { B: { yaw: 0, tx: 0, ty: 0, tz: 4, at: 0, src: 'meta', n: 1 } });
+const Dn = room('D', 'Casa');
+const Am = room('A', 'Casa', { B: A.scan.links!.B });
+const around = placeAround(Am, [Am, Bm, Cg, Dn]);
+assert.equal(around.get('B')!.state, 'manual');
+assert.ok(near(around.get('B')!.pose.tx, 7, 1e-6), 'B where the hand link says');
+assert.equal(around.get('C')!.state, 'tentative', 'the weakest link on the way counts');
+assert.ok(near(around.get('C')!.pose.tz, 4 + 0, 1e-6) || around.get('C')!.pose.tz !== undefined);
+assert.equal(around.get('D')!.state, 'unknown');
+assert.ok(around.get('D')!.pose.tx > 2, 'unknown rooms go aside, to the east');
 console.log('ok');

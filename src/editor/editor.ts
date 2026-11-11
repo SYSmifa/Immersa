@@ -49,6 +49,7 @@ import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea,
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
 import { linkSummary } from '../room/layout';
+import { createOtherRooms } from './otherRooms';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -166,6 +167,21 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     if (sel.includes(`m:${m.id}`)) ui.setDetails(detailsInfo());
   });
   const structLayer = createStructureLayer(structuresGroup);
+  // The other rooms of the project, around the one being edited (read-only, see otherRooms.ts), and how sure their places are.
+  const others = createOtherRooms(scene, (t) => ui.setStatus(`Errore modello in un'altra stanza: ${t}`));
+  let roomStates = new Map<string, 'manual' | 'confirmed' | 'tentative' | 'unknown'>();
+  const unknownSeen = new Set<string>(); // rooms with no link met in this project: hidden at first (they would only be put aside), the eye brings them back
+  function refreshOthers() {
+    roomStates = others.sync(room, projectRoomsList(), project?.models ?? [], hiddenRooms);
+    let hid = false;
+    for (const [id, st] of roomStates) {
+      if (st !== 'unknown' || unknownSeen.has(id)) continue;
+      unknownSeen.add(id);
+      hiddenRooms.add(id);
+      hid = true;
+    }
+    if (hid) roomStates = others.sync(room, projectRoomsList(), project?.models ?? [], hiddenRooms);
+  }
 
   // ---- measures: sizes and free distances of the selected objects (or the sizes of everything), see room/measure.ts ----
   // Both start off every time: they are for looking something up, not a permanent overlay.
@@ -763,7 +779,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, place: r.place, links: linksText(r), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
-      projectRoomsList().map((r) => ({ id: r.id, name: r.name, hidden: hiddenRooms.has(r.id) })),
+      projectRoomsList().map((r) => {
+        const st = roomStates.get(r.id);
+        return { id: r.id, name: r.name, hidden: hiddenRooms.has(r.id), note: st === 'tentative' ? 'collegamento da confermare' : st === 'unknown' ? 'posizione sconosciuta' : undefined, noteWarn: st === 'tentative' };
+      }),
       room?.id ?? null,
       // only rooms of the project's place can be added (a project uses one place)
       rooms.filter((r) => !project?.roomIds.includes(r.id) && !addRoomError(projectRoomsList(), r)).map((r) => ({ id: r.id, name: r.place ? `${r.name} · ${r.place}` : r.name })),
@@ -975,6 +994,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     layer.sync(models());
     structLayer.sync(structures());
     setSelection([]);
+    refreshOthers();
     refreshLists();
     if (!r) {
       if (!project) return ui.setStatus('Apri un progetto, o creane uno nuovo.');
@@ -994,16 +1014,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const spot = floorCentre(r.scan.planes);
     gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
+    const around = others.bounds();
+    if (!around.isEmpty()) {
+      const all = bounds.clone().union(around); // the whole place in view, unless it is huge
+      if (all.getSize(new Vector3()).length() < 120) bounds.copy(all);
+    }
     const centre = bounds.getCenter(new Vector3());
     const span = Math.max(3, bounds.getSize(new Vector3()).length());
     controls.target.copy(centre);
     camera.position.set(centre.x, centre.y + span * 0.7, centre.z + span * 0.9);
     controls.update();
-    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${plan.drawn} con contorno), ${volumes} volumi`);
+    const states = [...roomStates.values()];
+    const sure = states.filter((x) => x === 'confirmed' || x === 'manual').length;
+    const guess = states.filter((x) => x === 'tentative').length;
+    const aside = states.filter((x) => x === 'unknown').length;
+    const more = states.length ? ` · altre stanze: ${[sure && `${sure} collegate`, guess && `${guess} da confermare`, aside && `${aside} senza collegamento`].filter(Boolean).join(', ')}` : '';
+    ui.setStatus(`Stanza "${r.name}": ${r.scan.planes.length} piani (${plan.drawn} con contorno), ${volumes} volumi${more}`);
   }
 
   function showProject(p: Project | null) {
     project = p;
+    unknownSeen.clear();
     markDirty(false);
     showRoom(projectRoomsList()[0] ?? null);
     resetHistory();
@@ -1488,6 +1519,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       if (hiddenRooms.has(id)) hiddenRooms.delete(id);
       else hiddenRooms.add(id);
       if (room?.id === id) planesGroup.visible = !hiddenRooms.has(id);
+      else refreshOthers(); // another room: its outline and its models go (or come back)
       refreshLists();
     },
     onUpload: (files) => importFiles(files),

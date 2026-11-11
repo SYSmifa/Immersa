@@ -168,7 +168,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string };
+export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -210,6 +210,8 @@ const CSS = `
 .ed-item.on{border-color:var(--acc);background:var(--tint)}
 .ed-ini{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-weight:700;font-size:17px}
 .ed-item.off span{opacity:.45}
+.ed-note{display:block;font-size:11px;font-weight:500;color:#667085}
+.ed-note.warn{color:#b45309}
 .ed-eye{border:0;background:#0000;padding:4px;border-radius:8px;cursor:pointer;color:#475467;display:flex}
 .ed-eye:hover{background:#0001}
 .ed-item .ed-eye svg{width:20px;height:20px;color:#475467}
@@ -727,7 +729,9 @@ export function createEditorUi(h: EditorHandlers) {
     const rooms = projectRoomItems.map((r) => {
       const wrap = el('div', '', `ed-item${r.id === currentRoomId ? ' on' : ''}${r.hidden ? ' off' : ''}`);
       wrap.innerHTML = `${ICON.room}<span></span><button class="ed-eye" title="Nascondi / mostra la scansione di questa stanza">${r.hidden ? ICON.eyeOff : ICON.eye}</button>`;
-      wrap.querySelector('span')!.textContent = r.name;
+      const label = wrap.querySelector('span')!;
+      label.textContent = r.name;
+      if (r.note) label.append(el('small', r.note, `ed-note${r.noteWarn ? ' warn' : ''}`));
       (wrap.querySelector('.ed-eye') as HTMLElement).onclick = (e) => {
         e.stopPropagation();
         h.onRoomVisible(r.id);
