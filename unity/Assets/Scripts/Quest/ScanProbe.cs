@@ -218,9 +218,11 @@ namespace Immersa.Quest
             surface.InjectAllColliderSurface(box);
             var ray = go.AddComponent<RayInteractable>();
             ray.InjectAllRayInteractable(surface);
-            var wrapper = go.AddComponent<InteractableUnityEventWrapper>();
-            wrapper.InjectAllInteractableUnityEventWrapper(ray);
-            wrapper.WhenSelect.AddListener(() => onSelect());
+            // (InteractableUnityEventWrapper is not used: its UnityEvents are null when the component is added from code.)
+            ray.WhenStateChanged += args =>
+            {
+                if (args.NewState == InteractableState.Select && args.PreviousState != InteractableState.Select) onSelect();
+            };
             go.SetActive(true);
         }
 
