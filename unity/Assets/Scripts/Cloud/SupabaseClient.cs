@@ -163,6 +163,17 @@ namespace Immersa.Cloud
             return list;
         }
 
+        /// <summary>Saves a new room (a row of the "rooms" table, same columns as the web's createRoom). Returns its id.</summary>
+        public async Task<string> CreateRoom(string name, Immersa.Core.RoomScan scan, string place = null)
+        {
+            var row = new JObject { ["name"] = name, ["data"] = JObject.Parse(Immersa.Core.Json.Write(scan)) };
+            if (!string.IsNullOrEmpty(place)) row["place"] = place;
+            var (code, text) = await Send("POST", "/rest/v1/rooms?select=id", row.ToString(), true, "return=representation");
+            if (code != 201 && code != 200) throw new Exception(ErrorMessage(code, text));
+            var arr = JArray.Parse(text);
+            return arr.Count > 0 ? (string)arr[0]["id"] : null;
+        }
+
         /// <summary>The models of one project, parsed with the shared Core types (same JSON as the web app).</summary>
         public async Task<List<Immersa.Core.RoomModel>> GetProjectModels(string projectId)
         {
@@ -243,15 +254,15 @@ namespace Immersa.Cloud
             return true;
         }
 
-        async Task<(long code, string body)> Send(string method, string path, string json, bool auth)
+        async Task<(long code, string body)> Send(string method, string path, string json, bool auth, string prefer = null)
         {
             if (auth && session != null && Now() >= session.expiresAt - 60) await Refresh();
-            var result = await Once(method, path, json, auth);
-            if (auth && result.code == 401 && await Refresh()) result = await Once(method, path, json, auth);   // token revoked early
+            var result = await Once(method, path, json, auth, prefer);
+            if (auth && result.code == 401 && await Refresh()) result = await Once(method, path, json, auth, prefer);   // token revoked early
             return result;
         }
 
-        async Task<(long code, string body)> Once(string method, string path, string json, bool auth)
+        async Task<(long code, string body)> Once(string method, string path, string json, bool auth, string prefer = null)
         {
             using var req = new UnityWebRequest(url + path, method);
             req.downloadHandler = new DownloadHandlerBuffer();
@@ -261,6 +272,7 @@ namespace Immersa.Cloud
                 req.SetRequestHeader("Content-Type", "application/json");
             }
             req.SetRequestHeader("apikey", anonKey);
+            if (prefer != null) req.SetRequestHeader("Prefer", prefer);
             // Signed-in calls carry the user's token; the others (login, Edge Function without a user) carry the anon key, like supabase-js.
             req.SetRequestHeader("Authorization", "Bearer " + (auth && session != null ? session.accessToken : anonKey));
             req.timeout = 20;

@@ -18,6 +18,9 @@ namespace Immersa.Quest
 
         public static Vector3 Position(Vec3 p) => new Vector3((float)p.X, (float)p.Y, -(float)p.Z);
 
+        /// <summary>The other way: a Unity point as the web's Vec3 (rounded to the millimetre like the web does).</summary>
+        public static Vec3 ToVec3(Vector3 p) => new Vec3(System.Math.Round(p.x * 1000.0) / 1000.0, System.Math.Round(p.y * 1000.0) / 1000.0, System.Math.Round(-p.z * 1000.0) / 1000.0);
+
         /// <summary>
         /// Web orientation = Ry(yaw) * Rx(tilt.x) * Rz(tilt.y), radians. Mirroring z turns rotations about X and Y into their
         /// opposites and leaves the one about Z; Unity's Euler applies Z, then X, then Y, i.e. Ry * Rx * Rz as well.

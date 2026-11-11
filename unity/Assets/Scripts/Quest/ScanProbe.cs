@@ -77,6 +77,37 @@ namespace Immersa.Quest
             Redraw();
         }
 
+        /// <summary>Saves the room around the user as a new row of the "rooms" table (our RoomScan format, same as the web).</summary>
+        public async void SaveRoom()
+        {
+            if (busy) return;
+            busy = true;
+            try
+            {
+                var client = Immersa.Cloud.AppSession.Client;
+                if (client == null || !client.SignedIn) { Add("Save: not signed in yet"); busy = false; return; }
+                var mruk = MRUK.Instance;
+                var room = mruk != null ? mruk.GetCurrentRoom() : null;
+                if (room == null && mruk != null && mruk.Rooms.Count > 0) room = mruk.Rooms[0];
+                if (room == null) { Add("Save: no room known (scan first)"); busy = false; return; }
+
+                var scan = RoomScanExport.FromRoom(room);
+                var name = "Unity prova " + DateTime.Now.ToString("dd/MM HH:mm");
+                var json = Immersa.Core.Json.Write(scan);
+                Debug.Log(Tag + "saving '" + name + "': " + scan.Planes.Count + " planes, " + scan.Boxes.Count + " boxes, " + json.Length + " chars");
+                var id = await client.CreateRoom(name, scan);
+                Add("Saved '" + name + "': " + scan.Planes.Count + " planes, " + scan.Boxes.Count + " boxes");
+                Debug.Log(Tag + "saved room id " + id);
+            }
+            catch (Exception e)
+            {
+                Add("Save ERROR: " + e.Message);
+                Debug.LogError(Tag + "save: " + e);
+            }
+            busy = false;
+            Redraw();
+        }
+
         async System.Threading.Tasks.Task Reload(string why)
         {
             var mruk = MRUK.Instance;
@@ -173,8 +204,9 @@ namespace Immersa.Quest
             // Two 3D buttons under the panel: SCAN and RELOAD.
             try
             {
-                MakeButton("SCAN", new Vector3(-0.22f, -0.38f, -0.02f), new Color(0.1f, 0.65f, 0.65f), Scan);
-                MakeButton("RELOAD", new Vector3(0.22f, -0.38f, -0.02f), new Color(0.35f, 0.4f, 0.5f), ReloadButton);
+                MakeButton("SCAN", new Vector3(-0.30f, -0.38f, -0.02f), new Color(0.1f, 0.65f, 0.65f), Scan);
+                MakeButton("RELOAD", new Vector3(0.0f, -0.38f, -0.02f), new Color(0.35f, 0.4f, 0.5f), ReloadButton);
+                MakeButton("SAVE ROOM", new Vector3(0.30f, -0.38f, -0.02f), new Color(0.75f, 0.5f, 0.1f), SaveRoom);
             }
             catch (Exception e)
             {
@@ -190,7 +222,7 @@ namespace Immersa.Quest
             go.name = "Button-" + text;
             go.transform.SetParent(transform, false);
             go.transform.localPosition = localPos;
-            go.transform.localScale = new Vector3(0.36f, 0.12f, 0.03f);
+            go.transform.localScale = new Vector3(0.27f, 0.12f, 0.03f);
             // The material is an asset in Resources: Shader.Find would return null in a build (the shader gets stripped).
             var rend = go.GetComponent<Renderer>();
             var baseMat = Resources.Load<Material>("ButtonUnlit");
@@ -200,7 +232,7 @@ namespace Immersa.Quest
             var textGo = new GameObject("Label");
             textGo.transform.SetParent(go.transform, false);
             textGo.transform.localPosition = new Vector3(0, 0, -0.55f);
-            textGo.transform.localScale = new Vector3(1f / 0.36f, 1f / 0.12f, 1f / 0.03f) * 0.02f;   // undo the button's non-uniform scale
+            textGo.transform.localScale = new Vector3(1f / 0.27f, 1f / 0.12f, 1f / 0.03f) * 0.02f;   // undo the button's non-uniform scale
             var tm = textGo.AddComponent<TextMesh>();
             tm.text = text;
             tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");

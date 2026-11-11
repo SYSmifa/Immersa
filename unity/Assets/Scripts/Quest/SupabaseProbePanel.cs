@@ -44,6 +44,7 @@ namespace Immersa.Quest
                 return;
             }
             var client = new SupabaseClient(config);
+            AppSession.Client = client;   // shared with the other parts (room saving)
             Show("Connecting to Supabase...");
 
             bool ok = await client.RestoreSession();
