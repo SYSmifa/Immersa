@@ -168,7 +168,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string };
+export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string };
 
 const A = AURA;
 const CSS = `
@@ -520,6 +520,7 @@ export function createEditorUi(h: EditorHandlers) {
         t,
         ...(r.sub ? [el('div', r.sub, 'ed-meta')] : []),
         el('div', r.place ? `Luogo: ${r.place}` : 'Senza luogo: assegnalo per poterla usare con altre stanze', 'ed-meta'),
+        ...(r.links ? [el('div', `Posizione relativa: ${r.links}`, 'ed-meta')] : []),
         el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'),
         row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
       );

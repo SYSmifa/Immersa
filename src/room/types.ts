@@ -61,7 +61,13 @@ export interface RoomLink {
   ty: number;
   tz: number;
   at: number; // when it was measured (ms since the epoch)
-  src: 'meta' | 'manual'; // placed by the headset's own planes, or by touching two corners (less exact: never replaces a 'meta' one)
+  src: 'meta' | 'manual'; // placed by the headset's own planes, or by touching two corners
+  // How sure we are. A measure from the headset is only a guess until a second session measures the same (the headset can move
+  // a whole room by a metre between two sessions and its planes still fit): `n` counts the sessions that agreed. Used only when
+  // n >= 2, or by hand (see room/layout.ts).
+  n?: number; // absent = 1
+  sess?: string; // the session of the last measure (a session counts once)
+  cand?: { yaw: number; tx: number; ty: number; tz: number; at: number; n: number; sess: string }; // a different measure of a link not confirmed yet
 }
 
 export interface Room {

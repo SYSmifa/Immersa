@@ -47,7 +47,8 @@ import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
-import { addRoomError, knownPlaces, normPlace, placeChangeConflict } from '../room/places';
+import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
+import { linkSummary } from '../room/layout';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -748,10 +749,18 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
   }
 
+  // How a room stands with the others of its place: "Cucina ✓, Sala (da confermare)" (a link only seen once is a guess).
+  function linksText(r: Room): string | undefined {
+    if (!normPlace(r.place)) return undefined;
+    const sum = linkSummary(r, rooms);
+    if (!sum.length) return rooms.some((x) => x.id !== r.id && samePlace(x.place, r.place)) ? 'nessuna ancora' : undefined;
+    return sum.map((l) => `${l.name} ${l.state === 'confirmed' ? '✓' : l.state === 'manual' ? '✓ (a mano)' : '(da confermare)'}`).join(', ');
+  }
+
   function refreshLists() {
     const tones = projectTones(projects);
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, place: r.place, sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, place: r.place, links: linksText(r), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
       projectRoomsList().map((r) => ({ id: r.id, name: r.name, hidden: hiddenRooms.has(r.id) })),

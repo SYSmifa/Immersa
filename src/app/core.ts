@@ -17,7 +17,7 @@ import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
-import { compose, invert, learnedLinks, placeByLinks } from '../room/layout';
+import { compose, invert, isConfirmed, learnedLinks, linkBetween, placeByLinks } from '../room/layout';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
 import type { Annotation, PartEdit, Project, Room, RoomBox, RoomLink, RoomModel, RoomPlane, Structure, Vec3 } from '../room/types';
 import { UiHost } from '../ui3d/host';
@@ -1060,7 +1060,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     learnLinks(true); // with another room placed by the headset, how they sit in relation to each other is kept
     refreshView();
     const follow = layoutPlaced.size;
-    notify(follow ? `Allineata · ${follow} ${follow === 1 ? 'stanza segue' : 'stanze seguono'}` : `Stanza allineata (scarto ${(r.alignment.resid * 100).toFixed(1)} cm)`, 2800);
+    // rooms of the project whose position in relation to this one is only a guess so far: they do not follow
+    const guess = current ? current.roomIds.map((rid) => rooms.find((x) => x.id === rid)).filter((x): x is Room => !!x && x.id !== id && !layoutPlaced.has(x.id)).filter((x) => {
+      const l = linkBetween(run.room, x);
+      return !!l && !isConfirmed(l.link);
+    }) : [];
+    if (guess.length) logEvent(`non seguono (posizione relativa non ancora confermata): ${guess.map((x) => x.name).join(', ')}`);
+    notify(follow ? `Allineata · ${follow} ${follow === 1 ? 'stanza segue' : 'stanze seguono'}` : guess.length ? 'Allineata · altre da confermare' : `Stanza allineata (scarto ${(r.alignment.resid * 100).toFixed(1)} cm)`, 2800);
   }
 
   // A pinch on the floor in the visit: it is moved so that the pointed place is under you.
@@ -1113,6 +1119,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // in relation to each other is learned and kept in their scans, so that a later session can place one from the other.
   let learnSig = '';
   let learnAt = 0;
+  let sessionId = String(Date.now()); // changes with every session: a link measured in two different sessions is confirmed
+  const createdThisSession = new Set<string>(); // rooms saved since the session started: two of them share one frame, no restart between
   function learnLinks(force = false) {
     const now = performance.now();
     if (!force && now - learnAt < 8000) return;
@@ -1129,12 +1137,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const b = placed[j];
         if (!samePlace(a.place, b.place) || !good(a) || !good(b)) continue;
         const src = manual.has(a.id) || manual.has(b.id) ? 'manual' : 'meta';
-        const res = learnedLinks(a, b, aligns.get(a.id)!, aligns.get(b.id)!, src);
+        const together = createdThisSession.has(a.id) && createdThisSession.has(b.id);
+        const res = learnedLinks(a, b, aligns.get(a.id)!, aligns.get(b.id)!, src, sessionId, together);
         if (!res) continue;
-        a.scan = { ...a.scan, links: { ...a.scan.links, [b.id]: res[0] } };
-        b.scan = { ...b.scan, links: { ...b.scan.links, [a.id]: res[1] } };
+        logEvent(`${a.name} ↔ ${b.name}: ${res.note}`);
+        if (!res.links) continue;
+        a.scan = { ...a.scan, links: { ...a.scan.links, [b.id]: res.links[0] } };
+        b.scan = { ...b.scan, links: { ...b.scan.links, [a.id]: res.links[1] } };
         for (const r of [a, b]) void backend.saveRoomData(r.id, r.scan).catch((e) => logEvent(`posizione relativa non salvata: ${errText(e)}`));
-        logEvent(`${a.name} ↔ ${b.name}: posizione relativa salvata (${src === 'meta' ? 'dal visore' : 'a mano'})`);
       }
     }
   }
@@ -1418,6 +1428,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     try {
       const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes }, place || undefined);
       rooms.unshift(room);
+      createdThisSession.add(room.id);
       setRecognised({ room, alignment: identity(planes.length) });
       fits.set(room.id, { resid: 0, matched: planes.length, total: planes.length, good: true });
       // The other rooms of its place: the headset may report them in this session even when no project is open (saved earlier,
@@ -1469,7 +1480,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // The room's frame becomes the session's: the links to the other rooms are carried over (a point of the old frame is, in the
     // new one, `a` of it): its own links go through `a`, the links the others have to it through the inverse.
     const ownLinks: Record<string, RoomLink> = {};
-    for (const [id, l] of Object.entries(room.scan.links ?? {})) ownLinks[id] = { ...l, ...compose(a, l) };
+    for (const [id, l] of Object.entries(room.scan.links ?? {})) ownLinks[id] = { ...l, ...compose(a, l), cand: l.cand && { ...l.cand, ...compose(a, l.cand) } };
     const scan = { version: 1 as const, savedAt: Date.now(), planes, boxes, ...(Object.keys(ownLinks).length ? { links: ownLinks } : {}) };
     const others = rooms.filter((x) => x.id !== room.id && x.scan.links?.[room.id]);
     const affected = allProjects.filter((p) => p.models.some((x) => x.roomId === room.id));
@@ -1483,7 +1494,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     room.scan = scan;
     for (const x of others) {
       const l = x.scan.links![room.id];
-      x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)) } } };
+      x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)), cand: l.cand && { ...l.cand, ...compose(l.cand, invert(a)) } } } };
       void backend.saveRoomData(x.id, x.scan).catch((e) => logEvent(`posizione relativa non salvata: ${errText(e)}`));
     }
     for (const p of affected) p.models = p.models.map(convert);
@@ -3482,6 +3493,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       ignored.clear();
       aligns.clear(); // a new session has a new origin
+      sessionId = String(Date.now());
+      createdThisSession.clear();
       manual.clear();
       layoutPlaced.clear();
       cancelAlign();
@@ -3697,6 +3710,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       logEvent('reset del riferimento');
       aligns.clear();
+      sessionId = String(Date.now());
+      createdThisSession.clear();
       manual.clear();
       layoutPlaced.clear();
       misses.clear();

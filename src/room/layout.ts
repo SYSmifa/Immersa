@@ -42,17 +42,35 @@ export function invert(f: Pose): Pose {
 // Where room B is in room A's frame, given where each one was placed in the same session (B -> session -> A).
 export const relative = (a: Pose, b: Pose): Pose => compose(invert(a), b);
 
-const toLink = (p: Pose, src: RoomLink['src']): RoomLink => ({ yaw: p.yaw, tx: p.tx, ty: p.ty, tz: p.tz, at: Date.now(), src });
-
 // How far apart two poses are: metres of translation and radians of turn.
 export const poseDistance = (a: Pose, b: Pose) => ({ m: Math.hypot(a.tx - b.tx, a.ty - b.ty, a.tz - b.tz), rad: Math.abs(wrap(a.yaw - b.yaw)) });
 
-// What room `from` knows about `to`: where `to` is in `from`'s frame, from its own links or from the other room's (inverted).
-export function linkBetween(from: Room, to: Room): { pose: Pose; src: RoomLink['src'] } | null {
+const AGREE_M = 0.05; // two measures of one link agree when closer than this ...
+const AGREE_RAD = 0.0175; // ... and than 1 degree
+const agree = (a: Pose, b: Pose) => {
+  const d = poseDistance(a, b);
+  return d.m < AGREE_M && d.rad < AGREE_RAD;
+};
+
+export type LinkState = 'manual' | 'confirmed' | 'tentative';
+export const linkState = (l: RoomLink): LinkState => (l.src === 'manual' ? 'manual' : (l.n ?? 1) >= 2 ? 'confirmed' : 'tentative');
+// Only a link measured by hand, or seen again by a second session, is trusted to put a room somewhere.
+export const isConfirmed = (l: RoomLink) => linkState(l) !== 'tentative';
+
+// The same link seen from the other room (its candidate too).
+export function invertLink(l: RoomLink): RoomLink {
+  const inv = (p: Pose): Pose => invert(p);
+  return { ...l, ...inv(l), cand: l.cand && { ...l.cand, ...inv(l.cand) } };
+}
+
+// What room `from` knows about `to`: the link with `to` placed in `from`'s frame, from its own links or from the other room's (inverted).
+export function linkBetween(from: Room, to: Room): { pose: Pose; src: RoomLink['src']; link: RoomLink } | null {
   const own = from.scan.links?.[to.id];
-  if (own) return { pose: own, src: own.src };
+  if (own) return { pose: own, src: own.src, link: own };
   const back = to.scan.links?.[from.id];
-  return back ? { pose: invert(back), src: back.src } : null;
+  if (!back) return null;
+  const link = invertLink(back);
+  return { pose: link, src: link.src, link };
 }
 
 // Two rooms can only be linked when they belong to the same place, and they cannot be 100 m or more apart (a link from a
@@ -64,23 +82,55 @@ export function linkable(a: Room, b: Room, pose: Pose): boolean {
   return Math.hypot(ca[0] - cb[0], ca[2] - cb[2]) < 100;
 }
 
-// The links to write after the rooms `a` and `b` were both placed in a session (`pa`, `pb`): [a.links[b], b.links[a]], or null
-// when they cannot be linked or an existing link of the headset's own ('meta') should not be replaced by a manual one, or
-// when nothing changed by more than 3 cm / 0.5 degrees.
-export function learnedLinks(a: Room, b: Room, pa: Pose, pb: Pose, src: RoomLink['src']): [RoomLink, RoomLink] | null {
-  const bInA = relative(pa, pb);
-  if (!linkable(a, b, bInA)) return null;
-  const old = linkBetween(a, b);
-  if (old) {
-    if (old.src === 'meta' && src === 'manual') return null;
-    const d = poseDistance(old.pose, bInA);
-    if (d.m < 0.03 && d.rad < 0.0087) return null;
-  }
-  return [toLink(bInA, src), toLink(invert(bInA), src)];
+export interface Learned {
+  links: [RoomLink, RoomLink] | null; // [a.links[b], b.links[a]] to write; null = nothing to write
+  note: string; // for the event log
 }
 
-// Places the rooms that have no placement of their own, through links from the rooms that have one (`placed`), hopping from
-// room to room (nearest first). Returns only the new placements.
+// What to do with a new measure of where room `b` is in `a`'s frame (both were placed in one session: `pa`, `pb`).
+// - first measure from the headset: kept, but only as a guess (n = 1);
+// - the same again in another session: confirmed (n = 2);
+// - a different one: against a confirmed link it is thrown away; against a guess it is kept aside as a candidate, and the
+//   candidate wins when a later session agrees with it;
+// - by hand, or with both rooms scanned in this very session (`together`, no restart between): trusted at once. A hand
+//   measure replaces anything; the headset's never replaces one made by hand.
+// null: nothing to say or write.
+export function learnedLinks(a: Room, b: Room, pa: Pose, pb: Pose, src: RoomLink['src'], sess: string, together = false): Learned | null {
+  const bInA = relative(pa, pb);
+  if (!linkable(a, b, bInA)) return null;
+  const old = linkBetween(a, b)?.link;
+  const now = Date.now();
+  const trusted = src === 'manual' || together;
+  const fresh: RoomLink = { ...bInA, at: now, src, n: trusted ? 2 : 1, sess };
+  const pair = (l: RoomLink): [RoomLink, RoomLink] => [l, invertLink(l)];
+  if (!old) return { links: pair(fresh), note: trusted ? (src === 'manual' ? 'a mano' : 'scansionate insieme: confermata') : 'misura provvisoria: serve una seconda sessione' };
+  const same = agree(old, bInA);
+  if (trusted) {
+    if (src !== 'manual' && old.src === 'manual') return null; // the headset's measure never replaces a hand one
+    if (same && isConfirmed(old)) return null; // nothing changes
+    return { links: pair(fresh), note: src === 'manual' ? 'a mano: sostituisce la misura precedente' : 'scansionate insieme: confermata' };
+  }
+  if (old.src === 'manual') return null;
+  if (same) {
+    if (old.sess === sess || isConfirmed(old)) return null; // nothing new
+    return { links: pair({ ...old, n: (old.n ?? 1) + 1, sess, at: now, cand: undefined }), note: 'confermata da una seconda sessione' };
+  }
+  if (isConfirmed(old)) {
+    const d = poseDistance(old, bInA);
+    return { links: null, note: `misura scartata: differisce di ${d.m.toFixed(2)} m dalla posizione confermata` };
+  }
+  // a guess against a different measure
+  const cand = old.cand;
+  if (cand && agree(cand, bInA)) {
+    if (cand.sess === sess) return null;
+    return { links: pair({ ...fresh, n: cand.n + 1 }), note: 'confermata: la prima misura era diversa e non si è ripetuta' };
+  }
+  if (cand?.sess === sess) return null;
+  return { links: pair({ ...old, cand: { ...bInA, at: now, n: 1, sess } }), note: 'seconda misura diversa dalla prima: ne serve un\'altra' };
+}
+
+// Places the rooms that have no placement of their own, through CONFIRMED links from the rooms that have one (`placed`), hopping
+// from room to room. Returns only the new placements.
 export function placeByLinks(rooms: Room[], placed: Map<string, Alignment>): Map<string, Alignment> {
   const out = new Map<string, Alignment>();
   const known = new Map<string, Pose>([...placed].map(([id, a]) => [id, a]));
@@ -92,16 +142,26 @@ export function placeByLinks(rooms: Room[], placed: Map<string, Alignment>): Map
       for (const [id, pose] of known) {
         const base = byId.get(id);
         const link = base && linkBetween(base, target); // where `target` is in the base room's frame
-        if (!base || !link || !samePlace(base.place, target.place)) continue;
+        if (!base || !link || !samePlace(base.place, target.place) || !isConfirmed(link.link)) continue;
         const alignment = compose(pose, link.pose); // target -> base -> session
-        const a: Alignment = { ...alignment, resid: 0, matched: 0, total: 0 };
         known.set(target.id, alignment);
-        out.set(target.id, a);
+        out.set(target.id, { ...alignment, resid: 0, matched: 0, total: 0 });
         grew = true;
         break;
       }
     }
     if (!grew) break;
+  }
+  return out;
+}
+
+// For the lists: how a room stands with the other rooms of its place ("Cucina ✓", "Sala (da confermare)").
+export function linkSummary(room: Room, rooms: Room[]): { name: string; state: LinkState }[] {
+  const out: { name: string; state: LinkState }[] = [];
+  for (const other of rooms) {
+    if (other.id === room.id || !samePlace(other.place, room.place)) continue;
+    const l = linkBetween(room, other)?.link;
+    if (l) out.push({ name: other.name, state: linkState(l) });
   }
   return out;
 }
