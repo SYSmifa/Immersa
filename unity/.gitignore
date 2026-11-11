@@ -24,3 +24,4 @@
 # Secrets: Supabase URL/key live in a local file, never in git
 /Assets/Config/Local*
 /Assets/StreamingAssets/env*
+/.utmp/
