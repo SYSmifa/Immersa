@@ -22,6 +22,7 @@ namespace Immersa.Core.Tests
             JsonTests.All(Run);
             MeasureTests.All(Run);
             MeasureGoldenTests.All(Run);
+            AnchorsTests.All(Run);
             Console.WriteLine(failed == 0 ? "all ok" : failed + " failed");
             return failed == 0 ? 0 : 1;
         }
