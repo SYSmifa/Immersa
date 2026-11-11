@@ -87,6 +87,51 @@ namespace Immersa.Cloud
             return null;
         }
 
+        // ---- sign-in with a code approved on the PC (Edge Function "link-device", same flow as the web headset) ----
+
+        public enum LinkStatus { Wait, Expired, SignedIn, Error }
+
+        /// <summary>A 6-character code to show, and the secret only this headset knows.</summary>
+        public class DeviceLink
+        {
+            public string code;
+            public string secret;
+            public string error;   // set when the request failed
+        }
+
+        public async Task<DeviceLink> StartDeviceLink()
+        {
+            var (code, text) = await Send("POST", "/functions/v1/link-device", new JObject { ["action"] = "start" }.ToString(), false);
+            if (code != 200) return new DeviceLink { error = ErrorMessage(code, text) };
+            var j = JObject.Parse(text);
+            var c = (string)j["code"]; var s = (string)j["secret"];
+            if (string.IsNullOrEmpty(c) || string.IsNullOrEmpty(s)) return new DeviceLink { error = "No code received." };
+            return new DeviceLink { code = c, secret = s };
+        }
+
+        /// <summary>Asks whether the PC approved the code; on approval completes the sign-in.</summary>
+        public async Task<(LinkStatus status, string error)> PollDeviceLink(DeviceLink link)
+        {
+            var body = new JObject { ["action"] = "poll", ["code"] = link.code, ["secret"] = link.secret }.ToString();
+            var (code, text) = await Send("POST", "/functions/v1/link-device", body, false);
+            if (code != 200) return (LinkStatus.Error, ErrorMessage(code, text));
+            var j = JObject.Parse(text);
+            var status = (string)j["status"];
+            if (status == "expired") return (LinkStatus.Expired, null);
+            if (status != "ok") return (LinkStatus.Wait, null);
+
+            // The one-time token turns into a real session (the web app tries 'magiclink' first, then 'email').
+            var tokenHash = (string)j["token_hash"];
+            foreach (var type in new[] { "magiclink", "email" })
+            {
+                var vBody = new JObject { ["token_hash"] = tokenHash, ["type"] = type }.ToString();
+                var (vCode, vText) = await Send("POST", "/auth/v1/verify", vBody, false);
+                if (vCode == 200) { ApplyTokens(JObject.Parse(vText), null); return (LinkStatus.SignedIn, null); }
+                if (type == "email") return (LinkStatus.Error, ErrorMessage(vCode, vText));
+            }
+            return (LinkStatus.Error, "Sign-in failed.");
+        }
+
         public void SignOut()
         {
             session = null;
@@ -172,7 +217,8 @@ namespace Immersa.Cloud
                 req.SetRequestHeader("Content-Type", "application/json");
             }
             req.SetRequestHeader("apikey", anonKey);
-            if (auth && session != null) req.SetRequestHeader("Authorization", "Bearer " + session.accessToken);
+            // Signed-in calls carry the user's token; the others (login, Edge Function without a user) carry the anon key, like supabase-js.
+            req.SetRequestHeader("Authorization", "Bearer " + (auth && session != null ? session.accessToken : anonKey));
             req.timeout = 20;
 
             var done = new TaskCompletionSource<bool>();
