@@ -126,6 +126,8 @@ namespace Immersa.Core
         public Finish Finish;
         public StructureMove Xf;       // moved/turned/scaled in the headset, about the centre of its footprint
         [JsonExtensionData] public IDictionary<string, JToken> Extra;
+
+        public Structure ShallowCopy() => (Structure)MemberwiseClone();
     }
 
     public class StructureMove

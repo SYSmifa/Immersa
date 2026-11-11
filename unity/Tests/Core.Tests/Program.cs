@@ -20,6 +20,8 @@ namespace Immersa.Core.Tests
         {
             PlacesTests.All(Run);
             JsonTests.All(Run);
+            MeasureTests.All(Run);
+            MeasureGoldenTests.All(Run);
             Console.WriteLine(failed == 0 ? "all ok" : failed + " failed");
             return failed == 0 ? 0 : 1;
         }
