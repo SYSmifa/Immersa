@@ -25,8 +25,9 @@ Motivi, tutti verificati nell'app web:
   gli stessi progetti. Non cambiare schema senza motivo; se serve, aggiornare `supabase/schema.sql` e dirlo all'utente.
 - Il formato stanza è NOSTRO (`RoomScan`, vedi `src/room/types.ts`): la scansione Meta (MRUK) è solo un adattatore che
   produce quel JSON (piani con contorno + box dei mobili), così il PC continua a mostrare le stanze.
-- Pacchetto/firma: tenere `app.immersa.quest` e la stessa keystore (`immersa-apk\android.keystore`) se si vuole che
-  l'app Unity sostituisca l'APK web (TWA) sul visore.
+- Pacchetto/firma: DECISO (11/11) l'app Unity usa `app.immersa.quest.unity` e una keystore di debug, quindi convive con
+  l'APK web (TWA) senza sostituirlo; si userà `app.immersa.quest` + `immersa-apk\android.keystore` solo quando si decide
+  di sostituirlo. Punto di ritorno del web: tag `web-pre-unity`.
 
 ## 3. Cosa NON posso fare io (importante per chi lavora)
 Il container non ha l'editor Unity né la licenza né uno schermo: **non posso compilare né provare Unity**. Quindi:
@@ -43,7 +44,7 @@ Test con Unity: Play mode con Meta XR Simulator sul PC dell'utente (opzionale), 
 ## 4. Dove mettere il progetto
 Proposta: cartella `unity/` nello stesso repo (`sysmifa/immersa`, branch di lavoro `ccr-9d20ed4e-a2qxlt`), con
 `.gitignore` Unity (Library, Temp, Obj, Builds, Logs, UserSettings). Unity 6 LTS, URP, Android (ARM64, IL2CPP), Quest 3,
-Meta XR All-in-One SDK / Meta OpenXR. L'utente decide se vuole un repo a parte.
+Meta XR All-in-One SDK / Meta OpenXR. DECISO (11/11): cartella `unity/` nello stesso repo (non posso creare repo), sul branch di lavoro, separata dal web; vedi `unity/README.md`.
 
 ## 5. Piano a gradini (con punti di decisione)
 0. **Prototipo di rischio (1-2 settimane)**: passthrough senza Guardian (anche dopo standby e scansione); login Supabase;
