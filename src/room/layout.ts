@@ -1,7 +1,8 @@
+import { Quaternion, Vector3 } from 'three';
 import type { Alignment } from './align';
 import { floorCentre } from './floor';
 import { samePlace } from './places';
-import type { Room, RoomLink } from './types';
+import type { Room, RoomLink, RoomModel, Vec3 } from './types';
 
 // Where the rooms of a place are in relation to each other. Each room's saved scan can carry `links`: where the other rooms
 // are, in its own frame. With one room placed in the headset's session (by the headset itself or by touching two corners) the
@@ -215,4 +216,85 @@ export function placeAround(current: Room, members: Room[]): Map<string, Placeme
     east += width + 3;
   }
   return out;
+}
+
+// Is this point (in the room's own frame) inside the room? Its floor outline, a little widened (0.15 m: a wall's thickness), and
+// between the floor and the ceiling; rooms scanned without an outline are judged by the box around their planes.
+export function roomContains(room: Room, p: Vec3, margin = 0.15): boolean {
+  const planes = room.scan.planes;
+  const floors = planes.filter((q) => q.label === 'floor' && q.quat && (q.poly?.length ?? 0) >= 6);
+  const floorY = planes.filter((q) => q.label === 'floor').reduce((a, q, _, all) => a + q.pos[1] / all.length, 0);
+  const ceil = planes.find((q) => q.label === 'ceiling');
+  const top = ceil ? ceil.pos[1] : floorY + 3.5;
+  if (p[1] < floorY - 0.6 || p[1] > top + 0.3) return false;
+  if (!floors.length) {
+    const xs = planes.map((q) => q.pos[0]);
+    const zs = planes.map((q) => q.pos[2]);
+    return xs.length > 0 && p[0] >= Math.min(...xs) - 0.5 && p[0] <= Math.max(...xs) + 0.5 && p[2] >= Math.min(...zs) - 0.5 && p[2] <= Math.max(...zs) + 0.5;
+  }
+  for (const f of floors) {
+    const q = new Quaternion(...f.quat!);
+    const pts: [number, number][] = [];
+    for (let i = 0; i < f.poly!.length; i += 2) {
+      const v = new Vector3(f.poly![i], 0, f.poly![i + 1]).applyQuaternion(q).add(new Vector3(...f.pos));
+      pts.push([v.x, v.z]);
+    }
+    let inside = false;
+    let near = Infinity;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, zi] = pts[i];
+      const [xj, zj] = pts[j];
+      if (zi > p[2] !== zj > p[2] && p[0] < ((xj - xi) * (p[2] - zi)) / (zj - zi) + xi) inside = !inside;
+      const dx = xj - xi;
+      const dz = zj - zi;
+      const t = Math.max(0, Math.min(1, ((p[0] - xi) * dx + (p[2] - zi) * dz) / (dx * dx + dz * dz || 1)));
+      near = Math.min(near, Math.hypot(p[0] - (xi + t * dx), p[2] - (zi + t * dz)));
+    }
+    if (inside || near <= margin) return true;
+  }
+  return false;
+}
+
+export interface ModelMove {
+  model: RoomModel;
+  to: Room;
+  pos: Vec3; // its pivot in the new room's frame
+  yaw: number;
+}
+export interface ModelStay {
+  model: RoomModel;
+  to: Room | null; // the room it lies in, when only one
+  why: 'tentative' | 'ambiguous';
+}
+
+// Models of `current` (the room being edited) whose pivot is no longer inside it: where did they end up? Only a room whose link
+// with `current` is sure (confirmed or by hand) takes a model over; a guess, or a pivot lying in two rooms at once (they overlap:
+// a link is wrong), leaves it where it is and says so. A pivot in no room (a corridor, outdoors) leaves it silently.
+// The new position and yaw are the same place seen from the new room's frame.
+export function planModelMoves(current: Room, members: Room[], models: RoomModel[]): { moves: ModelMove[]; stay: ModelStay[] } {
+  const around = placeAround(current, members);
+  const moves: ModelMove[] = [];
+  const stay: ModelStay[] = [];
+  for (const m of models) {
+    if (m.roomId !== current.id || roomContains(current, m.pos)) continue;
+    const hits: { room: Room; place: Placement; pos: Vec3 }[] = [];
+    for (const r of members) {
+      const place = around.get(r.id);
+      if (!place || place.state === 'unknown') continue; // put aside: its coordinates mean nothing
+      const pos = apply(invert(place.pose), m.pos);
+      if (roomContains(r, pos)) hits.push({ room: r, place, pos });
+    }
+    if (!hits.length) continue;
+    if (hits.length > 1) {
+      stay.push({ model: m, to: null, why: 'ambiguous' });
+      continue;
+    }
+    const h = hits[0];
+    if (h.place.state === 'tentative') {
+      stay.push({ model: m, to: h.room, why: 'tentative' });
+      continue;
+    }
+    moves.push({ model: m, to: h.room, pos: h.pos, yaw: m.yaw + h.place.pose.yaw });
+  }
+  return { moves, stay };
 }

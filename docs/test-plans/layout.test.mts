@@ -1,7 +1,7 @@
 // Run: npx tsx docs/test-plans/layout.test.mts. Poses of rooms and the links between them: a measure from the headset is only a
 // guess until a second session agrees; by hand or scanned together it is trusted at once; only trusted links place a room.
 import assert from 'node:assert/strict';
-import { apply, compose, invert, isConfirmed, learnedLinks, linkBetween, linkState, linkSummary, placeAround, placeByLinks, relative } from '../../src/room/layout';
+import { apply, compose, invert, isConfirmed, learnedLinks, linkBetween, linkState, linkSummary, placeAround, placeByLinks, planModelMoves, relative, roomContains } from '../../src/room/layout';
 import type { Alignment } from '../../src/room/align';
 import type { Room } from '../../src/room/types';
 
@@ -110,4 +110,25 @@ assert.equal(around.get('C')!.state, 'tentative', 'the weakest link on the way c
 assert.ok(near(around.get('C')!.pose.tz, 4 + 0, 1e-6) || around.get('C')!.pose.tz !== undefined);
 assert.equal(around.get('D')!.state, 'unknown');
 assert.ok(around.get('D')!.pose.tx > 2, 'unknown rooms go aside, to the east');
+// Models changing room: rooms with a floor outline (5 x 4 m, centred on their own origin)
+const boxRoom = (id: string, links?: Room['scan']['links']): Room => ({ id, name: id, place: 'Casa', createdAt: '', updatedAt: '', scan: { version: 1, savedAt: 0, planes: [{ label: 'floor', pos: [0, 0, 0], quat: [0, 0, 0, 1], poly: [-2.5, -2, 2.5, -2, 2.5, 2, -2.5, 2] }, { label: 'ceiling', pos: [0, 2.6, 0], quat: [0, 0, 0, 1] }], links } });
+const mdl = (id: string, room: string, pos: [number, number, number], yaw = 0.4): import('../../src/room/types').RoomModel => ({ id, roomId: room, name: id, path: 'p', pos, yaw, scale: 1 });
+const S = boxRoom('S', { K: { yaw: 0.3, tx: 6, ty: 0, tz: 1, at: 0, src: 'meta', n: 2 }, T: { yaw: 0, tx: -6, ty: 0, tz: 0, at: 0, src: 'meta', n: 1 }, X: { yaw: 0, tx: 1, ty: 0, tz: 0, at: 0, src: 'meta', n: 2 } });
+const K = boxRoom('K');
+const Tt = boxRoom('T');
+const Xx = boxRoom('X'); // overlaps S (a wrong link): its box and S's cover each other's centre
+assert.ok(roomContains(S, [0, 0, 0]) && !roomContains(S, [3.5, 0, 0]) && roomContains(S, [2.6, 0, 0]), 'inside, outside, in the wall thickness');
+assert.ok(!roomContains(S, [0, 3.5, 0]), 'above the ceiling');
+const inK = apply({ yaw: 0.3, tx: 6, ty: 0, tz: 1 }, [0.5, 0, -0.5]); // a point of K, in S's frame
+const out = planModelMoves(S, [S, K], [mdl('stays', 'S', [0, 0, 0]), mdl('goes', 'S', inK), mdl('alone', 'S', [20, 0, 20]), mdl('elsewhere', 'Z', inK)]);
+assert.deepEqual(out.moves.map((m) => m.model.id), ['goes'], 'only the model whose pivot left the room, into a sure room');
+assert.ok(p3(out.moves[0].pos, [0.5, 0, -0.5]), 'its pivot in K');
+assert.ok(near(out.moves[0].yaw, 0.4 + 0.3, 1e-9), 'its yaw in K');
+assert.equal(out.stay.length, 0, 'a pivot in no room, and models of other rooms, are left alone');
+const inT = apply({ yaw: 0, tx: -6, ty: 0, tz: 0 }, [0, 0, 0]);
+const guess = planModelMoves(S, [S, Tt], [mdl('g', 'S', inT)]);
+assert.ok(guess.moves.length === 0 && guess.stay[0].why === 'tentative', 'a guess does not take a model');
+const S2 = boxRoom('S2', { X1: { yaw: 0, tx: 6, ty: 0, tz: 0, at: 0, src: 'meta', n: 2 }, X2: { yaw: 0, tx: 6.5, ty: 0, tz: 0, at: 0, src: 'meta', n: 2 } });
+const both = planModelMoves(S2, [S2, boxRoom('X1'), boxRoom('X2')], [mdl('b', 'S2', [6, 0, 0])]); // lies in two rooms at once: a link is wrong
+assert.ok(both.moves.length === 0 && both.stay.length === 1 && both.stay[0].why === 'ambiguous', 'an overlap leaves the model, with a warning');
 console.log('ok');

@@ -48,7 +48,7 @@ import { listMaterials, modelBox, modelSize as localModelSize } from '../room/se
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
-import { linkSummary } from '../room/layout';
+import { linkSummary, planModelMoves } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -1243,16 +1243,49 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return true;
   }
 
+  // Models of the room being edited that have been taken out of it: the pivot decides which room they belong to. Asked once, when saving
+  // (not while dragging): a list of who goes where. Only a sure link (confirmed or by hand) moves a model into another room; for a guess,
+  // or a pivot lying in two rooms, the model stays and the save says so. false = the user cancelled the save.
+  let roomNote = '';
+  async function resolveRoomChanges(): Promise<boolean> {
+    roomNote = '';
+    if (!project || !room) return true;
+    const { moves, stay } = planModelMoves(room, projectRoomsList(), project.models);
+    if (stay.length) {
+      const names = stay.map((x) => x.model.name).join(', ');
+      roomNote = ` · restano in "${room.name}" (collegamento non sicuro): ${names}`;
+    }
+    if (!moves.length) return true;
+    const lines = moves.map((m) => `• ${m.model.name}: ${room!.name} → ${m.to.name}`).join('\n');
+    const text = `${moves.length === 1 ? 'Questo modello ha il centro in un' : 'Questi modelli hanno il centro in un'}'altra stanza e ${moves.length === 1 ? 'passa' : 'passano'} a quella:\n${lines}${stay.length ? `\n\nRestano dove sono (collegamento non sicuro o stanze sovrapposte): ${stay.map((x) => x.model.name).join(', ')}` : ''}`;
+    if (!(await ui.askConfirm(text, 'Sposta e salva', 'Cambio di stanza'))) return false;
+    for (const mv of moves) {
+      const m = project.models.find((x) => x.id === mv.model.id);
+      if (!m) continue;
+      m.roomId = mv.to.id;
+      m.pos = mv.pos;
+      m.yaw = mv.yaw;
+    }
+    layer.sync(models()); // they leave the room being edited ...
+    sel = sel.filter((k) => k[0] !== 'm' || !!findModel(k.slice(2)));
+    setSelection(sel);
+    refreshOthers(); // ... and appear in theirs
+    refreshLists();
+    commit();
+    return true;
+  }
+
   async function save() {
     if (!project) return;
     ui.setStatus('Salvo...');
     try {
+      if (!(await resolveRoomChanges())) return ui.setStatus('Salvataggio annullato.');
       if (!(await uploadPending())) return ui.setStatus('Salvataggio annullato.');
       const res = await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures, annotations: project!.annotations }));
       markDirty(false);
       // An older cloud schema cannot keep the notes and rulers: say so instead of letting them vanish silently.
       if (res?.skipped?.includes('annotations') && project.annotations.length) ui.setStatus(`Salvato, ma le annotazioni NON si salvano: riesegui supabase/schema.sql nel pannello di Supabase (SQL Editor).`);
-      else ui.setStatus(`Progetto "${project.name}" salvato`);
+      else ui.setStatus(`Progetto "${project.name}" salvato${roomNote}`);
       void prune();
     } catch (e) {
       ui.setStatus(`Salvataggio FALLITO: ${errText(e)}`);
@@ -2331,6 +2364,15 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   );
   return {
     select: (id: string | null) => pick(id ? `m:${id}` : null, false),
+    // For the tests: put a model's pivot somewhere (the room's frame), as if it had been dragged there.
+    testMove: (id: string, pos: [number, number, number]) => {
+      const m = findModel(id);
+      if (!m) return;
+      m.pos = pos;
+      layer.sync(models());
+      markDirty();
+      commit();
+    },
     // For the tests: where the gizmo is on screen, which handle the pointer is on, and the yaw of the models.
     debug: () => {
       const v = pivot.position.clone().project(camera);
