@@ -1420,6 +1420,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       rooms.unshift(room);
       setRecognised({ room, alignment: identity(planes.length) });
       fits.set(room.id, { resid: 0, matched: planes.length, total: planes.length, good: true });
+      // The other rooms of its place: the headset may report them in this session even when no project is open (saved earlier,
+      // maybe before the headset was switched off): find where each one is, so that how they sit in relation to this room is learned.
+      if (normPlace(room.place)) {
+        for (const x of rooms) {
+          if (x.id === room.id || !samePlace(x.place, room.place) || aligns.has(x.id)) continue;
+          const fit = bestFit(x); // null unless it fits well
+          if (fit) aligns.set(x.id, fit);
+        }
+      }
       learnLinks(true); // the other rooms of its place that are placed right now: where they are in relation to this one
       say(`Stanza "${name}" salvata`);
     } catch (e) {
