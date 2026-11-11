@@ -148,7 +148,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aaf41178b396346489055f87bb396824, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Immersa.Quest.SupabaseProbePanel
-  config: {fileID: 0}
+  config: {fileID: 11400000, guid: 1b2a2f50a5852284493f6158a117ecdc, type: 2}
 --- !u!4 &479414700
 Transform:
   m_ObjectHideFlags: 0
