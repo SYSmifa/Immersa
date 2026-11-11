@@ -773,6 +773,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return sum.map((l) => `${l.name} ${l.state === 'confirmed' ? '✓' : l.state === 'manual' ? '✓ (a mano)' : '(da confermare)'}`).join(', ');
   }
 
+  // Why a room of the project has no known place next to the one being edited: the usual causes, the first one that holds.
+  function unknownWhy(r: Room): string {
+    if (!room || !normPlace(room.place) || !normPlace(r.place)) return 'senza luogo: assegna lo stesso luogo a entrambe (Le mie stanze → Luogo)';
+    if (!samePlace(room.place, r.place)) return `luogo diverso ("${r.place}" / "${room.place}")`;
+    return 'nessun collegamento: salvale una dopo l\'altra, o aprile nel visore';
+  }
+
   function refreshLists() {
     const tones = projectTones(projects);
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
@@ -781,7 +788,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       project?.name ?? '',
       projectRoomsList().map((r) => {
         const st = roomStates.get(r.id);
-        return { id: r.id, name: r.name, hidden: hiddenRooms.has(r.id), note: st === 'tentative' ? 'collegamento da confermare' : st === 'unknown' ? 'posizione sconosciuta' : undefined, noteWarn: st === 'tentative' };
+        return { id: r.id, name: r.name, hidden: hiddenRooms.has(r.id), note: st === 'tentative' ? 'collegamento da confermare' : st === 'unknown' ? unknownWhy(r) : undefined, noteWarn: st === 'tentative' || st === 'unknown' };
       }),
       room?.id ?? null,
       // only rooms of the project's place can be added (a project uses one place)
