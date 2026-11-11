@@ -44,6 +44,7 @@ interface Options {
   scene: Scene;
   backend: Backend;
   signOut(): void;
+  onRestart?(): void; // end this XR session and start a new one (the app relaunches itself)
 }
 
 const SPLASH_MS = 2400; // at least this long on screen, to be seen
@@ -139,12 +140,30 @@ const lastProject = {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawOf = (f: Vector3) => Math.atan2(f.x, f.z); // horizontal direction (sin a, cos a)
-const ONE_SCAN_MSG = 'Meta permette una sola scansione per sessione: salva questa stanza, chiudi e riapri Immersa dalla Libreria, poi scansiona la prossima';
+const SCAN_NEXT_KEY = 'immersa.scanNext'; // set when the app restarts itself to scan one more room (Meta: one capture per session)
+const scanNextMark = {
+  set() {
+    try {
+      localStorage.setItem(SCAN_NEXT_KEY, String(Date.now()));
+    } catch {
+      /* storage can be unavailable */
+    }
+  },
+  consume(): boolean {
+    try {
+      const v = Number(localStorage.getItem(SCAN_NEXT_KEY) ?? 0);
+      localStorage.removeItem(SCAN_NEXT_KEY);
+      return Date.now() - v < 180000;
+    } catch {
+      return false;
+    }
+  },
+};
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
 // (WebXR in xrApp.ts, a mouse and fake planes in the UI test harness).
-export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand }: Options) {
+export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand, onRestart }: Options) {
   const host = new UiHost();
   scene.add(host.root);
   const rig = new Group(); // menu + keyboard, follows the head
@@ -1509,9 +1528,26 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     setRecognised({ room, alignment: identity(planes.length) });
   }
 
+  // Remember which project to reopen after the app restarts.
+  function prepareResume() {
+    restartMark.set(current?.id ?? null);
+    if (current) sessionStorage.setItem(RESUME_KEY, current.id);
+    else lastProject.clear(); // nothing was open: a later launch must not bring back an old project
+  }
+
   async function startScan() {
     if (!capture?.available) return say('Scansione non disponibile in questo browser');
-    if (scannedThisSession) return say(ONE_SCAN_MSG, 9000);
+    if (scannedThisSession) {
+      // Meta allows one capture per session: a new session is needed. Restart the app by itself and start the scan there.
+      if (!onRestart) return say('Meta permette una sola scansione per sessione: chiudi e riapri Immersa dalla Libreria', 9000);
+      logEvent('scansione: una sola per sessione, riavvio l\'app per la prossima');
+      scanNextMark.set();
+      prepareResume();
+      closeMenu();
+      say('Riapro l\'app per scansionare un\'altra stanza…', 5000);
+      setTimeout(onRestart, 900);
+      return;
+    }
     // Scanning the room we are in again, or a new one? The room that is recognised may be stale (a room just saved, and you have
     // walked on to the next one): it only counts as scanned again if your head is really inside it.
     const h = lastHead;
@@ -1544,7 +1580,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       scanning = false;
       setPendingName(false);
       openMenu();
-      return say(scannedThisSession ? ONE_SCAN_MSG : `Scansione non riuscita: ${errText(failure)}`, 9000);
+      return say(`Scansione non riuscita: ${errText(failure)}`, 9000);
     }
     scanning = false;
     scannedThisSession = true;
@@ -3493,6 +3529,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // Only after our own restart (standby) the project that was open then comes back (none: just the rooms). A normal
       // launch of the app opens nothing by itself.
       const restart = restartMark.consume();
+      if (scanNextMark.consume()) setTimeout(() => void startScan(), 5000); // the app restarted itself for one more scan
       const inPage = sessionStorage.getItem(RESUME_KEY);
       sessionStorage.removeItem(RESUME_KEY);
       const last = lastProject.recent();
@@ -3702,11 +3739,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     logEvent,
     isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
-    prepareResume() {
-      restartMark.set(current?.id ?? null);
-      if (current) sessionStorage.setItem(RESUME_KEY, current.id);
-      else lastProject.clear(); // nothing was open: a later launch must not bring back an old project
-    },
+    prepareResume,
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
     // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.

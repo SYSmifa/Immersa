@@ -1,7 +1,7 @@
 import { createSupabaseBackend } from '../cloud/repo';
 import { createStats } from '../ui/stats';
 import { createStage } from '../scene/stage';
-import { createEnterAr } from './enterAr';
+import { createEnterAr, isInstalledApp } from './enterAr';
 import { createLauncher } from './launcher';
 import { fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
@@ -25,7 +25,19 @@ export async function runHeadsetApp() {
   const stats = createStats(camera); // fps readout, shown only when Options → "Pannello fps" is on
   stats.setEnabled(fpsPreferred());
   const enter = createEnterAr(renderer, features);
-  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on));
+  // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
+  // (same relaunch as the old standby restart); the new session starts the scan by itself.
+  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), () => {
+    app.core.logEvent(isInstalledApp() ? 'riavvio: intent:// + nuova sessione' : 'riavvio: nuova sessione');
+    if (isInstalledApp()) {
+      try {
+        location.href = `intent://${location.host}/#Intent;scheme=https;package=app.immersa.quest;end`;
+      } catch {
+        /* not allowed */
+      }
+    }
+    setTimeout(() => void enter.restart(), 100);
+  });
   const launcher = await createLauncher(enter);
   renderer.xr.addEventListener('sessionend', () => launcher.show());
   void enter.autoStart(); // the installed app's launch is the gesture; in a plain tab the button stays
