@@ -96,6 +96,7 @@ namespace Immersa.Quest
             holder.transform.localScale = Vector3.one * (m.Scale > 0 ? (float)m.Scale : 1f);
             content.transform.SetParent(holder.transform, false);
             UnityEngine.Object.Destroy(staging);
+            ModelGrab.Make(holder);   // B.5: point with the ray and pinch to move it
             return holder;
         }
     }
