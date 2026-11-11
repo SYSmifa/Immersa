@@ -168,11 +168,20 @@ namespace Immersa.Quest
             tRt.anchorMin = Vector2.zero; tRt.anchorMax = Vector2.one;
             tRt.offsetMin = new Vector2(30, 30); tRt.offsetMax = new Vector2(-30, -30);
 
-            // Two 3D buttons under the panel: SCAN and RELOAD.
-            MakeButton("SCAN", new Vector3(-0.22f, -0.38f, -0.02f), new Color(0.1f, 0.65f, 0.65f), Scan);
-            MakeButton("RELOAD", new Vector3(0.22f, -0.38f, -0.02f), new Color(0.35f, 0.4f, 0.5f), ReloadButton);
+            Redraw();   // the text first: it must show even if a button fails
 
-            Redraw();
+            // Two 3D buttons under the panel: SCAN and RELOAD.
+            try
+            {
+                MakeButton("SCAN", new Vector3(-0.22f, -0.38f, -0.02f), new Color(0.1f, 0.65f, 0.65f), Scan);
+                MakeButton("RELOAD", new Vector3(0.22f, -0.38f, -0.02f), new Color(0.35f, 0.4f, 0.5f), ReloadButton);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError(Tag + "buttons failed: " + e);
+                history.Add("Buttons failed: " + e.Message);
+                Redraw();
+            }
         }
 
         void MakeButton(string text, Vector3 localPos, Color color, Action onSelect)
@@ -182,8 +191,11 @@ namespace Immersa.Quest
             go.transform.SetParent(transform, false);
             go.transform.localPosition = localPos;
             go.transform.localScale = new Vector3(0.36f, 0.12f, 0.03f);
+            // The material is an asset in Resources: Shader.Find would return null in a build (the shader gets stripped).
             var rend = go.GetComponent<Renderer>();
-            rend.material = new Material(Shader.Find("Universal Render Pipeline/Unlit")) { color = color };
+            var baseMat = Resources.Load<Material>("ButtonUnlit");
+            if (baseMat != null) rend.material = new Material(baseMat) { color = color };
+            else Debug.LogError(Tag + "Resources/ButtonUnlit is missing");
 
             var textGo = new GameObject("Label");
             textGo.transform.SetParent(go.transform, false);
