@@ -73,6 +73,8 @@ namespace Immersa.Core
         public int N;
         public string Sess;
         [JsonExtensionData] public IDictionary<string, JToken> Extra;
+
+        public RoomLinkCandidate ShallowCopy() => (RoomLinkCandidate)MemberwiseClone();
     }
 
     public class RoomLink
@@ -84,6 +86,8 @@ namespace Immersa.Core
         public string Sess;            // the session of the last measure
         public RoomLinkCandidate Cand; // a different measure of a link not confirmed yet
         [JsonExtensionData] public IDictionary<string, JToken> Extra;
+
+        public RoomLink ShallowCopy() => (RoomLink)MemberwiseClone();
     }
 
     // Our own room format; the Meta scan is only one possible source of Planes.
