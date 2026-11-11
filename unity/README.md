@@ -33,6 +33,13 @@ Da fare su Claude Code locale nella cartella `unity/`; i passi esatti si verific
 - Avvertenze: il ponte MCP blocca `System.Reflection` e non vede le classi dell'SDK Meta (`OVRProjectConfig`, `OVRManager`): per impostarle si usa `SerializedObject` sui campi o prefab/script in `Assets/`; Unity Connect dà errori di token in Console (non legati al progetto).
 - PROSSIMO: prototipo di rischio B (B.1 standby/scansione, poi login Supabase, elenco progetti, GLB, mani, due scansioni MRUK).
 
+## Logica pura in C# (`Assets/Scripts/Core/`, scritta dalla chat cloud)
+- Cartella della chat cloud: la sessione locale la USA ma non la modifica senza chiedere (se serve un cambio, dirlo all'utente).
+- Niente `UnityEngine` lì dentro; i tipi `Vec2/Vec3/Quat` sono i nostri (assi del WEB: three, destrorso, y su). La conversione verso Unity (z invertito, quaternioni) si fa in UN solo posto, al bordo con Unity (da scrivere quando serve).
+- Fatto: `Vectors.cs`, `Types.cs` (= `src/room/types.ts`, i campi sconosciuti si conservano in `Extra` per non perdere dati di una versione più nuova del web), `Json.cs` (camelCase, campi assenti non scritti), `Places.cs` (= `src/room/places.ts`). `Assets/link.xml` evita che lo stripping IL2CPP tolga i campi letti da Newtonsoft.
+- Test: `dotnet run --project unity/Tests/Core.Tests` (richiede .NET 8 SDK; nessuna dipendenza da Unity). Gli stessi file li compila Unity: alla prima apertura Unity crea i `.meta` (da committare) e va controllata la Console.
+- Prossimi da portare, in ordine: `measure`, `anchors`, `layout`, `annotations` (+ `wrapLines`), con test equivalenti a `docs/test-plans/*.test.mts`.
+
 ## Cosa fare (sessione locale)
 Regole: un gradino alla volta; prima dire cosa si farà e aspettare l'ok; commit piccoli dopo ogni gradino (con i `.meta`); non toccare `src/`, `supabase/` né il deploy web; dopo ogni cambio importante far controllare la Console (niente errori rossi); se un'API Meta/Unity è incerta, cercare la documentazione prima di scrivere codice; le prove sul visore le fa l'utente (APK con `adb install`), chiedere foto/log e raggruppare le modifiche prima di una build.
 

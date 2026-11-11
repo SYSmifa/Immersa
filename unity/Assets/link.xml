@@ -1,0 +1,6 @@
+<linker>
+  <!-- Newtonsoft reads/writes these classes by reflection: stop IL2CPP code stripping from removing their fields. -->
+  <assembly fullname="Assembly-CSharp">
+    <namespace fullname="Immersa.Core" preserve="all"/>
+  </assembly>
+</linker>

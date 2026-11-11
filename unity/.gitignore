@@ -25,3 +25,9 @@
 /Assets/Config/Local*
 /Assets/StreamingAssets/env*
 /.utmp/
+
+# dotnet test project outside Assets
+/Tests/**/bin/
+/Tests/**/obj/
+# the test project's own .csproj is source, not a generated file
+!/Tests/**/*.csproj
