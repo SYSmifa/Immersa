@@ -163,6 +163,50 @@ namespace Immersa.Cloud
             return list;
         }
 
+        /// <summary>The models of one project, parsed with the shared Core types (same JSON as the web app).</summary>
+        public async Task<List<Immersa.Core.RoomModel>> GetProjectModels(string projectId)
+        {
+            var (code, text) = await Send("GET", "/rest/v1/projects?select=models&id=eq." + Uri.EscapeDataString(projectId), null, true);
+            if (code != 200) throw new Exception(ErrorMessage(code, text));
+            var rows = JArray.Parse(text);
+            if (rows.Count == 0 || rows[0]["models"] == null) return new List<Immersa.Core.RoomModel>();
+            return Immersa.Core.Json.Parse<List<Immersa.Core.RoomModel>>(rows[0]["models"].ToString()) ?? new List<Immersa.Core.RoomModel>();
+        }
+
+        /// <summary>
+        /// Downloads a GLB from the private "models" bucket into the device cache and returns the file path.
+        /// The bucket path is content-addressed (&lt;user&gt;/&lt;sha256&gt;.glb), so a cached file never goes stale.
+        /// </summary>
+        public async Task<string> DownloadModel(string bucketPath)
+        {
+            var dir = Path.Combine(Application.persistentDataPath, "models");
+            Directory.CreateDirectory(dir);
+            var file = Path.Combine(dir, bucketPath.Replace('/', '_'));
+            if (File.Exists(file) && new FileInfo(file).Length > 0) return file;
+
+            if (session != null && Now() >= session.expiresAt - 60) await Refresh();
+            var escaped = string.Join("/", Array.ConvertAll(bucketPath.Split('/'), Uri.EscapeDataString));
+            var temp = file + ".part";
+            using (var req = new UnityWebRequest(url + "/storage/v1/object/authenticated/models/" + escaped, "GET"))
+            {
+                req.downloadHandler = new DownloadHandlerFile(temp) { removeFileOnAbort = true };
+                req.SetRequestHeader("apikey", anonKey);
+                req.SetRequestHeader("Authorization", "Bearer " + session?.accessToken);
+                req.timeout = 300;
+                var done = new TaskCompletionSource<bool>();
+                req.SendWebRequest().completed += _ => done.TrySetResult(true);
+                await done.Task;
+                if (req.responseCode != 200)
+                {
+                    try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best effort */ }
+                    throw new Exception("Download failed (" + req.responseCode + "): " + bucketPath);
+                }
+            }
+            if (File.Exists(file)) File.Delete(file);
+            File.Move(temp, file);
+            return file;
+        }
+
         // ---- internals ----
 
         static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();

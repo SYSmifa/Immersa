@@ -67,7 +67,35 @@ namespace Immersa.Quest
                 Debug.Log(Tag + "project: " + p.name + " | rooms " + p.roomCount + " | tone " + p.tone);
             }
             if (projects.Count > 9) sb.AppendLine("... +" + (projects.Count - 9) + " more");
-            Show(sb.ToString());
+            var header = sb.ToString();
+            Show(header);
+            if (projects.Count == 0) return;
+
+            // B.4: load the first project's models in free space in front of the user (no room alignment yet).
+            var project = projects[0];
+            var frame = CreateFrame();
+            var loader = new ProjectModelLoader(client);
+            var res = await loader.LoadProject(project, frame, p => Show(header + "\n" + p));
+            var done = new StringBuilder(header).AppendLine().AppendLine("'" + project.name + "': " + res.placed + "/" + res.total + " model(s) placed in front of you");
+            foreach (var problem in res.problems) done.AppendLine("! " + problem);
+            Show(done.ToString());
+            Debug.Log(Tag + "placed " + res.placed + "/" + res.total + " model(s)");
+        }
+
+        /// <summary>Free-space frame: on the floor, 2.5 m ahead of where the user looks, turned like the user.</summary>
+        Transform CreateFrame()
+        {
+            var cam = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
+            var go = new GameObject("ProjectFrame");
+            var fwd = cam != null ? cam.transform.forward : Vector3.forward;
+            fwd.y = 0;
+            fwd = fwd.sqrMagnitude < 1e-4f ? Vector3.forward : fwd.normalized;
+            var head = cam != null ? cam.transform.position : Vector3.zero;
+            // Floor level: the tracking origin is the floor (y = 0) in the XR rig.
+            go.transform.position = new Vector3(head.x, 0f, head.z) + fwd * 2.5f;
+            go.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up);
+            Debug.Log(Tag + "frame at " + go.transform.position + " (head y " + head.y.ToString("0.00") + ")");
+            return go.transform;
         }
 
         /// <summary>
