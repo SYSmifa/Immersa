@@ -293,6 +293,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     visit: false,
     showLog: false,
     logOffset: 0,
+    logSnap: [] as string[],
     search: '',
     scroll: 0,
     outline: true,
@@ -1902,7 +1903,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       else openVisitWarning();
     },
     logOlder() {
-      view.logOffset = Math.min(Math.max(0, view.log.length - 6), view.logOffset + 6);
+      view.logOffset = Math.min(Math.max(0, view.logSnap.length - 6), view.logOffset + 6);
       render();
     },
     logNewer() {
@@ -1911,6 +1912,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     toggleLog() {
       view.logOffset = 0;
+      view.logSnap = [...view.log];
       view.showLog = !view.showLog;
       render();
     },

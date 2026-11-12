@@ -73,6 +73,7 @@ export interface MenuView {
   canVisit: boolean; // the open project is a plan without scanned rooms: it can be visited virtually
   visit: boolean; // the virtual visit is on
   showLog: boolean; // the Account tab shows the long event log (to photograph it)
+  logSnap: string[]; // the log as it was when the page opened (it does not move while you read it)
   logOffset: number; // lines skipped from the newest end (the log page scrolls back)
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
@@ -532,7 +533,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     // the newest lines that fit, shown oldest first
     const shown: { line: string; rows: number }[] = [];
     let used = 0;
-    for (const line of [...v.log].slice(0, Math.max(0, v.log.length - v.logOffset)).reverse()) {
+    for (const line of [...v.logSnap].slice(0, Math.max(0, v.logSnap.length - v.logOffset)).reverse()) {
       const rows = line.length > 74 ? 2 : 1;
       if (used + rows * 22 + 4 > 316) break;
       shown.unshift({ line, rows });
