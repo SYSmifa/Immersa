@@ -17,7 +17,7 @@ namespace Immersa.Quest
 
         const float W = 820f, H = 980f;
 
-        RectTransform canvas;
+        RectTransform canvas, root;
         SupabaseClient client;
         TaskCompletionSource<bool> done;
         Mode mode = Mode.Main;
@@ -64,9 +64,10 @@ namespace Immersa.Quest
 
         void Build()
         {
-            for (int i = canvas.childCount - 1; i >= 0; i--) Destroy(canvas.GetChild(i).gameObject);
-            UiKit.Box(canvas, 0, 0, W, H, UiTheme.Bg1, true, "Panel");
-            UiKit.Label(canvas, 44, 30, W - 88, 60, "Accedi a Immersa", 44, UiTheme.HeaderText, TextAnchor.UpperLeft, true);
+            if (root != null) Destroy(root.gameObject);   // not the canvas children: they include Meta's overlay objects
+            root = UiKit.NewRect(root, "Root", 0, 0, W, H);
+            UiKit.Box(root, 0, 0, W, H, UiTheme.Bg1, true, "Panel");
+            UiKit.Label(root, 44, 30, W - 88, 60, "Accedi a Immersa", 44, UiTheme.HeaderText, TextAnchor.UpperLeft, true);
 
             switch (mode)
             {
@@ -75,15 +76,15 @@ namespace Immersa.Quest
                 case Mode.EmailCode: BuildEmailCode(); break;
             }
             if (!string.IsNullOrEmpty(message))
-                UiKit.Label(canvas, 44, H - 130, W - 88, 100, message, 24, messageIsError ? new Color(1f, 0.55f, 0.65f) : UiTheme.Accent2, TextAnchor.UpperLeft, false, "Message");
+                UiKit.Label(root, 44, H - 130, W - 88, 100, message, 24, messageIsError ? new Color(1f, 0.55f, 0.65f) : UiTheme.Accent2, TextAnchor.UpperLeft, false, "Message");
         }
 
         void BuildMain()
         {
-            UiKit.Pill(canvas, 44, 120, W - 88, 84, "Accedi con un codice dal PC", 30, UiTheme.Accent, Color.white, UiTheme.AccentHover, StartPcCode);
-            UiKit.Label(canvas, 44, 214, W - 88, 70, "Il modo più semplice: apri Immersa sul PC e approva il codice.", 22, UiTheme.HeaderSub);
+            UiKit.Pill(root, 44, 120, W - 88, 84, "Accedi con un codice dal PC", 30, UiTheme.Accent, Color.white, UiTheme.AccentHover, StartPcCode);
+            UiKit.Label(root, 44, 214, W - 88, 70, "Il modo più semplice: apri Immersa sul PC e approva il codice.", 22, UiTheme.HeaderSub);
 
-            var card = UiKit.Box(canvas, 44, 300, W - 88, 380, UiTheme.Surface, true, "Card");
+            var card = UiKit.Box(root, 44, 300, W - 88, 380, UiTheme.Surface, true, "Card");
             UiKit.Label(card.transform, 28, 20, 300, 30, "EMAIL", 20, UiTheme.Dim, TextAnchor.UpperLeft, true);
             new UiTextField(card.transform, 28, 54, W - 88 - 56, 76, email, "nome@esempio.it", t => email = t, null, false, false, 120);
             UiKit.Label(card.transform, 28, 148, 300, 30, "PASSWORD", 20, UiTheme.Dim, TextAnchor.UpperLeft, true);
@@ -91,20 +92,20 @@ namespace Immersa.Quest
             UiKit.Pill(card.transform, 28, 280, (W - 88 - 56 - 16) / 2f, 72, busy ? "..." : "Accedi", 28, UiTheme.Accent, Color.white, UiTheme.AccentHover, SignInWithPassword);
             UiKit.Pill(card.transform, 28 + (W - 88 - 56 - 16) / 2f + 16, 280, (W - 88 - 56 - 16) / 2f, 72, "Crea un account", 26, UiTheme.AccentSoft, UiTheme.AccentText, UiTheme.SurfaceHover, SignUp);
 
-            UiKit.Label(canvas, 44, 700, W - 88, 36, "oppure", 24, UiTheme.HeaderSub, TextAnchor.UpperCenter);
-            UiKit.Pill(canvas, 44, 750, W - 88, 76, "Accedi con un codice via email", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { mode = Mode.EmailCode; codeSent = false; code = ""; Set("", false); });
+            UiKit.Label(root, 44, 700, W - 88, 36, "oppure", 24, UiTheme.HeaderSub, TextAnchor.UpperCenter);
+            UiKit.Pill(root, 44, 750, W - 88, 76, "Accedi con un codice via email", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { mode = Mode.EmailCode; codeSent = false; code = ""; Set("", false); });
         }
 
         void BuildPcCode()
         {
-            UiKit.Label(canvas, 44, 130, W - 88, 70, "Sul PC apri Immersa, accedi e premi \"Collega un visore\", poi approva questo codice.", 24, UiTheme.HeaderSub);
-            UiKit.Label(canvas, 44, 250, W - 88, 180, string.IsNullOrEmpty(pcCode) ? "..." : pcCode, 130, UiTheme.Accent2, TextAnchor.MiddleCenter, true, "Code");
-            UiKit.Pill(canvas, 44, 520, W - 88, 76, "Annulla", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { pcToken++; mode = Mode.Main; Set("", false); });
+            UiKit.Label(root, 44, 130, W - 88, 70, "Sul PC apri Immersa, accedi e premi \"Collega un visore\", poi approva questo codice.", 24, UiTheme.HeaderSub);
+            UiKit.Label(root, 44, 250, W - 88, 180, string.IsNullOrEmpty(pcCode) ? "..." : pcCode, 130, UiTheme.Accent2, TextAnchor.MiddleCenter, true, "Code");
+            UiKit.Pill(root, 44, 520, W - 88, 76, "Annulla", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { pcToken++; mode = Mode.Main; Set("", false); });
         }
 
         void BuildEmailCode()
         {
-            var card = UiKit.Box(canvas, 44, 130, W - 88, codeSent ? 420 : 250, UiTheme.Surface, true, "Card");
+            var card = UiKit.Box(root, 44, 130, W - 88, codeSent ? 420 : 250, UiTheme.Surface, true, "Card");
             UiKit.Label(card.transform, 28, 20, 300, 30, "EMAIL", 20, UiTheme.Dim, TextAnchor.UpperLeft, true);
             new UiTextField(card.transform, 28, 54, W - 88 - 56, 76, email, "nome@esempio.it", t => email = t, null, false, false, 120);
             if (!codeSent)
@@ -115,7 +116,7 @@ namespace Immersa.Quest
                 new UiTextField(card.transform, 28, 182, W - 88 - 56, 76, code, "123456", t => code = t, null, false, false, 12);
                 UiKit.Pill(card.transform, 28, 280, W - 88 - 56, 72, busy ? "..." : "Accedi", 28, UiTheme.Accent, Color.white, UiTheme.AccentHover, VerifyCode);
             }
-            UiKit.Pill(canvas, 44, H - 220, W - 88, 76, "Indietro", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { mode = Mode.Main; Set("", false); });
+            UiKit.Pill(root, 44, H - 220, W - 88, 76, "Indietro", 28, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { mode = Mode.Main; Set("", false); });
         }
 
         // ---- actions ----

@@ -23,7 +23,7 @@ namespace Immersa.Quest
         static readonly string[] Months = { "gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic" };
 
         AppController app;
-        RectTransform canvas;
+        RectTransform canvas, root;
         Tab tab = Tab.Projects;
         bool rebuild = true;
         float menuYaw, menuY;
@@ -144,16 +144,18 @@ namespace Immersa.Quest
 
         void Build()
         {
-            for (int i = canvas.childCount - 1; i >= 0; i--) Destroy(canvas.GetChild(i).gameObject);
+            // Only our own elements are redrawn: the canvas also holds the hidden objects of the compositor layer (Meta OVROverlayCanvas).
+            if (root != null) Destroy(root.gameObject);
+            root = UiKit.NewRect(root, "Root", 0, 0, W, H);
 
-            UiKit.Box(canvas, 0, 0, W, H, UiTheme.Bg1, true, "Panel");
-            UiKit.Box(canvas, 0, 0, W, 150, new Color(1, 1, 1, 0.04f), true, "HeaderGlow");
-            UiKit.Label(canvas, 44, 26, 560, 60, "Immersa", 46, UiTheme.HeaderText, TextAnchor.UpperLeft, true, "Title");
-            UiKit.Label(canvas, 44, 86, 600, 34, objectView && app.Session?.SelectedModel != null ? app.Session.SelectedModel.Name : app.HeaderSubtitle(), 24, UiTheme.HeaderSub, TextAnchor.UpperLeft, false, "Subtitle");
+            UiKit.Box(root, 0, 0, W, H, UiTheme.Bg1, true, "Panel");
+            UiKit.Box(root, 0, 0, W, 150, new Color(1, 1, 1, 0.04f), true, "HeaderGlow");
+            UiKit.Label(root, 44, 26, 560, 60, "Immersa", 46, UiTheme.HeaderText, TextAnchor.UpperLeft, true, "Title");
+            UiKit.Label(root, 44, 86, 600, 34, objectView && app.Session?.SelectedModel != null ? app.Session.SelectedModel.Name : app.HeaderSubtitle(), 24, UiTheme.HeaderSub, TextAnchor.UpperLeft, false, "Subtitle");
             if (app.HasUnsavedChanges)
-                UiKit.Pill(canvas, W - 230, 30, 186, 64, "Salva", 28, UiTheme.Accent, Color.white, UiTheme.AccentHover, () => app.SaveProject());
+                UiKit.Pill(root, W - 230, 30, 186, 64, "Salva", 28, UiTheme.Accent, Color.white, UiTheme.AccentHover, () => app.SaveProject());
 
-            var content = UiKit.NewRect(canvas, "Content", 0, 150, W, 730);
+            var content = UiKit.NewRect(root, "Content", 0, 150, W, 730);
             var session = app.Session;
             if (objectView && (session == null || session.Selected == null)) objectView = false;
             if (objectView)
@@ -176,7 +178,7 @@ namespace Immersa.Quest
             {
                 var t = (Tab)i;
                 bool on = t == tab;
-                UiKit.Pill(canvas, 44 + i * (bw + 14), 900, bw, 84, names[i], 28, on ? UiTheme.Accent : UiTheme.Glass, Color.white, on ? UiTheme.AccentHover : UiTheme.GlassHover,
+                UiKit.Pill(root, 44 + i * (bw + 14), 900, bw, 84, names[i], 28, on ? UiTheme.Accent : UiTheme.Glass, Color.white, on ? UiTheme.AccentHover : UiTheme.GlassHover,
                     () => { tab = t; scroll = 0; objectView = false; Refresh(); });
             }
         }

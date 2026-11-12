@@ -54,6 +54,13 @@ namespace Immersa.Quest
         {
             var rig = GameObject.Find("OVRComprehensiveInteractionRig");
             if (rig == null) return;
+            // The rig brings locomotion (smooth movement, tunneling, teleport, turn) that we do not use; its parts also assert on missing references.
+            foreach (var t in rig.GetComponentsInChildren<Transform>(true))
+            {
+                var n = t.name;
+                if (t.gameObject.activeSelf && (n == "PlayerController" || n.IndexOf("Tunneling", StringComparison.Ordinal) >= 0 || n.IndexOf("Locomotion", StringComparison.Ordinal) >= 0 || n.IndexOf("Teleport", StringComparison.Ordinal) >= 0))
+                { t.gameObject.SetActive(false); Debug.Log(Tag + "locomotion switched off: " + PathOf(t)); }
+            }
             var list = new List<Entry>();
             foreach (var mb in rig.GetComponentsInChildren<MonoBehaviour>(true))
             {
@@ -62,7 +69,7 @@ namespace Immersa.Quest
                 if (type.IndexOf("Interactor", StringComparison.Ordinal) < 0) continue;
                 var path = PathOf(mb.transform);
                 bool far = type.IndexOf("RayInteractor", StringComparison.Ordinal) >= 0 || type.IndexOf("DistanceHandGrabInteractor", StringComparison.Ordinal) >= 0;
-                bool hand = path.IndexOf("Controller", StringComparison.OrdinalIgnoreCase) < 0;
+                bool hand = path.IndexOf("Hand and No Controller", StringComparison.OrdinalIgnoreCase) >= 0 || mb.gameObject.name.StartsWith("Hand", StringComparison.Ordinal);
                 Debug.Log(Tag + type + " at " + path + (far && hand ? "  -> switched by handedness" : ""));
                 if (far && hand) list.Add(new Entry { component = mb, left = IsLeft(mb.transform) });
             }
