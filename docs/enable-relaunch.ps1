@@ -8,6 +8,8 @@ param(
   [switch]$Undo
 )
 $ErrorActionPreference = 'Stop'
+# Files are written as UTF-8 WITHOUT the byte order mark: PowerShell 5's -Encoding UTF8 adds one, and javac refuses a .java file that starts with it.
+$utf8 = New-Object System.Text.UTF8Encoding $false
 $manifest = Join-Path $Project 'app\src\main\AndroidManifest.xml'
 $gradle = Join-Path $Project 'app\build.gradle'
 if (-not (Test-Path $manifest)) { throw "Manifest not found: $manifest (is -Project the folder with gradlew.bat?)" }
@@ -31,7 +33,7 @@ if ($Undo) {
   # 1. the Java class (the package name goes into the template)
   New-Item -ItemType Directory -Force -Path $javaDir | Out-Null
   $template = Get-Content (Join-Path $PSScriptRoot 'android-relaunch\RelaunchActivity.java') -Raw
-  Set-Content -Path $javaFile -Value $template.Replace('__PACKAGE__', $pkg) -Encoding UTF8
+  [System.IO.File]::WriteAllText($javaFile, $template.Replace('__PACKAGE__', $pkg), $utf8)
   Write-Host "Written: $javaFile"
 
   # 2. the activity in the manifest, with the link the page opens: immersa://relaunch
@@ -60,7 +62,7 @@ if ($Undo) {
     $at = $text.LastIndexOf('</application>')
     if ($at -lt 0) { throw 'No </application> tag in the manifest.' }
     $text = $text.Insert($at, $activity)
-    Set-Content -Path $manifest -Value $text -NoNewline -Encoding UTF8
+    [System.IO.File]::WriteAllText($manifest, $text, $utf8)
     Write-Host 'Added RelaunchActivity to the manifest.'
   }
 }
