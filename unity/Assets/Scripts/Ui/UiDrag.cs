@@ -23,6 +23,7 @@ namespace Immersa.Ui
                 if (held) { held = false; onEnd?.Invoke(); }
                 return;
             }
+            if (!held) UiKit.LastSelectFrame = Time.frameCount;
             held = true;
             var plane = new Plane(rect.forward, rect.position);
             var r = new Ray(holder.Origin, holder.Forward);

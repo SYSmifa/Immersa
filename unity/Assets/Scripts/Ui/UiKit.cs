@@ -14,6 +14,9 @@ namespace Immersa.Ui
     public static class UiKit
     {
         public const float PixelsToMetres = 0.001f;
+
+        /// <summary>The frame of the last button / drag selected with the ray: a pinch that selects nothing at all deselects the model.</summary>
+        public static int LastSelectFrame = -100;
         static Sprite rounded;
 
         /// <summary>A white rounded rectangle, 9-sliced, to be tinted by Image.color.</summary>
@@ -122,7 +125,7 @@ namespace Immersa.Ui
             {
                 if (tint != null && hover.HasValue)
                     tint.color = args.NewState == InteractableState.Hover || args.NewState == InteractableState.Select ? hover.Value : idle;
-                if (args.NewState == InteractableState.Select && args.PreviousState != InteractableState.Select) onSelect?.Invoke();
+                if (args.NewState == InteractableState.Select && args.PreviousState != InteractableState.Select) { LastSelectFrame = Time.frameCount; onSelect?.Invoke(); }
             };
             go.SetActive(wasActive);
         }

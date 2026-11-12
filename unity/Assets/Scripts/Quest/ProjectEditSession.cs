@@ -33,6 +33,9 @@ namespace Immersa.Quest
         int removed;
         public int DirtyCount => dirty.Count + removed;
         public GameObject Selected { get; private set; }
+        /// <summary>The model the dominant hand is holding right now (pinch), or null.</summary>
+        public GameObject Grabbed { get; private set; }
+        public RoomModel ModelOf(GameObject holder) => holder != null && byHolder.TryGetValue(holder, out var m) ? m : null;
         public RoomModel SelectedModel => Selected != null && byHolder.TryGetValue(Selected, out var m) ? m : null;
         public event Action Changed;
 
@@ -61,7 +64,7 @@ namespace Immersa.Quest
             byHolder[holder] = model;
             ModelLook.Capture(holder);          // the file's own materials, then the look the project asks for
             ModelLook.Apply(holder, model);
-            ModelGrab.Make(holder, Select, OnReleased);
+            ModelGrab.Make(holder, h => { Grabbed = h; Select(h); }, h => { if (Grabbed == h) Grabbed = null; OnReleased(h); });
         }
 
         public void Select(GameObject holder)

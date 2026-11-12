@@ -32,14 +32,22 @@ namespace Immersa.Quest
         {
             if (holder == null) { current = null; hasSpot = false; if (canvas != null) canvas.gameObject.SetActive(false); return; }
             bool moved = current == holder && (holder.transform.position - lastModelPos).sqrMagnitude > 0.0025f;
-            if (current != holder || moved || !hasSpot) { current = holder; lastModelPos = holder.transform.position; hasSpot = ComputeSpot(holder); }
+            if (current != holder || moved || !hasSpot) { current = holder; lastModelPos = holder.transform.position; hasSpot = ComputeSpot(holder, out spot); }
             canvas.gameObject.SetActive(hasSpot);
         }
 
         static Camera Cam() => Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
 
-        bool ComputeSpot(GameObject holder)
+        /// <summary>Where the button of a model goes (also used to put other cards next to the model).</summary>
+        public Vector3 SpotFor(GameObject holder)
         {
+            if (current == holder && hasSpot) return spot;
+            return ComputeSpot(holder, out var s) ? s : holder.transform.position + Vector3.up;
+        }
+
+        static bool ComputeSpot(GameObject holder, out Vector3 spot)
+        {
+            spot = default;
             var cam = Cam();
             if (cam == null) return false;
             Bounds b = default; bool first = true;
@@ -66,7 +74,7 @@ namespace Immersa.Quest
             if (current == null || canvas == null || !canvas.gameObject.activeSelf) return;
             var cam = Cam();
             if (cam == null) return;
-            if ((cam.transform.position - spot).magnitude > 7f) hasSpot = ComputeSpot(current);
+            if ((cam.transform.position - spot).magnitude > 7f) hasSpot = ComputeSpot(current, out spot);
             canvas.position = spot;
             var toHead = cam.transform.position - spot; toHead.y = 0;
             if (toHead.sqrMagnitude > 1e-4f) canvas.rotation = Quaternion.LookRotation(-toHead.normalized, Vector3.up);   // a canvas reads correctly when its +Z points away from the viewer

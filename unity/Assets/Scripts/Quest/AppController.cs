@@ -45,6 +45,7 @@ namespace Immersa.Quest
         public string OpenProjectId { get; private set; }
         public string Email => client?.Email;
         public ProjectEditSession Session => session;
+        public bool MenuOpen => menu != null && menu.IsOpen;
         public bool HasUnsavedChanges => session != null && session.DirtyCount > 0;
         public int LiveRoomCount => registry.LiveCount;
         public string RoomMessage => scan != null ? scan.LastMessage : "";
@@ -76,6 +77,7 @@ namespace Immersa.Quest
             login = gameObject.AddComponent<LoginPanel>();
             objectButton = gameObject.AddComponent<ObjectButton>();
             objectButton.Init(() => menu.OpenObject());
+            gameObject.AddComponent<TwoHandGesture>().Init(this, objectButton);
             splash = Splash.Create(transform);
         }
 
