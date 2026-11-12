@@ -35,8 +35,10 @@ namespace Immersa.Quest
                 if (a == null) continue;
                 var label = LabelOf(a);
                 if (label == null) continue;   // the global mesh is not part of our format
-                if (a.PlaneRect.HasValue) scan.Planes.Add(ToPlane(a, label));
-                else if (a.VolumeBounds.HasValue) scan.Boxes.Add(ToBox(a, label));
+                // Furniture (table, storage, couch...) has BOTH a plane (its top face) and a volume: it must become a box.
+                // Only walls, floor, ceiling, doors and windows are planes alone.
+                if (a.VolumeBounds.HasValue) scan.Boxes.Add(ToBox(a, label));
+                else if (a.PlaneRect.HasValue) scan.Planes.Add(ToPlane(a, label));
             }
             scan.Extra = new Dictionary<string, JToken>
             {
