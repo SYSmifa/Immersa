@@ -1481,10 +1481,10 @@ export function createEditorUi(h: EditorHandlers) {
         window.addEventListener('keydown', key, true);
         panel.append(
           el('h3', 'Esporta PDF in scala'),
-          el('div', 'Una pianta vista dall\'alto con i modelli, le quote e le note, pronta da stampare.', 'ed-meta'),
+          el('div', 'Una pagina per ogni stanza, con la pianta vista dall\'alto girata lungo il muro più lungo, e in fondo tutte le stanze insieme.', 'ed-meta'),
           ...group<SheetOptions['paper']>('Formato', [['A4', 'A4'], ['A3', 'A3']], () => o.paper, (v) => (o.paper = v)),
           ...group<SheetOptions['orient']>('Orientamento', [['Automatico', 'auto'], ['Verticale', 'portrait'], ['Orizzontale', 'landscape']], () => o.orient, (v) => (o.orient = v)),
-          ...group<SheetOptions['scale']>('Scala', [['Automatica', 'auto'], ['1:20', 20], ['1:50', 50], ['1:100', 100], ['1:200', 200]], () => o.scale, (v) => (o.scale = v)),
+          ...group<SheetOptions['scale']>('Scala', [['Automatica', 'auto'], ['Massima', 'fit'], ['1:20', 20], ['1:50', 50], ['1:100', 100], ['1:200', 200]], () => o.scale, (v) => (o.scale = v)),
           ...group<boolean>('Quote e misure', [['Sì', true], ['No', false]], () => o.dims, (v) => (o.dims = v)),
           info,
           row(pill('Esporta', () => done(o), 'acc'), pill('Annulla', () => done(null))),

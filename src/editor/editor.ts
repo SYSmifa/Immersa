@@ -36,7 +36,7 @@ import type { Backend } from '../cloud/backend';
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
-import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { boxSolid, dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
 import { ANNOTATION_COLORS, annotationLength, annotationMeasures, annotationName, copyAnnotation, newAnnotation, DEFAULT_COLOR } from '../room/annotations';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -51,9 +51,9 @@ import { listMaterials, modelBox, modelSize as localModelSize } from '../room/se
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
-import { linkSummary, planModelMoves } from '../room/layout';
+import { IDENTITY, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
-import { buildPlanPdf, DEFAULT_OPTIONS, describeLayout, planLayout, type Bounds, type PlanData, type SheetOptions } from './planPdf';
+import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type SheetOptions } from './planPdf';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -991,46 +991,113 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
   }
 
-  // ---- PDF plan: a picture from above, to scale, with the drawn parts on top (see planPdf.ts) ----
+  // ---- PDF plan: a page per room, then all the rooms together (see planPdf.ts) ----
   let planOptions: SheetOptions = { ...DEFAULT_OPTIONS };
-  // The part of the world to put on the sheet: the room's scan, the models, the walls and floors.
-  function planContent(): { bounds: Bounds; maxY: number } | null {
-    const box = new Box3();
-    for (const g of [planesGroup, modelsGroup, structuresGroup]) {
-      if (!g.visible) continue;
-      const b = new Box3().setFromObject(g);
-      if (!b.isEmpty() && isFinite(b.min.x) && isFinite(b.max.x)) box.union(b);
-    }
-    return box.isEmpty() ? null : { bounds: { minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z }, maxY: box.max.y };
-  }
-  function planData(bounds: Bounds): PlanData {
-    const pm = models().flatMap((m) => {
-      const h = layer.holders.get(m.id);
+  type P2 = [number, number];
+  // From a room's own frame to the editor's world, given where the room sits (layout.ts Pose: a turn about Y by -yaw, then a move)
+  const wpt = (P: Pose, p: P2): P2 => {
+    const a = -P.yaw;
+    return [p[0] * Math.cos(a) + p[1] * Math.sin(a) + P.tx, -p[0] * Math.sin(a) + p[1] * Math.cos(a) + P.tz];
+  };
+  const wdir = (P: Pose, d: P2): P2 => wpt({ yaw: P.yaw, tx: 0, ty: 0, tz: 0 }, d);
+  const wvec = (P: Pose, v: Vec3): Vec3 => {
+    const [x, z] = wpt(P, [v[0], v[2]]);
+    return [x, v[1] + P.ty, z];
+  };
+  const wsolid = (P: Pose, name: string, s: Solid) => ({ name, c: wpt(P, s.c), u: wdir(P, s.u), hu: s.hu, hv: s.hv });
+  const whenModelsLoaded = async (ms: number) => {
+    const t0 = performance.now();
+    while (modelsPending() > 0 && performance.now() - t0 < ms) await new Promise((r) => setTimeout(r, 100));
+  };
+
+  // What a page draws for one room (null: the free space of a project with no room), in the world of the editor.
+  function roomSheet(r: Room | null, P: Pose, holders: Map<string, Group> | null) {
+    const id = r?.id ?? '';
+    const segs = (r?.scan.planes ?? []).flatMap((pl, i) => planeSeg(pl, i) ?? []);
+    const mine = r === room || !r; // the structures and the notes' feet are only in the scene for the room being edited
+    const sts = mine ? structures() : [];
+    const axisLocal = roomAxes([...segs, ...sts.flatMap(wallSegs)]);
+    const models = (project?.models ?? []).flatMap((m) => {
+      if (m.roomId !== id) return [];
+      const h = holders?.get(m.id);
       const b = h && modelBox(h);
-      if (!b) return [];
-      const s = modelSolid(m, b.min, b.max);
-      return [{ name: m.name, c: s.c, u: s.u, hu: s.hu, hv: s.hv }];
+      return b ? [wsolid(P, m.name, modelSolid(m, b.min, b.max))] : [];
     });
-    const measures = [...structures().flatMap((st) => dimsOfStructure(st).filter((x) => x.kind === 'dim' || x.kind === 'label')), ...annotations().flatMap((a) => annotationMeasures(a, noteAnchor(a)))];
-    const walls = planesGroup.visible ? (room?.scan.planes ?? []).flatMap((p, i) => planeSeg(p, i) ?? []).map((s) => [s.a, s.b] as [[number, number], [number, number]]) : [];
-    return { title: project?.name ?? 'Progetto', date: new Date().toLocaleDateString('it-IT'), bounds, walls, models: pm, measures };
+    const mv = (m: Measure): Measure => ({ ...m, a: wvec(P, m.a), b: wvec(P, m.b) });
+    const measures = [
+      ...sts.flatMap((st) => dimsOfStructure(st).filter((x) => x.kind === 'dim' || x.kind === 'label')),
+      ...(project?.annotations ?? []).filter((a) => a.roomId === id).flatMap((a) => annotationMeasures(a, mine ? noteAnchor(a) : null)),
+    ].map(mv);
+    return {
+      walls: segs.map((sg) => [wpt(P, sg.a), wpt(P, sg.b)] as [P2, P2]),
+      boxes: (r?.scan.boxes ?? []).map((b, i) => wsolid(P, '', boxSolid(b, i))),
+      models,
+      measures,
+      axis: axisLocal ? wdir(P, axisLocal) : ([1, 0] as P2),
+      centre: r ? wpt(P, [floorCentre(r.scan.planes)[0], floorCentre(r.scan.planes)[2]]) : ([0, 0] as P2),
+    };
   }
-  // One render of the scene seen from straight above with an orthographic camera: one pixel is a fixed number of millimetres of
-  // the sheet, so the drawing is exactly to scale. The editor's own helpers (grid, gizmo, handles, measure lines) are put away
-  // for the moment, the walls that fade with the camera are brought back, the background is white.
-  async function renderTopDown(r: { widthM: number; heightM: number; cx: number; cz: number; pxW: number; pxH: number }, maxY: number) {
+
+  // All the pages: one per room of the project (turned along its longest wall), then the whole place on one page.
+  function planPages(): PlanData[] {
+    const date = new Date().toLocaleDateString('it-IT');
+    const name = project?.name ?? 'Progetto';
+    const rs = projectRoomsList();
+    const empty = { bounds: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 }, labels: [] as { text: string; p: P2 }[] };
+    if (!room || !rs.length) {
+      const d = roomSheet(null, IDENTITY, layer.holders);
+      return [{ title: name, subtitle: '', date, renderKey: 'space', ...empty, walls: d.walls, boxes: d.boxes, models: d.models, measures: d.measures, axis: d.axis }];
+    }
+    const around = placeAround(room, rs);
+    const poseOf = (r: Room): Pose => (r.id === room!.id ? IDENTITY : around.get(r.id)?.pose ?? IDENTITY);
+    const holdersOf = (r: Room) => (r.id === room!.id ? layer.holders : others.holders(r.id));
+    const sheets = rs.map((r) => ({ r, d: roomSheet(r, poseOf(r), holdersOf(r)) }));
+    const pages: PlanData[] = sheets.map(({ r, d }) => ({ title: r.name, subtitle: name, date, renderKey: `room:${r.id}`, ...empty, walls: d.walls, boxes: d.boxes, models: d.models, measures: d.measures, axis: d.axis }));
+    const known = sheets.filter(({ r }) => r.id === room!.id || (around.get(r.id) && around.get(r.id)!.state !== 'unknown'));
+    if (known.length > 1) {
+      const lost = sheets.filter((x) => !known.includes(x)).map((x) => x.r.name);
+      const all: PlanData = {
+        title: 'Tutte le stanze',
+        subtitle: lost.length ? `${name} · senza posizione: ${lost.join(', ')}` : name,
+        date,
+        renderKey: 'all',
+        overview: true,
+        ...empty,
+        walls: known.flatMap((x) => x.d.walls),
+        boxes: known.flatMap((x) => x.d.boxes),
+        models: known.flatMap((x) => x.d.models),
+        measures: known.flatMap((x) => x.d.measures.filter((m) => m.kind !== 'dim' && m.kind !== 'label')),
+        labels: known.map((x) => ({ text: x.r.name, p: x.d.centre })),
+        axis: [1, 0],
+      };
+      all.axis = bestAxis(all, [[1, 0], ...known.map((x) => x.d.axis)]);
+      pages.push(all);
+    }
+    return pages;
+  }
+
+  // One render of the models (and the walls / floors of the room being edited) seen from straight above with an orthographic camera,
+  // turned to the page's axis: one pixel is a fixed number of millimetres of the sheet, so the drawing is exactly to scale. The
+  // editor's own helpers are put away, the scan's outline is left to the vector layer, the walls that fade with the camera are
+  // brought back, the background is white.
+  async function renderTopDown(r: { key: string; widthM: number; heightM: number; cx: number; cz: number; axis: P2; pxW: number; pxH: number }) {
     const max = renderer.capabilities.maxTextureSize;
     const k = Math.min(1, max / Math.max(r.pxW, r.pxH));
     const w = Math.round(r.pxW * k);
     const h = Math.round(r.pxH * k);
-    const cam = new OrthographicCamera(-r.widthM / 2, r.widthM / 2, r.heightM / 2, -r.heightM / 2, 0.1, maxY + 100);
-    cam.position.set(r.cx, maxY + 50, r.cz);
-    cam.up.set(0, 0, -1);
+    const cam = new OrthographicCamera(-r.widthM / 2, r.widthM / 2, r.heightM / 2, -r.heightM / 2, 0.1, 300);
+    cam.position.set(r.cx, 100, r.cz);
+    cam.up.set(r.axis[1], 0, -r.axis[0]); // the top of the picture is against the page's "down" (u turned a quarter)
     cam.lookAt(r.cx, 0, r.cz);
     cam.updateMatrixWorld(true);
-    const hide = [gridGroup, measureGroup, annotPickGroup, handleGroup, pivot, transform.getHelper()];
+    const here = r.key === 'space' || r.key === 'all' || r.key === `room:${room?.id}`;
+    const hide = [gridGroup, measureGroup, annotPickGroup, handleGroup, pivot, transform.getHelper(), planesGroup];
     const was = hide.map((o) => o.visible);
+    const keep = [modelsGroup.visible, structuresGroup.visible];
     hide.forEach((o) => (o.visible = false));
+    modelsGroup.visible = structuresGroup.visible = here;
+    const only = new Set<string>(r.key.startsWith('room:') ? [r.key.slice(5)] : r.key === 'all' ? [...roomStates].filter(([, st]) => st !== 'unknown').map(([id]) => id) : []);
+    others.exportView(only, true);
     const fadeWas = fades.map((f) => ({ o: (f.obj.material as MeshBasicMaterial).opacity, v: f.obj.visible }));
     fades.forEach((f) => ((f.obj.material as MeshBasicMaterial).opacity = f.base, (f.obj.visible = true)));
     const bg = scene.background;
@@ -1054,6 +1121,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       lineMats.forEach((x) => x.m.resolution.copy(x.res));
       fades.forEach((f, i) => ((f.obj.material as MeshBasicMaterial).opacity = fadeWas[i].o, (f.obj.visible = fadeWas[i].v)));
       hide.forEach((o, i) => (o.visible = was[i]));
+      [modelsGroup.visible, structuresGroup.visible] = keep;
     }
     // GL rows go bottom-up: flip them while copying into the canvas
     const canvas = document.createElement('canvas');
@@ -1069,20 +1137,32 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   async function exportPdf() {
     if (!project) return;
-    const content = planContent();
-    if (!content) return ui.setStatus('Niente da esportare: il progetto è vuoto.');
-    const opts = await ui.askPlanExport(planOptions, (o) => describeLayout(planLayout(content.bounds, o)));
-    if (!opts) return;
-    planOptions = opts;
-    await withLoading('Preparo il PDF', 'Disegno la pianta…', async () => {
-      const { pdf, layout } = await buildPlanPdf(planData(content.bounds), opts, (r) => renderTopDown(r, content.maxY));
-      const name = `${project!.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'progetto'} - 1-${layout.den}.pdf`;
-      const url = URL.createObjectURL(new Blob([pdf.buffer as ArrayBuffer], { type: 'application/pdf' }));
-      const a = Object.assign(document.createElement('a'), { href: url, download: name });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      ui.setStatus(`PDF pronto: ${name} (${describeLayout(layout)})`);
+    // every room of the project, with its models, is brought in (the eye buttons of the sidebar do not matter here)
+    const pages = await withLoading('Preparo il PDF', 'Carico le stanze e i modelli…', async () => {
+      others.sync(room, projectRoomsList(), project?.models ?? [], new Set());
+      await whenModelsLoaded(30000);
+      return planPages();
     });
+    try {
+      const empty = pages.every((p) => !p.walls.length && !p.models.length && !p.boxes.length && !p.measures.length);
+      if (empty && !structures().length) return ui.setStatus('Niente da esportare: il progetto è vuoto.');
+      const preview = (o: SheetOptions) => `${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'}: ${pages.map((d) => `${d.title} 1:${planLayout(d, o).den}`).join(' · ')}`;
+      const opts = await ui.askPlanExport(planOptions, preview);
+      if (!opts) return;
+      planOptions = opts;
+      await withLoading('Preparo il PDF', 'Disegno le piante…', async () => {
+        const { pdf } = await buildPlanPdf(pages, opts, renderTopDown);
+        const name = `${project!.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'progetto'} - piante.pdf`;
+        const url = URL.createObjectURL(new Blob([pdf.buffer as ArrayBuffer], { type: 'application/pdf' }));
+        const a = Object.assign(document.createElement('a'), { href: url, download: name });
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        ui.setStatus(`PDF pronto: ${name} (${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'})`);
+      });
+    } finally {
+      others.exportView(new Set(), false);
+      refreshOthers(); // the eye buttons decide again what is shown and loaded
+    }
   }
 
   // ---- rooms and projects ----

@@ -93,6 +93,28 @@ export class PdfPage {
     this.ops.push(`q ${rgb(o.color ?? '#000000')} rg ${body} Q`);
   }
 
+  // the content stream of this page
+  get content(): string {
+    return this.ops.join('\n');
+  }
+  get picture_(): { data: Uint8Array; w: number; h: number } | null {
+    return this.image;
+  }
+
+  build(): Uint8Array {
+    return new PdfDoc([this]).build();
+  }
+}
+
+// Several pages in one file; the pages may differ in size (portrait, landscape).
+export class PdfDoc {
+  constructor(readonly pages: PdfPage[] = []) {}
+  add(width: number, height: number): PdfPage {
+    const p = new PdfPage(width, height);
+    this.pages.push(p);
+    return p;
+  }
+
   build(): Uint8Array {
     // the page text is WinAnsi (one byte per character), not UTF-8
     const enc = { encode: (t: string) => Uint8Array.from(t, (c) => c.charCodeAt(0) & 0xff) };
@@ -110,35 +132,40 @@ export class PdfPage {
       body();
       str('\nendobj\n');
     };
-    const content = enc.encode(this.ops.join('\n'));
-    str('%PDF-1.4\n%âãÏÓ\n');
+    // numbers: 1 catalog, 2 pages, 3-4 fonts, then page / content / (picture) for each page
+    let next = 5;
+    const ids = this.pages.map((p) => ({ page: next++, content: next++, image: p.picture_ ? next++ : 0 }));
+    str('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
     obj(1, () => str('<< /Type /Catalog /Pages 2 0 R >>'));
-    obj(2, () => str('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
-    obj(3, () =>
-      str(
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(this.width * MM)} ${num(this.height * MM)}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${this.image ? ' /XObject << /Im1 7 0 R >>' : ''} >> >>`,
-      ),
-    );
-    obj(4, () => {
-      str(`<< /Length ${content.length} >>\nstream\n`);
-      put(content);
-      str('\nendstream');
-    });
-    obj(5, () => str('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'));
-    obj(6, () => str('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'));
-    if (this.image) {
-      const im = this.image;
-      obj(7, () => {
-        str(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n`);
-        put(im.data);
+    obj(2, () => str(`<< /Type /Pages /Kids [${ids.map((i) => `${i.page} 0 R`).join(' ')}] /Count ${ids.length} >>`));
+    obj(3, () => str('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'));
+    obj(4, () => str('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'));
+    this.pages.forEach((pg, k) => {
+      const id = ids[k];
+      const content = enc.encode(pg.content);
+      obj(id.page, () =>
+        str(
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(pg.width * MM)} ${num(pg.height * MM)}] /Contents ${id.content} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${id.image ? ` /XObject << /Im1 ${id.image} 0 R >>` : ''} >> >>`,
+        ),
+      );
+      obj(id.content, () => {
+        str(`<< /Length ${content.length} >>\nstream\n`);
+        put(content);
         str('\nendstream');
       });
-    }
-    const count = this.image ? 8 : 7;
+      const im = pg.picture_;
+      if (im) {
+        obj(id.image, () => {
+          str(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n`);
+          put(im.data);
+          str('\nendstream');
+        });
+      }
+    });
     const xref = size;
-    str(`xref\n0 ${count}\n0000000000 65535 f \n`);
-    for (let n = 1; n < count; n++) str(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
-    str(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    str(`xref\n0 ${next}\n0000000000 65535 f \n`);
+    for (let n = 1; n < next; n++) str(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
+    str(`trailer\n<< /Size ${next} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
     const out = new Uint8Array(size);
     let at = 0;
     for (const c of chunks) {

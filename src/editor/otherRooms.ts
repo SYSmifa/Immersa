@@ -50,6 +50,7 @@ interface Entry {
   state: Placement['state'];
   root: Group;
   outline: Group;
+  label: Sprite;
   layer: ModelLayer;
 }
 
@@ -82,7 +83,7 @@ export function createOtherRooms(scene: Scene, onError: (text: string, model: Ro
     label.position.set(c[0], c[1] + 2.5, c[2]);
     root.add(label);
     top.add(root);
-    return { planes: room.scan.planes, state, root, outline, layer: createModelLayer(root, onError) };
+    return { planes: room.scan.planes, state, root, outline, label, layer: createModelLayer(root, onError) };
   }
 
   return {
@@ -117,6 +118,16 @@ export function createOtherRooms(scene: Scene, onError: (text: string, model: Ro
       return box;
     },
     count: () => entries.size,
+    // For the PDF plan: show only some of the rooms (their models), with no outline or name tag, whatever the eye buttons say.
+    // Models of a hidden room are not loaded: sync() with nothing hidden first.
+    exportView(show: Set<string>, on: boolean) {
+      for (const [id, e] of entries) {
+        e.outline.visible = !on;
+        e.label.visible = !on;
+        if (on) e.root.visible = show.has(id);
+      }
+    },
+    holders: (id: string) => entries.get(id)?.layer.holders ?? null,
     position: (id: string) => entries.get(id)?.root.getWorldPosition(new Vector3()) ?? null,
   };
 }
