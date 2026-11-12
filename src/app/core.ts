@@ -873,7 +873,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const f = new Vector3(lastHead.fwd.x, 0, lastHead.fwd.z);
         if (f.length() < 0.2) f.set(0, 0, -1);
         f.normalize();
-        choiceCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y - 0.12, lastHead.pos.z + f.z * 0.85);
+        choiceCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y - 0.04, lastHead.pos.z + f.z * 0.85);
         choiceCard.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - choiceCard.mesh.position.x, lastHead.pos.z - choiceCard.mesh.position.z), 0);
       }
       drawChoiceCard();
@@ -883,7 +883,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // The name of a new room: a card like the place one (title, the name in a field that is being typed into, Avanti, Annulla) with
   // the keyboard open under it. Avanti (or the keyboard's OK) goes on to the place; a name already used is refused on the card.
-  const nameCard = new Panel(0.62, 0.42, 1200, 'ink');
+  const nameCard = new Panel(0.62, 0.7, 1200, 'ink'); // the same card as the choices (place, room), laid out the same way
   nameCard.mesh.visible = false;
   host.root.add(nameCard.mesh);
   host.add(nameCard);
@@ -896,11 +896,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const w = nameCard.pxW;
         nameCard.set([
           { kind: 'label', rect: { x: 36, y: 24, w: w - 72, h: 46 }, text: title, size: 34, bold: true, color: '#ffffff' },
-          { kind: 'label', rect: { x: 36, y: 76, w: w - 72, h: 44 }, text: hint, size: 22, color: '#cbd5e1', wrap: true },
-          { kind: 'row', rect: { x: 36, y: 132, w: w - 72, h: 72 }, text, caret: true, size: 36, fill: 'rgba(255,255,255,0.10)', hoverFill: 'rgba(255,255,255,0.10)', color: '#ffffff' },
-          { kind: 'label', rect: { x: 36, y: 210, w: w - 72, h: 34 }, text: error, size: 22, color: '#f87171' },
-          { kind: 'pill', primary: true, rect: { x: 36, y: 262, w: w - 72, h: 64 }, text: 'Avanti', size: 28, disabled: !text.trim(), onClick: submit },
-          { kind: 'pill', rect: { x: 36, y: 338, w: w - 72, h: 58 }, text: 'Annulla', size: 26, color: '#f87171', onClick: () => finish(null) },
+          { kind: 'label', rect: { x: 36, y: 78, w: w - 72, h: 96 }, text: error || hint, size: 24, color: error ? '#f87171' : '#cbd5e1', wrap: true },
+          { kind: 'row', rect: { x: 36, y: 184, w: w - 72, h: 62 }, text, caret: true, size: 30, fill: 'rgba(255,255,255,0.10)', hoverFill: 'rgba(255,255,255,0.10)', color: '#ffffff' },
+          { kind: 'pill', primary: true, rect: { x: 36, y: 256, w: w - 72, h: 62 }, text: 'Avanti', size: 26, disabled: !text.trim(), onClick: submit },
+          { kind: 'pill', rect: { x: 36, y: nameCard.pxH - 90, w: w - 72, h: 58 }, text: 'Annulla', size: 26, color: '#f87171', onClick: () => finish(null) },
         ]);
       };
       const finish = (v: string | null) => {
@@ -942,7 +941,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         const f = new Vector3(lastHead.fwd.x, 0, lastHead.fwd.z);
         if (f.length() < 0.2) f.set(0, 0, -1);
         f.normalize();
-        nameCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y + 0.1, lastHead.pos.z + f.z * 0.85);
+        nameCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y - 0.04, lastHead.pos.z + f.z * 0.85);
         nameCard.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - nameCard.mesh.position.x, lastHead.pos.z - nameCard.mesh.position.z), 0);
       }
       draw();
