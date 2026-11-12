@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Immersa.Cloud;
+using Meta.XR.MRUtilityKit;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.UI;
@@ -72,12 +74,39 @@ namespace Immersa.Quest
             Show(header);
             if (projects.Count == 0) return;
 
-            // B.4: load the first project's models in free space in front of the user (no room alignment yet).
+            // Open the first project: align its saved rooms to the rooms the headset knows now, then place the models.
             var project = projects[0];
-            var frame = CreateFrame();
+            Show(header + "\nReading the rooms of the headset...");
+            var mruk = MRUK.Instance;
+            float waited = Time.realtimeSinceStartup;
+            while (mruk != null && !mruk.IsInitialized && Time.realtimeSinceStartup - waited < 15f) await System.Threading.Tasks.Task.Delay(300);
+            var live = mruk != null ? mruk.Rooms : new List<MRUKRoom>();
+            Debug.Log(Tag + "headset knows " + live.Count + " room(s)");
+
+            var saved = project.roomIds.Count > 0 ? await client.ListRooms() : new List<RoomInfo>();
+            var roomsRoot = new GameObject("ProjectRooms").transform;
+            var placements = new Dictionary<string, RoomPlacement>();
+            var status = new StringBuilder();
+            foreach (var id in project.roomIds)
+            {
+                var info = saved.Find(r => r.id == id);
+                var pl = info == null ? new RoomPlacement { roomId = id, name = id, status = "room not found in your account" } : RoomAligner.Place(info, live, roomsRoot);
+                placements[id] = pl;
+                status.AppendLine("Room '" + pl.name + "': " + pl.status);
+            }
+
+            Transform free = null;
+            Transform FrameFor(string roomId)
+            {
+                if (!string.IsNullOrEmpty(roomId) && placements.TryGetValue(roomId, out var p) && p.found) return p.frame;
+                return free != null ? free : (free = CreateFrame());   // free space, and also the fallback for a room that was not found (flagged above)
+            }
+
             var loader = new ProjectModelLoader(client);
-            var res = await loader.LoadProject(project, frame, p => Show(header + "\n" + p));
-            var done = new StringBuilder(header).AppendLine().AppendLine("'" + project.name + "': " + res.placed + "/" + res.total + " model(s) placed in front of you");
+            string rooms = status.ToString();
+            var res = await loader.LoadProject(project, FrameFor, p => Show(header + "\n" + rooms + p));
+            var done = new StringBuilder(header).AppendLine().Append(rooms).AppendLine("'" + project.name + "': " + res.placed + "/" + res.total + " model(s) placed");
+            foreach (var pl in placements.Values) if (!pl.found) done.AppendLine("! '" + pl.name + "' not aligned: its models are in free space in front of you");
             foreach (var problem in res.problems) done.AppendLine("! " + problem);
             Show(done.ToString());
             Debug.Log(Tag + "placed " + res.placed + "/" + res.total + " model(s)");

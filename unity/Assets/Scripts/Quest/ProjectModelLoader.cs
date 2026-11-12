@@ -30,7 +30,8 @@ namespace Immersa.Quest
             public List<string> problems = new List<string>();
         }
 
-        public async Task<Result> LoadProject(ProjectInfo project, Transform frame, Action<string> progress)
+        /// <param name="frameFor">The frame of a model's room (by room id; "" = free space). Null means the room was not found: the model is skipped.</param>
+        public async Task<Result> LoadProject(ProjectInfo project, Func<string, Transform> frameFor, Action<string> progress)
         {
             var result = new Result();
             var models = await client.GetProjectModels(project.id);
@@ -49,6 +50,8 @@ namespace Immersa.Quest
                         result.problems.Add(m.Name + ": file not in the cloud (" + m.Path + ")");
                         continue;
                     }
+                    var frame = frameFor(m.RoomId ?? "");
+                    if (frame == null) { result.problems.Add(m.Name + ": its room was not found"); continue; }
                     var go = await Place(m, frame);
                     if (go != null) result.placed++;
                     else result.problems.Add(m.Name + ": the file could not be read");

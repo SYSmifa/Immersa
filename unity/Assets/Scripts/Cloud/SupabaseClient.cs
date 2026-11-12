@@ -16,7 +16,17 @@ namespace Immersa.Cloud
         public string name;
         public int tone = -1;        // 0..7, -1 = none (older projects)
         public int roomCount;
+        public List<string> roomIds = new List<string>();   // the rooms the project uses (room_ids, else room_id)
         public string updatedAt;
+    }
+
+    /// <summary>A saved room (a row of the "rooms" table) with its scan parsed in our own format.</summary>
+    public class RoomInfo
+    {
+        public string id;
+        public string name;
+        public string place;
+        public Immersa.Core.RoomScan scan;
     }
 
     /// <summary>
@@ -149,16 +159,38 @@ namespace Immersa.Cloud
             var list = new List<ProjectInfo>();
             foreach (var r in JArray.Parse(text))
             {
-                int rooms = r["room_ids"] is JArray ids && ids.Count > 0 ? ids.Count : (r["room_id"]?.Type == JTokenType.String ? 1 : 0);
                 var tone = r["tone"];
+                var roomIds = new List<string>();
+                if (r["room_ids"] is JArray arr && arr.Count > 0) foreach (var x in arr) roomIds.Add((string)x);
+                else if (r["room_id"]?.Type == JTokenType.String) roomIds.Add((string)r["room_id"]);
+                int rooms = roomIds.Count;
                 list.Add(new ProjectInfo
                 {
+                    roomIds = roomIds,
                     id = (string)r["id"],
                     name = (string)r["name"],
                     tone = tone != null && tone.Type == JTokenType.Integer ? (int)tone : -1,
                     roomCount = rooms,
                     updatedAt = (string)r["updated_at"],
                 });
+            }
+            return list;
+        }
+
+        /// <summary>The user's rooms with their scans (RLS limits the rows to the signed-in owner), newest first.</summary>
+        public async Task<List<RoomInfo>> ListRooms()
+        {
+            var (code, text) = await Send("GET", "/rest/v1/rooms?select=id,name,data,place&order=updated_at.desc", null, true);
+            if (code == 400 && text.Contains("place"))   // the `place` column is missing: same fallback as the web app
+                (code, text) = await Send("GET", "/rest/v1/rooms?select=id,name,data&order=updated_at.desc", null, true);
+            if (code != 200) throw new Exception(ErrorMessage(code, text));
+            var list = new List<RoomInfo>();
+            foreach (var r in JArray.Parse(text))
+            {
+                Immersa.Core.RoomScan scan = null;
+                try { scan = r["data"] != null ? Immersa.Core.Json.Parse<Immersa.Core.RoomScan>(r["data"].ToString()) : null; }
+                catch (Exception e) { Debug.LogWarning(Tag + "room " + (string)r["name"] + " unreadable: " + e.Message); }
+                list.Add(new RoomInfo { id = (string)r["id"], name = (string)r["name"], place = (string)r["place"], scan = scan });
             }
             return list;
         }
