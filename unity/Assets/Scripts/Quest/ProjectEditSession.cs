@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Immersa.Cloud;
 using Immersa.Core;
@@ -29,7 +30,8 @@ namespace Immersa.Quest
 
         public bool CanSave { get; private set; } = true;
         public string CannotSaveReason { get; private set; }
-        public int DirtyCount => dirty.Count;
+        int removed;
+        public int DirtyCount => dirty.Count + removed;
         public GameObject Selected { get; private set; }
         public RoomModel SelectedModel => Selected != null && byHolder.TryGetValue(Selected, out var m) ? m : null;
         public event Action Changed;
@@ -57,6 +59,8 @@ namespace Immersa.Quest
         public void Attach(RoomModel model, GameObject holder)
         {
             byHolder[holder] = model;
+            ModelLook.Capture(holder);          // the file's own materials, then the look the project asks for
+            ModelLook.Apply(holder, model);
             ModelGrab.Make(holder, Select, OnReleased);
         }
 
@@ -66,6 +70,22 @@ namespace Immersa.Quest
             if (Selected != null) SelectionBox.Show(Selected, false);
             Selected = holder;
             if (holder != null) SelectionBox.Show(holder, true);
+            Changed?.Invoke();
+        }
+
+        /// <summary>The model was edited (scale, turn, colour...): it counts as an unsaved change.</summary>
+        public void Edited(RoomModel m) { dirty.Add(m); Changed?.Invoke(); }
+
+        public GameObject HolderOf(RoomModel m) => byHolder.FirstOrDefault(kv => kv.Value == m).Key;
+
+        /// <summary>Deletes a model from the project (it is gone from the cloud at the next save).</summary>
+        public void Remove(RoomModel m)
+        {
+            var h = HolderOf(m);
+            Models.Remove(m);
+            dirty.Remove(m);
+            removed++;
+            if (h != null) { if (Selected == h) Selected = null; byHolder.Remove(h); UnityEngine.Object.Destroy(h); }
             Changed?.Invoke();
         }
 
@@ -86,11 +106,12 @@ namespace Immersa.Quest
         public async Task<string> Save()
         {
             if (!CanSave) return "Not saved: " + CannotSaveReason;
-            if (dirty.Count == 0) return "Nothing to save";
+            if (dirty.Count == 0 && removed == 0) return "Niente da salvare";
             var row = new JObject { ["models"] = JArray.Parse(Json.Write(Models)), ["updated_at"] = DateTime.UtcNow.ToString("o") };
             await client.PatchProject(Project.id, row);
-            int n = dirty.Count;
+            int n = DirtyCount;
             dirty.Clear();
+            removed = 0;
             original = (JArray)row["models"];   // what the cloud has now
             Changed?.Invoke();
             Debug.Log(Tag + "saved " + n + " change(s)");

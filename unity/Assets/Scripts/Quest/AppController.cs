@@ -23,6 +23,10 @@ namespace Immersa.Quest
         SupabaseClient client;
         AppMenu menu;
         LoginPanel login;
+        ObjectButton objectButton;
+        GameObject lastSelected;
+        Splash splash;
+        WireCube loader;
         RoomRegistry registry = new RoomRegistry();
         Task registryTask = Task.CompletedTask;
         ProjectEditSession session;
@@ -40,6 +44,7 @@ namespace Immersa.Quest
         public List<ProjectInfo> Projects { get; private set; }
         public string OpenProjectId { get; private set; }
         public string Email => client?.Email;
+        public ProjectEditSession Session => session;
         public bool HasUnsavedChanges => session != null && session.DirtyCount > 0;
         public int LiveRoomCount => registry.LiveCount;
         public string RoomMessage => scan != null ? scan.LastMessage : "";
@@ -69,6 +74,9 @@ namespace Immersa.Quest
             menu = gameObject.AddComponent<AppMenu>();
             menu.Init(this);
             login = gameObject.AddComponent<LoginPanel>();
+            objectButton = gameObject.AddComponent<ObjectButton>();
+            objectButton.Init(() => menu.OpenObject());
+            splash = Splash.Create(transform);
         }
 
         async void Start()
@@ -95,14 +103,13 @@ namespace Immersa.Quest
 
                 client = new SupabaseClient(config);
                 AppSession.Client = client;
-                Status("Immersa", "Mi collego...");
 
                 bool ok = await client.RestoreSession();
-                if (!ok) { HideStatus(); await login.Run(client); }
+                if (!ok) { await splash.Hide(); await login.Run(client); }
 
-                Status("Immersa", "Carico i progetti...");
                 Projects = await client.ListProjects();
                 Debug.Log(Tag + Projects.Count + " project(s)");
+                await splash.Hide();   // at least 2.4 s on screen, then the menu
                 HideStatus();
                 menu.Open(AppMenu.Tab.Projects);
 
@@ -127,11 +134,11 @@ namespace Immersa.Quest
             {
                 CloseProject(silent: true);
                 menu.Close();
-                Status("Carico il progetto", p.name);
+                Status("Carico il progetto", p.name, null, true);
                 await registryTask;
 
                 session = await ProjectEditSession.Open(client, p);
-                session.Changed += () => { if (menu.IsOpen) menu.Refresh(); };
+                session.Changed += OnSessionChanged;
                 OpenProjectId = p.id;
 
                 Transform FrameFor(string roomId)
@@ -141,8 +148,8 @@ namespace Immersa.Quest
                     return freeFrame != null ? freeFrame : (freeFrame = CreateFreeFrame());   // free space, and the fallback for a room that was not recognized
                 }
 
-                var loader = new ProjectModelLoader(client);
-                var res = await loader.LoadModels(session.Models, FrameFor, text => Status("Carico il progetto", text));
+                var modelLoader = new ProjectModelLoader(client);
+                var res = await modelLoader.LoadModels(session.Models, FrameFor, text => Status("Carico il progetto", text, null, true));
                 foreach (var (model, holder) in res.items) { session.Attach(model, holder); openHolders.Add(holder); }
 
                 var notFound = p.roomIds.Select(id => registry.Get(id)).Where(r => r != null && !r.found).Select(r => r.name).ToList();
@@ -162,8 +169,18 @@ namespace Immersa.Quest
             }
         }
 
+        void OnSessionChanged()
+        {
+            if (session == null) return;
+            if (session.Selected != lastSelected) { lastSelected = session.Selected; menu.ResetObjectPage(); }
+            objectButton.Show(session.Selected);   // follows the selection and moves again when the model was moved
+            if (menu.IsOpen) menu.Refresh();
+        }
+
         public void CloseProject(bool silent = false)
         {
+            objectButton.Show(null);
+            lastSelected = null;
             foreach (var h in openHolders) if (h != null) Destroy(h);
             openHolders.Clear();
             if (freeFrame != null) { Destroy(freeFrame.gameObject); freeFrame = null; }
@@ -234,6 +251,8 @@ namespace Immersa.Quest
             statusBig = UiKit.Label(statusCanvas, 40, 96, 680, 140, "", 110, UiTheme.Accent2, TextAnchor.MiddleCenter, true, "Big");
             statusBody = UiKit.Label(statusCanvas, 40, 250, 680, 170, "", 26, UiTheme.HeaderSub, TextAnchor.UpperLeft, false, "Body");
             statusCanvas.gameObject.SetActive(false);
+            loader = WireCube.Create(transform, 0.20f);
+            loader.gameObject.SetActive(false);
 
             toastCanvas = UiKit.NewCanvas("ToastCanvas", transform, 700, 110);
             UiKit.Box(toastCanvas, 0, 0, 700, 110, UiTheme.Bg1, true, "Card");
@@ -241,7 +260,7 @@ namespace Immersa.Quest
             toastCanvas.gameObject.SetActive(false);
         }
 
-        void Status(string title, string body, string big = null)
+        void Status(string title, string body, string big = null, bool loading = false)
         {
             statusToken++;
             statusTitle.text = title;
@@ -256,9 +275,11 @@ namespace Immersa.Quest
                 statusCanvas.rotation = Quaternion.LookRotation(fwd, Vector3.up);
             }
             statusCanvas.gameObject.SetActive(true);
+            loader.gameObject.SetActive(loading);
+            if (loading) loader.transform.position = statusCanvas.position + Vector3.up * 0.34f;
         }
 
-        void HideStatus() { statusToken++; statusCanvas.gameObject.SetActive(false); }
+        void HideStatus() { statusToken++; statusCanvas.gameObject.SetActive(false); loader.gameObject.SetActive(false); }
 
         /// <summary>A short message in front of the user, gone after a moment ("Progetto caricato").</summary>
         public async void Notify(string text, float seconds = 1.4f)

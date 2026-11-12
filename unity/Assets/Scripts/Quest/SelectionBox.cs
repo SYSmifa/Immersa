@@ -20,6 +20,7 @@ namespace Immersa.Quest
             var col = holder.GetComponent<BoxCollider>();
             if (col == null) return;
             var go = new GameObject(Name);
+            go.AddComponent<SelectionBoxMarker>();
             go.transform.SetParent(holder.transform, false);
             var lr = go.AddComponent<LineRenderer>();
             lr.useWorldSpace = false;

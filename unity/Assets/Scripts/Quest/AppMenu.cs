@@ -29,6 +29,10 @@ namespace Immersa.Quest
         float menuYaw, menuY;
         bool following;
         bool wasPinching;
+        bool objectView;                 // the object view of the selected model instead of a tab
+        ObjectPanel objectPanel;
+        ProjectEditSession panelSession;
+        bool hold;                       // a drag is going on: do not redraw
         OVRHand[] hands;
         float handsRefresh;
 
@@ -56,6 +60,14 @@ namespace Immersa.Quest
 
         /// <summary>Redraw the current page (next frame: the call may come from a button of the page itself).</summary>
         public void Refresh() { rebuild = true; }
+
+        /// <summary>While a drag is going on (a colour wheel, a slider) the page must not be redrawn: it would destroy the drag area.</summary>
+        public void Hold(bool on) { hold = on; if (!on) rebuild = true; }
+
+        public void ResetObjectPage() { if (objectPanel != null) objectPanel.Reset(); }
+
+        /// <summary>Opens the menu on the object view of the selected model.</summary>
+        public void OpenObject() { objectView = true; if (objectPanel != null) objectPanel.Reset(); Open(tab); rebuild = true; }
 
         // ---- following the head ----
 
@@ -88,7 +100,7 @@ namespace Immersa.Quest
 
         void LateUpdate()
         {
-            if (rebuild && IsOpen) { rebuild = false; Build(); }
+            if (rebuild && IsOpen && !hold) { rebuild = false; Build(); }
         }
 
         void Place(Transform cam, bool snap)
@@ -137,12 +149,19 @@ namespace Immersa.Quest
             UiKit.Box(canvas, 0, 0, W, H, UiTheme.Bg1, true, "Panel");
             UiKit.Box(canvas, 0, 0, W, 150, new Color(1, 1, 1, 0.04f), true, "HeaderGlow");
             UiKit.Label(canvas, 44, 26, 560, 60, "Immersa", 46, UiTheme.HeaderText, TextAnchor.UpperLeft, true, "Title");
-            UiKit.Label(canvas, 44, 86, 600, 34, app.HeaderSubtitle(), 24, UiTheme.HeaderSub, TextAnchor.UpperLeft, false, "Subtitle");
+            UiKit.Label(canvas, 44, 86, 600, 34, objectView && app.Session?.SelectedModel != null ? app.Session.SelectedModel.Name : app.HeaderSubtitle(), 24, UiTheme.HeaderSub, TextAnchor.UpperLeft, false, "Subtitle");
             if (app.HasUnsavedChanges)
                 UiKit.Pill(canvas, W - 230, 30, 186, 64, "Salva", 28, UiTheme.Accent, Color.white, UiTheme.AccentHover, () => app.SaveProject());
 
             var content = UiKit.NewRect(canvas, "Content", 0, 150, W, 730);
-            switch (tab)
+            var session = app.Session;
+            if (objectView && (session == null || session.Selected == null)) objectView = false;
+            if (objectView)
+            {
+                if (objectPanel == null || panelSession != session) { objectPanel = new ObjectPanel(session, Refresh, Hold); panelSession = session; }
+                objectPanel.Build(content);
+            }
+            else switch (tab)
             {
                 case Tab.Projects: BuildProjects(content); break;
                 case Tab.Room: BuildRoom(content); break;
@@ -158,7 +177,7 @@ namespace Immersa.Quest
                 var t = (Tab)i;
                 bool on = t == tab;
                 UiKit.Pill(canvas, 44 + i * (bw + 14), 900, bw, 84, names[i], 28, on ? UiTheme.Accent : UiTheme.Glass, Color.white, on ? UiTheme.AccentHover : UiTheme.GlassHover,
-                    () => { tab = t; scroll = 0; Refresh(); });
+                    () => { tab = t; scroll = 0; objectView = false; Refresh(); });
             }
         }
 
