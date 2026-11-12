@@ -1636,7 +1636,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // The app relaunches itself from scratch (Account → Riavvia does it by hand): a start like the Library's has no Guardian, finds
   // the rooms again, and gives a new XR session (one more room scan is allowed). Done after a scan is saved and when a standby
   // has taken the planes; not twice within a minute and a half (a loop), and only when switched on in Account.
-  function autoRestart(reason: string, delay = 2200, title?: string, sub?: string): boolean {
+  function autoRestart(reason: string, delay = 2200, title?: string, sub?: string, force = false): boolean {
     if (!onRestart) return false;
     if (!autoRestartOn()) {
       logEvent(`riavvio automatico spento (${reason})`);
@@ -1644,7 +1644,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     if (restarting) return false; // already on its way
     const age = autoRestartAge();
-    if (age < 30000) {
+    if (age < 30000 && !force) { // the loop guard does not apply to a scan that ended: someone just did it on purpose
       logEvent(`riavvio automatico saltato (${reason}): l'ultimo è di ${Math.round(age / 1000)} s fa`);
       return false;
     }
@@ -1722,7 +1722,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // The session that scanned still has the Guardian: the app restarts at once, and the new session reads the room and opens the
     // keyboard for its name (the scan waits for it: setPendingName above). If the restart does not happen (switched off, or one
     // just made), the room is read here, as before.
-    if (autoRestart('scansione finita', 1800, 'Scansione riuscita', 'L\'app deve riavviarsi per continuare')) return;
+    if (autoRestart('scansione finita', 1800, 'Scansione riuscita', 'L\'app deve riavviarsi per continuare', true)) return;
     openMenu();
     say('Scansione finita, leggo la stanza...');
   }
