@@ -12,12 +12,15 @@ import {
   MeshBasicMaterial,
   MOUSE,
   Object3D,
+  OrthographicCamera,
   PerspectiveCamera,
   Plane,
   Quaternion,
   Raycaster,
   Scene,
   SphereGeometry,
+  SRGBColorSpace,
+  UnsignedByteType,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -50,6 +53,7 @@ import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } 
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
 import { linkSummary, planModelMoves } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
+import { buildPlanPdf, DEFAULT_OPTIONS, describeLayout, planLayout, type Bounds, type PlanData, type SheetOptions } from './planPdf';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -987,6 +991,100 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
   }
 
+  // ---- PDF plan: a picture from above, to scale, with the drawn parts on top (see planPdf.ts) ----
+  let planOptions: SheetOptions = { ...DEFAULT_OPTIONS };
+  // The part of the world to put on the sheet: the room's scan, the models, the walls and floors.
+  function planContent(): { bounds: Bounds; maxY: number } | null {
+    const box = new Box3();
+    for (const g of [planesGroup, modelsGroup, structuresGroup]) {
+      if (!g.visible) continue;
+      const b = new Box3().setFromObject(g);
+      if (!b.isEmpty() && isFinite(b.min.x) && isFinite(b.max.x)) box.union(b);
+    }
+    return box.isEmpty() ? null : { bounds: { minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z }, maxY: box.max.y };
+  }
+  function planData(bounds: Bounds): PlanData {
+    const pm = models().flatMap((m) => {
+      const h = layer.holders.get(m.id);
+      const b = h && modelBox(h);
+      if (!b) return [];
+      const s = modelSolid(m, b.min, b.max);
+      return [{ name: m.name, c: s.c, u: s.u, hu: s.hu, hv: s.hv }];
+    });
+    const measures = [...structures().flatMap((st) => dimsOfStructure(st).filter((x) => x.kind === 'dim' || x.kind === 'label')), ...annotations().flatMap((a) => annotationMeasures(a, noteAnchor(a)))];
+    const walls = planesGroup.visible ? (room?.scan.planes ?? []).flatMap((p, i) => planeSeg(p, i) ?? []).map((s) => [s.a, s.b] as [[number, number], [number, number]]) : [];
+    return { title: project?.name ?? 'Progetto', date: new Date().toLocaleDateString('it-IT'), bounds, walls, models: pm, measures };
+  }
+  // One render of the scene seen from straight above with an orthographic camera: one pixel is a fixed number of millimetres of
+  // the sheet, so the drawing is exactly to scale. The editor's own helpers (grid, gizmo, handles, measure lines) are put away
+  // for the moment, the walls that fade with the camera are brought back, the background is white.
+  async function renderTopDown(r: { widthM: number; heightM: number; cx: number; cz: number; pxW: number; pxH: number }, maxY: number) {
+    const max = renderer.capabilities.maxTextureSize;
+    const k = Math.min(1, max / Math.max(r.pxW, r.pxH));
+    const w = Math.round(r.pxW * k);
+    const h = Math.round(r.pxH * k);
+    const cam = new OrthographicCamera(-r.widthM / 2, r.widthM / 2, r.heightM / 2, -r.heightM / 2, 0.1, maxY + 100);
+    cam.position.set(r.cx, maxY + 50, r.cz);
+    cam.up.set(0, 0, -1);
+    cam.lookAt(r.cx, 0, r.cz);
+    cam.updateMatrixWorld(true);
+    const hide = [gridGroup, measureGroup, annotPickGroup, handleGroup, pivot, transform.getHelper()];
+    const was = hide.map((o) => o.visible);
+    hide.forEach((o) => (o.visible = false));
+    const fadeWas = fades.map((f) => ({ o: (f.obj.material as MeshBasicMaterial).opacity, v: f.obj.visible }));
+    fades.forEach((f) => ((f.obj.material as MeshBasicMaterial).opacity = f.base, (f.obj.visible = true)));
+    const bg = scene.background;
+    scene.background = new Color(0xffffff);
+    const lineMats: { m: LineMaterial; res: Vector2 }[] = [];
+    scene.traverse((o) => {
+      const m = (o as Mesh).material as LineMaterial | undefined;
+      if (m && (m as LineMaterial).isLineMaterial && !lineMats.some((x) => x.m === m)) lineMats.push({ m, res: m.resolution.clone() });
+    });
+    lineMats.forEach((x) => x.m.resolution.set(w, h));
+    const rt = new WebGLRenderTarget(w, h, { type: UnsignedByteType, colorSpace: SRGBColorSpace, samples: w * h > 16e6 ? 0 : 4 });
+    const px = new Uint8Array(w * h * 4);
+    try {
+      renderer.setRenderTarget(rt);
+      renderer.render(scene, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, w, h, px);
+    } finally {
+      renderer.setRenderTarget(null);
+      rt.dispose();
+      scene.background = bg;
+      lineMats.forEach((x) => x.m.resolution.copy(x.res));
+      fades.forEach((f, i) => ((f.obj.material as MeshBasicMaterial).opacity = fadeWas[i].o, (f.obj.visible = fadeWas[i].v)));
+      hide.forEach((o, i) => (o.visible = was[i]));
+    }
+    // GL rows go bottom-up: flip them while copying into the canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    const img = ctx.createImageData(w, h);
+    for (let y = 0; y < h; y++) img.data.set(px.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+    ctx.putImageData(img, 0, 0);
+    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, 'image/jpeg', 0.9));
+    if (!blob) throw new Error('JPEG non disponibile');
+    return { jpeg: new Uint8Array(await blob.arrayBuffer()), pxW: w, pxH: h };
+  }
+  async function exportPdf() {
+    if (!project) return;
+    const content = planContent();
+    if (!content) return ui.setStatus('Niente da esportare: il progetto è vuoto.');
+    const opts = await ui.askPlanExport(planOptions, (o) => describeLayout(planLayout(content.bounds, o)));
+    if (!opts) return;
+    planOptions = opts;
+    await withLoading('Preparo il PDF', 'Disegno la pianta…', async () => {
+      const { pdf, layout } = await buildPlanPdf(planData(content.bounds), opts, (r) => renderTopDown(r, content.maxY));
+      const name = `${project!.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'progetto'} - 1-${layout.den}.pdf`;
+      const url = URL.createObjectURL(new Blob([pdf.buffer as ArrayBuffer], { type: 'application/pdf' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      ui.setStatus(`PDF pronto: ${name} (${describeLayout(layout)})`);
+    });
+  }
+
   // ---- rooms and projects ----
   function showRoom(r: Room | null) {
     room = r;
@@ -1498,6 +1596,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       }),
     // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
     // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
+    onExportPdf: () => run(exportPdf),
     onDuplicateProject: () =>
       run(async () => {
         if (!project) return;

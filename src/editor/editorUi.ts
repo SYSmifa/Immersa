@@ -3,6 +3,7 @@ import '@fontsource/sen/latin-700.css';
 import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
+import type { SheetOptions } from './planPdf';
 import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
 import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
@@ -49,6 +50,7 @@ export interface EditorHandlers {
   onCloseProject(): void;
   onRenameProject(): void;
   onDuplicateProject(): void;
+  onExportPdf(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
   onRoomVisible(id: string): void;
@@ -767,6 +769,7 @@ export function createEditorUi(h: EditorHandlers) {
       ...projectRoomsBlock(),
       big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
       big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
+      big(ICON.ortho, 'Esporta PDF', 'Pianta in scala, da stampare', h.onExportPdf),
     );
   }
 
@@ -1441,6 +1444,54 @@ export function createEditorUi(h: EditorHandlers) {
         root.append(overlay);
         input.focus();
         input.select();
+      });
+    },
+    // The options of the plan PDF: sheet, orientation, scale, sizes. `preview` says what the choice gives (the scale it ends up at).
+    askPlanExport(start: SheetOptions, preview: (o: SheetOptions) => string) {
+      return new Promise<SheetOptions | null>((resolve) => {
+        const o: SheetOptions = { ...start };
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel');
+        const info = el('div', '', 'ed-meta');
+        const group = <T,>(title: string, items: [string, T][], get: () => T, set: (v: T) => void) => {
+          const pills = items.map(([label, v]) =>
+            pill(label, () => {
+              set(v);
+              refresh();
+            }),
+          );
+          const refresh = () => {
+            items.forEach(([, v], i) => pills[i].classList.toggle('acc', v === get()));
+            info.textContent = preview(o);
+          };
+          refreshers.push(refresh);
+          return [el('div', title, 'ed-sub'), row(...pills)];
+        };
+        const refreshers: (() => void)[] = [];
+        const done = (v: SheetOptions | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          else if (e.key === 'Enter') done(o);
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        panel.append(
+          el('h3', 'Esporta PDF in scala'),
+          el('div', 'Una pianta vista dall\'alto con i modelli, le quote e le note, pronta da stampare.', 'ed-meta'),
+          ...group<SheetOptions['paper']>('Formato', [['A4', 'A4'], ['A3', 'A3']], () => o.paper, (v) => (o.paper = v)),
+          ...group<SheetOptions['orient']>('Orientamento', [['Automatico', 'auto'], ['Verticale', 'portrait'], ['Orizzontale', 'landscape']], () => o.orient, (v) => (o.orient = v)),
+          ...group<SheetOptions['scale']>('Scala', [['Automatica', 'auto'], ['1:20', 20], ['1:50', 50], ['1:100', 100], ['1:200', 200]], () => o.scale, (v) => (o.scale = v)),
+          ...group<boolean>('Quote e misure', [['Sì', true], ['No', false]], () => o.dims, (v) => (o.dims = v)),
+          info,
+          row(pill('Esporta', () => done(o), 'acc'), pill('Annulla', () => done(null))),
+        );
+        refreshers.forEach((r) => r());
+        overlay.append(panel);
+        root.append(overlay);
       });
     },
     // In-app replacement for confirm(): resolves true on OK.
