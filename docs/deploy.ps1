@@ -21,7 +21,14 @@ if ($LASTEXITCODE -ne 0) { throw 'wrangler deploy failed' }
 
 # What is online now (the file names must be the ones of dist\index.html)
 $local = (Get-Content dist\index.html | Select-String -Pattern 'assets/index-[^"]*\.js').Matches.Value
-$online = (curl.exe -s https://app.immersavr.com/ | Select-String -Pattern 'assets/index-[^"]*\.js').Matches.Value
 Write-Host "Build:  $local"
-Write-Host "Online: $online"
-if ($local -eq $online) { Write-Host 'OK: the site is up to date.' } else { Write-Warning 'The site still shows another build: wait a minute and run the curl check again.' }
+# The CDN cache can serve the old page for a while: retry up to ~2 minutes (cache-busting query string)
+$online = ''
+for ($i = 0; $i -lt 12; $i++) {
+  $online = (curl.exe -s -H 'Cache-Control: no-cache' "https://app.immersavr.com/?v=$([guid]::NewGuid().ToString('N'))" | Select-String -Pattern 'assets/index-[^"]*\.js').Matches.Value
+  if ($local -eq $online) { break }
+  Write-Host "Online: $online (still the old build, waiting 10 s...)"
+  Start-Sleep -Seconds 10
+}
+if ($local -eq $online) { Write-Host 'OK: the site is up to date. Close and reopen Immersa in the headset.' }
+else { Write-Host 'Deploy complete. The CDN cache is just slow: in a few minutes the headset will load the new build. Nothing else to do.' }
