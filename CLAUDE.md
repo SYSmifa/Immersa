@@ -27,7 +27,7 @@ nella posizione reale. Target: aziende (macchinari, allestitori).
 
 ## Comandi
 - `npm run dev` HTTPS LAN; `npm run dev:usb` + `adb reverse tcp:5173 tcp:5173`; `npm run build` / `npm run typecheck`; `.env.local` (non in git): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-- Deploy (PowerShell, `C:\Users\loren\Documents\immersa`): `git pull origin ccr-9d20ed4e-a2qxlt`, `npm run build`, `npx wrangler pages deploy dist --project-name immersa` (progetto Pages `immersa`, indirizzo immersa-dsr.pages.dev: verifica con `wrangler pages project list`)
+- Deploy (PowerShell, cartella del progetto web): `powershell -ExecutionPolicy Bypass -File .\docs\deploy.ps1` (fa pull, build, toglie `dist\models` e pubblica in PRODUZIONE da qualunque branch). A mano: `npm run build`, `npx wrangler pages deploy dist --project-name immersa --branch ccr-9d20ed4e-a2qxlt`: SENZA `--branch` un deploy da un branch diverso da `ccr-9d20ed4e-a2qxlt` (es. quello di Unity) è solo un'ANTEPRIMA e app.immersavr.com non cambia (progetto Pages `immersa`, indirizzo immersa-dsr.pages.dev; verifica con `wrangler pages deployment list --project-name immersa`: colonna Environment)
 - Branch di lavoro `ccr-9d20ed4e-a2qxlt`; dopo modifiche allo schema l'utente riesegue `supabase/schema.sql`
 
 ## Convenzioni
