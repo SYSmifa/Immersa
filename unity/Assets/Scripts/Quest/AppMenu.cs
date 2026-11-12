@@ -107,15 +107,24 @@ namespace Immersa.Quest
             if (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Three) || OVRInput.GetDown(OVRInput.Button.Four))
             { Toggle(); return; }
 
-            if (hands == null || Time.unscaledTime > handsRefresh) { hands = FindObjectsByType<OVRHand>(FindObjectsInactive.Exclude, FindObjectsSortMode.None); handsRefresh = Time.unscaledTime + 1.5f; }
-            OVRHand other = null; bool dominantPinching = false;
+            if (hands == null || Time.unscaledTime > handsRefresh)
+            {
+                hands = FindObjectsByType<OVRHand>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                handsRefresh = Time.unscaledTime + 1.5f;
+                SecondaryHand.Apply(app.DominantRight);   // the secondary hand has no ray: it only opens the menu
+            }
+
+            // The dominant hand is the one chosen in Options (Destra / Sinistra); the other one opens and closes the menu.
+            bool secondaryIsLeft = app.DominantRight;
+            OVRHand secondary = null; bool dominantPinching = false; bool secondaryPinching = false;
             foreach (var h in hands)
             {
                 if (h == null || !h.IsTracked) continue;
                 bool pinching = h.GetFingerIsPinching(OVRHand.HandFinger.Index);
-                if (h.IsDominantHand) dominantPinching |= pinching; else other = pinching ? h : other;
+                if (SecondaryHand.IsLeft(h.transform) == secondaryIsLeft) { secondary = h; secondaryPinching |= pinching; }
+                else dominantPinching |= pinching;
             }
-            bool pinchNow = other != null && !dominantPinching;
+            bool pinchNow = secondary != null && secondaryPinching && !dominantPinching;
             if (pinchNow && !wasPinching) Toggle();   // right at the press, only when the dominant hand is not pinching
             wasPinching = pinchNow;
         }
@@ -256,9 +265,9 @@ namespace Immersa.Quest
             UiKit.Label(content, 44, 16, W - 88, 44, "Opzioni", 30, UiTheme.HeaderText, TextAnchor.UpperLeft, true);
             UiKit.Label(content, 44, 84, W - 88, 36, "Mano dominante", 26, UiTheme.HeaderSub);
             bool right = app.DominantRight;
-            UiKit.Pill(content, 44, 130, 270, 70, "Destra", 28, right ? UiTheme.Accent : UiTheme.Glass, Color.white, right ? UiTheme.AccentHover : UiTheme.GlassHover, () => { app.DominantRight = true; Refresh(); });
-            UiKit.Pill(content, 330, 130, 270, 70, "Sinistra", 28, !right ? UiTheme.Accent : UiTheme.Glass, Color.white, !right ? UiTheme.AccentHover : UiTheme.GlassHover, () => { app.DominantRight = false; Refresh(); });
-            UiKit.Label(content, 44, 240, W - 88, 200, "Il menu si apre con il pinch della mano non dominante, o con i tasti A, B, X, Y.\n\nMisure, distanze, annotazioni e snap arriveranno nei prossimi aggiornamenti.", 24, UiTheme.HeaderSub);
+            UiKit.Pill(content, 44, 130, 270, 70, "Destra", 28, right ? UiTheme.Accent : UiTheme.Glass, Color.white, right ? UiTheme.AccentHover : UiTheme.GlassHover, () => { app.DominantRight = true; SecondaryHand.Apply(true); Refresh(); });
+            UiKit.Pill(content, 330, 130, 270, 70, "Sinistra", 28, !right ? UiTheme.Accent : UiTheme.Glass, Color.white, !right ? UiTheme.AccentHover : UiTheme.GlassHover, () => { app.DominantRight = false; SecondaryHand.Apply(false); Refresh(); });
+            UiKit.Label(content, 44, 240, W - 88, 200, "Il menu si apre e si chiude con il pinch della mano non dominante (quella senza raggio), o con i tasti A, B, X, Y.\n\nMisure, distanze, annotazioni e snap arriveranno nei prossimi aggiornamenti.", 24, UiTheme.HeaderSub);
         }
 
         // ---- Account ----

@@ -46,6 +46,9 @@ namespace Immersa.Ui
             go.transform.SetParent(parent, false);
             var canvas = go.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
+            // The text is drawn from a dynamic font: without this the glyphs are rasterized at the tiny world scale and look blurry.
+            var scaler = go.AddComponent<CanvasScaler>();
+            scaler.dynamicPixelsPerUnit = 4f;
             var rt = go.GetComponent<RectTransform>();
             rt.sizeDelta = new Vector2(w, h);
             rt.localScale = Vector3.one * PixelsToMetres;
