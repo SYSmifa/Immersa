@@ -3,12 +3,14 @@
 // intent: URL, and which starts the app again from scratch. Several ways of doing it are built in, so that they can be
 // tried one after the other without rebuilding the APK: ?relaunch=clear|remove|vr|legacy (the choice is remembered).
 //   clear:  start the app's launcher in a new task, clearing the old one
-//   remove: close the app's tasks first, then start it again after a moment
+//   remove: close the app's tasks first, then start it again after half a second
+//   fast:   like remove, but starts again after 0.15 s (a shorter time with the Meta home showing)
+//   overlap: start a second copy first and close the old tasks after 1.8 s (the home may not show at all)
 //   vr:     like clear, with the category the Quest home uses to start VR apps
 //   legacy: the old way (an https intent to the running app: it is only delivered to the app that is already open)
 
-export type RelaunchMode = 'clear' | 'remove' | 'vr' | 'legacy';
-const MODES: RelaunchMode[] = ['clear', 'remove', 'vr', 'legacy'];
+export type RelaunchMode = 'remove' | 'fast' | 'overlap' | 'vr' | 'clear' | 'legacy';
+const MODES: RelaunchMode[] = ['remove', 'fast', 'overlap', 'vr', 'clear', 'legacy'];
 const MODE_KEY = 'immersa.relaunch.mode';
 const MARK_KEY = 'immersa.relaunch.mark';
 const LAST_KEY = 'immersa.relaunch.last'; // when the app last asked to relaunch (kept: the guard against relaunch loops)
@@ -63,10 +65,18 @@ export function nextRelaunchMode(): RelaunchMode {
   return next;
 }
 
+// What the APK is told for each way (an APK that does not know `delay` just ignores it).
+const NATIVE: Record<Exclude<RelaunchMode, 'legacy'>, string> = {
+  remove: 'mode=remove&delay=500',
+  fast: 'mode=remove&delay=150',
+  overlap: 'mode=overlap&delay=1800',
+  vr: 'mode=vr',
+  clear: 'mode=clear',
+};
 export const relaunchUrl = (mode: RelaunchMode, host = location.host) =>
   mode === 'legacy'
     ? `intent://${host}/#Intent;scheme=https;package=${PACKAGE};end`
-    : `intent://relaunch?mode=${mode}#Intent;scheme=immersa;package=${PACKAGE};end`;
+    : `intent://relaunch?${NATIVE[mode]}#Intent;scheme=immersa;package=${PACKAGE};end`;
 
 // Asks the APK to start the app again. A note is left so that the new start can say it came from here.
 export function relaunchApp(mode = relaunchMode()) {

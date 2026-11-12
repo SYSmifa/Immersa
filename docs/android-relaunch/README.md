@@ -31,3 +31,14 @@ Poi pubblica il sito (la parte web è nel commit dell'esperimento): `git pull`, 
 
 ## Cosa riportare
 Per ogni modo: si riapre? tempo? Guardian subito dopo? Guardian dopo lo standby? Il testo del Registro e, se serve, le righe di logcat.
+
+## Esito della prima prova (12/11) e come ridurre il secondo con il menu di Meta
+- `clear` NON funziona (il sistema chiude l'app e torna alla home); `remove` SÌ: l'app si riapre, le stanze tornano, il Guardian non c'è.
+- Nel passaggio si vede la home di Meta per ~1 s: succede perché, tolti i vecchi task, per un momento non c'è nessuna app immersiva
+  in primo piano. Modi da provare per accorciarlo (Account → Modo, ciclo `remove → fast → overlap → vr → clear → legacy`):
+  - `fast`: come `remove` ma rilancia dopo 0,15 s invece di 0,5 s;
+  - `overlap`: lancia prima una seconda copia dell'app (NEW_TASK | MULTIPLE_TASK) e chiude i vecchi task dopo 1,8 s, così qualcosa di
+    immersivo resta sempre davanti. Se l'attività principale è `singleTask` il sistema consegna l'avvio alla copia vecchia e non succede nulla.
+  L'APK va ricostruito UNA volta (`enable-relaunch.ps1`) per avere il parametro `delay` e il modo `overlap`; poi i tempi li decide la pagina.
+- Riavvio automatico (Account → "Riavvio automatico"): dopo aver salvato una scansione e quando uno standby fa sparire i piani.
+
