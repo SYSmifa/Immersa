@@ -46,12 +46,16 @@ namespace Immersa.Ui
             go.transform.SetParent(parent, false);
             var canvas = go.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
-            // The text is drawn from a dynamic font: without this the glyphs are rasterized at the tiny world scale and look blurry.
-            var scaler = go.AddComponent<CanvasScaler>();
-            scaler.dynamicPixelsPerUnit = 4f;
             var rt = go.GetComponent<RectTransform>();
             rt.sizeDelta = new Vector2(w, h);
             rt.localScale = Vector3.one * PixelsToMetres;
+
+            // A compositor layer (Meta OVROverlayCanvas): the panel is drawn into a texture and the headset samples it directly,
+            // so the text is sharp whatever the distance. The colliders of the hotspots stay on the canvas objects.
+            var layer = go.AddComponent<OVROverlayCanvas>();
+            layer.rectTransform = rt;
+            layer.maxTextureSize = 2048;
+            layer.opacity = OVROverlayCanvas.DrawMode.Transparent;
             return rt;
         }
 

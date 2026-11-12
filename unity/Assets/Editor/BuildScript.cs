@@ -11,8 +11,27 @@ namespace Immersa.EditorTools
     /// </summary>
     public static class BuildScript
     {
+        /// <summary>Creates the Meta settings asset of the overlay canvases (the build refuses to start without it) and allows enough panels.</summary>
+        static void EnsureOverlaySettings()
+        {
+            var settings = OVROverlayCanvasSettings.Instance;
+            if (settings == null) return;
+            if (settings.MaxSimultaneousCanvases < 8) settings.MaxSimultaneousCanvases = 8;
+            EditorUtility.SetDirty(settings);
+            AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>Only compiles the scripts (Unity quits after loading them): errors show in the log. Much faster than a build.</summary>
+        public static void CompileCheck()
+        {
+            EnsureOverlaySettings();
+            Debug.Log("COMPILE OK");
+            EditorApplication.Exit(0);
+        }
+
         public static void BuildDev()
         {
+            EnsureOverlaySettings();
             System.IO.Directory.CreateDirectory("Builds");
             var opts = new BuildPlayerOptions
             {
