@@ -1,3 +1,4 @@
+import { RELAUNCH_MODES, relaunchMode, setRelaunchMode, type RelaunchMode } from './relaunch';
 import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
@@ -260,6 +261,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     tab: 'scan',
     email: null,
     startup: '',
+    relaunch: relaunchMode(),
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -1777,6 +1779,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     alignRoom() {
       void startAlign();
+    },
+    setRelaunch(mode: string) {
+      if (!(RELAUNCH_MODES as string[]).includes(mode)) return;
+      setRelaunchMode(mode as RelaunchMode);
+      view.relaunch = mode;
+      render();
+    },
+    // A by-hand test of the app relaunching itself (see app/relaunch.ts): the same as before a second room scan.
+    restartApp() {
+      if (!onRestart) return say('Il riavvio non è disponibile qui', 4000);
+      logEvent('riavvio a mano');
+      prepareResume();
+      closeMenu();
+      say('Riapro l\'app…', 4000);
+      setTimeout(onRestart, 900);
     },
     // The depth measuring page (see xr/depthProbe.ts): the next start from the Library opens it, once (leaving the session would close the app).
     openDepthProbe() {

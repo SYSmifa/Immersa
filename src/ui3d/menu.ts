@@ -43,6 +43,7 @@ export interface MenuView {
   tab: Tab;
   email: string | null;
   startup: string; // seconds since the page loaded for each start-up step
+  relaunch: string; // how the app restarts itself (see app/relaunch.ts): clear | remove | vr | legacy
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
@@ -100,6 +101,8 @@ export interface MenuActions {
   toggleLog(): void;
   alignRoom(): void;
   openDepthProbe(): void;
+  restartApp(): void;
+  setRelaunch(mode: string): void;
   askSearch(): void;
   clearSearch(): void;
   setScroll(fraction: number): void;
@@ -539,13 +542,15 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   } else {
     out.push(surface(M, top, W, 380));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
-    const third = (W - 56 - 24) / 3;
-    out.push({ kind: 'pill', rect: { x: M + 28, y: top + 128, w: third, h: 60 }, text: 'Esci', size: 23, color: T.bad, onClick: a.signOut });
-    out.push({ kind: 'pill', rect: { x: M + 28 + third + 12, y: top + 128, w: third, h: 60 }, text: 'Registro eventi', size: 20, onClick: a.toggleLog });
-    out.push({ kind: 'pill', rect: { x: M + 28 + 2 * (third + 12), y: top + 128, w: third, h: 60 }, text: 'Prova profondità', size: 20, onClick: a.openDepthProbe });
-    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 198, W - 56, 24, 16, T.dim));
+    const quarter = (W - 56 - 36) / 4;
+    const pills: [string, () => void, string?][] = [['Esci', a.signOut, T.bad], ['Registro', a.toggleLog], ['Profondità', a.openDepthProbe], ['Riavvia', a.restartApp]];
+    pills.forEach(([label, onClick, color], i) => out.push({ kind: 'pill', rect: { x: M + 28 + i * (quarter + 12), y: top + 128, w: quarter, h: 60 }, text: label, size: 21, ...(color ? { color } : {}), onClick }));
+    // How the app restarts itself (the Riavvia button above): the ways are tried one after the other (see app/relaunch.ts).
+    ['clear', 'remove', 'vr', 'legacy'].forEach((m, i) =>
+      out.push({ kind: 'pill', rect: { x: M + 28 + i * (quarter + 12), y: top + 196, w: quarter, h: 40 }, text: m === v.relaunch ? `✓ ${m}` : m, size: 17, ...(m === v.relaunch ? { color: T.good } : {}), onClick: () => a.setRelaunch(m) }));
+    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 246, W - 56, 24, 16, T.dim));
     // The last events, kept across app restarts: what the session did around a standby.
-    v.log.slice(-7).forEach((line, i) => out.push(text(line, M + 28, top + 230 + i * 20, W - 56, 20, 14, T.sub)));
+    v.log.slice(-4).forEach((line, i) => out.push(text(line, M + 28, top + 276 + i * 20, W - 56, 20, 14, T.sub)));
   }
   return out;
 }

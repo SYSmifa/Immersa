@@ -2,6 +2,7 @@ import { createSupabaseBackend } from '../cloud/repo';
 import { createStats } from '../ui/stats';
 import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
+import { relaunchApp, relaunchMode, takeRelaunchMark } from './relaunch';
 import { createLauncher } from './launcher';
 import { fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
@@ -28,16 +29,25 @@ export async function runHeadsetApp() {
   // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
   // (same relaunch as the old standby restart); the new session starts the scan by itself.
   const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), () => {
-    app.core.logEvent(isInstalledApp() ? 'riavvio: intent:// + nuova sessione' : 'riavvio: nuova sessione');
-    if (isInstalledApp()) {
-      try {
-        location.href = `intent://${location.host}/#Intent;scheme=https;package=app.immersa.quest;end`;
-      } catch {
-        /* not allowed */
-      }
+    const mode = relaunchMode();
+    app.core.logEvent(isInstalledApp() ? `riavvio: ${mode}` : 'riavvio: nuova sessione');
+    if (!isInstalledApp()) return void setTimeout(() => void enter.restart(), 100);
+    if (mode === 'legacy') {
+      relaunchApp(mode); // the old way: an intent to the running app, then a new session in this page
+      return void setTimeout(() => void enter.restart(), 100);
     }
-    setTimeout(() => void enter.restart(), 100);
+    // The APK starts the app again from scratch; this page only ends its session. If nothing happens (an APK without the
+    // relaunch activity), after a few seconds it starts a new session here, as before.
+    void renderer.xr.getSession()?.end().catch(() => undefined);
+    relaunchApp(mode);
+    setTimeout(() => {
+      if (document.visibilityState !== 'visible') return;
+      app.core.logEvent('riavvio: l\'APK non ha risposto, nuova sessione qui');
+      void enter.restart();
+    }, 3500);
   });
+  const mark = takeRelaunchMark();
+  if (mark) app.core.logEvent(`avviata dopo riavvio (${mark.mode}) in ${mark.seconds.toFixed(1)} s`);
   const launcher = await createLauncher(enter);
   renderer.xr.addEventListener('sessionend', () => launcher.show());
   void enter.autoStart(); // the installed app's launch is the gesture; in a plain tab the button stays
