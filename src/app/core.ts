@@ -619,7 +619,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
-    if (alignRun || choiceRun) return; // a card is up: it has its own Cancel
+    if (alignRun || choiceRun || nameRun) return; // a card is up: it has its own Cancel
     if (splash || warnOpen) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
@@ -878,6 +878,76 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       drawChoiceCard();
       choiceCard.mesh.visible = true;
+    });
+  }
+
+  // The name of a new room: a card like the place one (title, the name in a field that is being typed into, Avanti, Annulla) with
+  // the keyboard open under it. Avanti (or the keyboard's OK) goes on to the place; a name already used is refused on the card.
+  const nameCard = new Panel(0.62, 0.42, 1200, 'ink');
+  nameCard.mesh.visible = false;
+  host.root.add(nameCard.mesh);
+  host.add(nameCard);
+  let nameRun: { finish: (v: string | null) => void } | null = null;
+  function askNameCard(title: string, hint: string, initial = ''): Promise<string | null> {
+    return new Promise((resolve) => {
+      let text = initial;
+      let error = '';
+      const draw = () => {
+        const w = nameCard.pxW;
+        nameCard.set([
+          { kind: 'label', rect: { x: 36, y: 24, w: w - 72, h: 46 }, text: title, size: 34, bold: true, color: '#ffffff' },
+          { kind: 'label', rect: { x: 36, y: 76, w: w - 72, h: 44 }, text: hint, size: 22, color: '#cbd5e1', wrap: true },
+          { kind: 'row', rect: { x: 36, y: 132, w: w - 72, h: 72 }, text, caret: true, size: 36, fill: 'rgba(255,255,255,0.10)', hoverFill: 'rgba(255,255,255,0.10)', color: '#ffffff' },
+          { kind: 'label', rect: { x: 36, y: 210, w: w - 72, h: 34 }, text: error, size: 22, color: '#f87171' },
+          { kind: 'pill', primary: true, rect: { x: 36, y: 262, w: w - 72, h: 64 }, text: 'Avanti', size: 28, disabled: !text.trim(), onClick: submit },
+          { kind: 'pill', rect: { x: 36, y: 338, w: w - 72, h: 58 }, text: 'Annulla', size: 26, color: '#f87171', onClick: () => finish(null) },
+        ]);
+      };
+      const finish = (v: string | null) => {
+        if (!nameRun) return;
+        nameRun = null;
+        keyboard.close();
+        nameCard.mesh.visible = false;
+        resolve(v);
+      };
+      const typeIn = () =>
+        keyboard.open({
+          title,
+          initial: text,
+          onChange: (t) => {
+            text = t;
+            error = '';
+            draw();
+          },
+          onDone: (t) => {
+            text = t;
+            submit();
+          },
+          onCancel: () => finish(null),
+        });
+      function submit() {
+        const name = text.trim();
+        if (!name) return;
+        if (nameTaken(name)) {
+          error = `"${name}" esiste già: scegli un altro nome`;
+          draw();
+          typeIn(); // the keyboard closed with OK: it comes back with the same text
+          return;
+        }
+        finish(name);
+      }
+      closeMenu();
+      nameRun = { finish };
+      if (lastHead) {
+        const f = new Vector3(lastHead.fwd.x, 0, lastHead.fwd.z);
+        if (f.length() < 0.2) f.set(0, 0, -1);
+        f.normalize();
+        nameCard.mesh.position.set(lastHead.pos.x + f.x * 0.85, lastHead.pos.y + 0.1, lastHead.pos.z + f.z * 0.85);
+        nameCard.mesh.rotation.set(0, Math.atan2(lastHead.pos.x - nameCard.mesh.position.x, lastHead.pos.z - nameCard.mesh.position.z), 0);
+      }
+      draw();
+      nameCard.mesh.visible = true;
+      typeIn();
     });
   }
 
@@ -1473,7 +1543,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const planes = live; // the scan as it is now, even if the list changes while typing
     const boxes = liveBoxes;
     if (planes.length < MIN_PLANES) return say('Nessuna scansione da salvare');
-    const name = await askRoomName('Nome della stanza', '');
+    const name = await askNameCard('Nome della stanza', 'Come vuoi chiamare la stanza che hai scansionato?');
     if (!name) return;
     const place = await pickPlace();
     if (place === undefined) return;
@@ -1672,7 +1742,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     scanSave = null;
     scanSaveBusy = false;
     if (awaitingModels === null) loading.mesh.visible = false;
-    if (!rig.visible && !choiceRun && !keyboard.isOpen()) {
+    if (!rig.visible && !choiceRun && !nameRun && !keyboard.isOpen()) {
       view.tab = 'scan';
       openMenu();
     }
@@ -1799,7 +1869,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       say(`Aperto: ${p.name}: nessuna stanza è stata ritrovata qui, scegli in quale sei e allineala`, 6000);
       // the chooser or the card up = still aligning; if neither came (nothing to do, or cancelled) the models load now
       void startAlign().finally(() => {
-        if (!alignRun && !choiceRun) releaseModels();
+        if (!alignRun && !choiceRun && !nameRun) releaseModels();
       });
     } else if (unplaced) {
       notify(`Stanza "${lost!.name}" non ritrovata: Stanza → Allineamento manuale`, 5000);
@@ -3674,7 +3744,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice],
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
