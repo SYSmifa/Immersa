@@ -344,6 +344,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let searching = false; // the "looking for the room" card is up
+  // After the app restarted because a scan ended: only the card to save that room (name, place) runs; no splash, menu or project.
+  let scanSave: { since: number } | null = null;
+  let scanSaveBusy = false;
   let autoTab = true;
   let splash: { since: number; endAt: number | null; placed: boolean } | null = null; // the start-up screen with the logo
   let lastHead: Head | null = null;
@@ -1661,8 +1664,52 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     say('Scansione finita, leggo la stanza...');
   }
 
+  function endScanSave() {
+    scanSave = null;
+    scanSaveBusy = false;
+    if (awaitingModels === null) loading.mesh.visible = false;
+    if (!rig.visible && !choiceRun && !keyboard.isOpen()) {
+      view.tab = 'scan';
+      openMenu();
+    }
+  }
+
+  // The session that follows a scan: its own small flow. Wait for the planes, then ask the name and the place of the room (or renew
+  // the saved room that was scanned again), and only then the menu.
+  function checkScanSave() {
+    const s = scanSave;
+    if (!s || scanSaveBusy) return;
+    const target = pendingTarget();
+    const now = performance.now();
+    if (!target) return endScanSave();
+    const have = roomsLoaded && live.length >= MIN_PLANES;
+    if (now - s.since > 30000 && !have) {
+      setPendingName(false);
+      endScanSave();
+      return say('Non ho trovato la scansione: Stanza → Scansiona di nuovo', 9000);
+    }
+    if (!have || now < readyAt) return;
+    if (target !== 'new' && recognised?.room.id === target) {
+      if (lastTry < readyAt) return; // wait for the recognition on the new planes
+      scanSaveBusy = true;
+      setPendingName(false);
+      loading.mesh.visible = false;
+      void refreshRoomScan(recognised).then((ok) => {
+        endScanSave();
+        say(ok ? 'Stanza aggiornata' : 'Aggiornamento non riuscito', 4000);
+      });
+      return;
+    }
+    if (target !== 'new' && now - s.since < 12000) return; // the scanned room is not recognised yet
+    scanSaveBusy = true;
+    setPendingName(false);
+    loading.mesh.visible = false;
+    void saveRoom().finally(endScanSave);
+  }
+
   // After a scan: once the new planes arrive, offer to name and save the room.
   function checkPending() {
+    if (scanSave) return checkScanSave();
     if (!pendingName() || !roomsLoaded || live.length < MIN_PLANES || keyboard.isOpen()) return;
     if (recognised && pendingTarget() === recognised.room.id) {
       // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
@@ -3619,6 +3666,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // Only after our own restart (standby) the project that was open then comes back (none: just the rooms). A normal
       // launch of the app opens nothing by itself.
       const restart = restartMark.consume();
+      const afterScan = pendingName(); // the app restarted at the end of a scan: only the room's save card runs
       if (scanNextMark.consume()) setTimeout(() => void startScan(), 5000); // the app restarted itself for one more scan
       const inPage = sessionStorage.getItem(RESUME_KEY);
       sessionStorage.removeItem(RESUME_KEY);
@@ -3627,8 +3675,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // Start downloading its models now: the project list and the room come later.
       if (saved && last?.id === saved) preloadModels(last.paths);
       // With no project to reopen the id is empty: just wait for the rooms, then the menu opens.
-      resumePending = saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
-      if (resumePending) setLoadingText(resumePending.id ? 'Carico il progetto' : 'Cerco le stanze');
+      resumePending = afterScan ? null : saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
+      scanSave = afterScan ? { since: performance.now() } : null;
+      scanSaveBusy = false;
+      if (afterScan) setLoadingText('Leggo la stanza', 'Un attimo…');
+      else if (resumePending) setLoadingText(resumePending.id ? 'Carico il progetto' : 'Cerco le stanze');
       autoTab = true;
       view.tab = 'load'; // the menu always starts on the projects
       rawLive = [];
@@ -3637,7 +3688,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       liveBoxes = [];
       lastTry = 0;
       failedTries = 0;
-      readyAt = 0;
+      readyAt = afterScan ? performance.now() + 3000 : 0; // let the new planes arrive
       candidate = null;
       switching = lost = 0;
       ignored.clear();
@@ -3652,7 +3703,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       closeCurrent();
       setRecognised(null);
       void reloadRooms();
-      if (resumePending) loading.mesh.visible = true;
+      if (afterScan) {
+        loading.mesh.visible = true;
+        logEvent('dopo la scansione: leggo la stanza e chiedo il nome');
+      } else if (resumePending) loading.mesh.visible = true;
       else {
         // The logo in front of you for a moment while the app gets its data, then the menu.
         splash = { since: performance.now(), endAt: null, placed: false };
@@ -3736,7 +3790,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       listLoader.mesh.visible = rig.visible && view.tab === 'load' && view.projects === null && !view.object && view.authKnown && !!view.email;
       if (listLoader.mesh.visible) listLoader.draw();
-      if (searching || restarting) loading.mesh.visible = true;
+      if (searching || restarting || (scanSave && !scanSaveBusy)) loading.mesh.visible = true;
       if (loading.mesh.visible) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
