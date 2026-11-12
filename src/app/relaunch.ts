@@ -35,7 +35,7 @@ export function setRelaunchMode(mode: RelaunchMode) {
 }
 export const RELAUNCH_MODES = MODES;
 
-// The way to relaunch: from the address (?relaunch=...), else the one remembered, else 'clear'.
+// The way to relaunch: from the address (?relaunch=...), else the one remembered, else 'remove'.
 export function relaunchMode(): RelaunchMode {
   const asked = new URLSearchParams(location.search).get('relaunch') as RelaunchMode | null;
   if (asked && MODES.includes(asked)) {
@@ -43,7 +43,7 @@ export function relaunchMode(): RelaunchMode {
     return asked;
   }
   const saved = read(MODE_KEY) as RelaunchMode | null;
-  return saved && MODES.includes(saved) ? saved : 'clear';
+  return saved && MODES.includes(saved) ? saved : 'remove'; // 'clear' did not work on the headset (the new start is lost); 'remove' reopens the app
 }
 
 export const relaunchUrl = (mode: RelaunchMode, host = location.host) =>
