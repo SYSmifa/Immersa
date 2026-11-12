@@ -28,7 +28,7 @@ export async function runHeadsetApp() {
   const enter = createEnterAr(renderer, features);
   // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
   // (same relaunch as the old standby restart); the new session starts the scan by itself.
-  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), () => {
+  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), (opts) => {
     const mode = relaunchMode();
     app.core.logEvent(isInstalledApp() ? `riavvio: ${mode}` : 'riavvio: nuova sessione');
     if (!isInstalledApp()) return void setTimeout(() => void enter.restart(), 100);
@@ -38,8 +38,10 @@ export async function runHeadsetApp() {
     }
     // The APK starts the app again from scratch and closes this one with its task. The session is NOT ended here: ending an XR
     // session closes the installed app, and then nobody would be left to ask for the relaunch. If nothing happens (an APK
-    // without the relaunch activity), after a few seconds a new session is started here, as before.
+    // without the relaunch activity), after a few seconds a new session is started here, as before (not for an automatic
+    // relaunch: ending the session would close the app for nothing).
     relaunchApp(mode);
+    if (opts?.auto) return;
     setTimeout(() => {
       if (document.visibilityState !== 'visible') return;
       app.core.logEvent('riavvio: l\'APK non ha risposto, nuova sessione qui');

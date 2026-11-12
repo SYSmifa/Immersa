@@ -43,7 +43,8 @@ export interface MenuView {
   tab: Tab;
   email: string | null;
   startup: string; // seconds since the page loaded for each start-up step
-  relaunch: string; // how the app restarts itself (see app/relaunch.ts): clear | remove | vr | legacy
+  relaunch: string; // how the app restarts itself (see app/relaunch.ts): remove | vr | clear | legacy
+  autoRestart: boolean; // it also restarts by itself after a scan is saved and after a standby
   authKnown: boolean; // we know whether someone is signed in (else: still checking)
   loginEmail: string; // typed in the in-AR sign-in
   loginPassLen: number;
@@ -102,7 +103,8 @@ export interface MenuActions {
   alignRoom(): void;
   openDepthProbe(): void;
   restartApp(): void;
-  setRelaunch(mode: string): void;
+  cycleRelaunch(): void;
+  toggleAutoRestart(): void;
   askSearch(): void;
   clearSearch(): void;
   setScroll(fraction: number): void;
@@ -545,9 +547,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const quarter = (W - 56 - 36) / 4;
     const pills: [string, () => void, string?][] = [['Esci', a.signOut, T.bad], ['Registro', a.toggleLog], ['Profondità', a.openDepthProbe], ['Riavvia', a.restartApp]];
     pills.forEach(([label, onClick, color], i) => out.push({ kind: 'pill', rect: { x: M + 28 + i * (quarter + 12), y: top + 128, w: quarter, h: 60 }, text: label, size: 21, ...(color ? { color } : {}), onClick }));
-    // How the app restarts itself (the Riavvia button above): the ways are tried one after the other (see app/relaunch.ts).
-    ['clear', 'remove', 'vr', 'legacy'].forEach((m, i) =>
-      out.push({ kind: 'pill', rect: { x: M + 28 + i * (quarter + 12), y: top + 196, w: quarter, h: 40 }, text: m === v.relaunch ? `✓ ${m}` : m, size: 17, ...(m === v.relaunch ? { color: T.good } : {}), onClick: () => a.setRelaunch(m) }));
+    // The app can restart itself (Riavvia above, and by itself after a scan is saved and after a standby): the switch and the way.
+    const half = (W - 56 - 12) / 2;
+    out.push({ kind: 'pill', rect: { x: M + 28, y: top + 196, w: half, h: 40 }, text: `Riavvio automatico: ${v.autoRestart ? 'Sì' : 'No'}`, size: 17, ...(v.autoRestart ? { color: T.good } : {}), onClick: a.toggleAutoRestart });
+    out.push({ kind: 'pill', rect: { x: M + 28 + half + 12, y: top + 196, w: half, h: 40 }, text: `Modo: ${v.relaunch}`, size: 17, onClick: a.cycleRelaunch });
     out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 246, W - 56, 24, 16, T.dim));
     // The last events, kept across app restarts: what the session did around a standby.
     v.log.slice(-4).forEach((line, i) => out.push(text(line, M + 28, top + 276 + i * 20, W - 56, 20, 14, T.sub)));

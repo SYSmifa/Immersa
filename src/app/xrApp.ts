@@ -32,7 +32,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onRestart?: () => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onRestart?: (opts?: { auto?: boolean }) => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   // Laser smoothing (exponential, time based): light while pointing, heavier while pinching (grabs) for precision.
@@ -223,6 +223,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
             core.showSearching(0);
+            core.autoRestart('piani persi (standby), il confine torna', 1200); // a relaunch from scratch brings the rooms and takes the Guardian away
           } else if (AUTO_SCAN_WINDOW && waiting !== null && !recoverTried && wakeStart && now - waiting > RECOVER_MS) {
             recoverTried = true;
             void core.recoverRooms(); // once per wake; if it does not bring the planes, the card tells to recenter

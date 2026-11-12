@@ -1,4 +1,4 @@
-import { RELAUNCH_MODES, relaunchMode, setRelaunchMode, type RelaunchMode } from './relaunch';
+import { autoRestartOn, nextRelaunchMode, relaunchAge, relaunchMode, setAutoRestart } from './relaunch';
 import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
@@ -45,7 +45,7 @@ interface Options {
   scene: Scene;
   backend: Backend;
   signOut(): void;
-  onRestart?(): void; // end this XR session and start a new one (the app relaunches itself)
+  onRestart?(opts?: { auto?: boolean }): void; // the app relaunches itself (auto: asked by the app, not by the user)
 }
 
 const SPLASH_MS = 2400; // at least this long on screen, to be seen
@@ -262,6 +262,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     email: null,
     startup: '',
     relaunch: relaunchMode(),
+    autoRestart: autoRestartOn(),
     authKnown: false,
     loginEmail: '',
     loginPassLen: 0,
@@ -1465,6 +1466,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       learnLinks(true); // the other rooms of its place that are placed right now: where they are in relation to this one
       say(`Stanza "${name}" salvata`);
+      autoRestart('scansione salvata', 2500);
     } catch (e) {
       say(`Salvataggio fallito: ${errText(e)}`);
     }
@@ -1488,11 +1490,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // The saved scan no longer matches what the headset reports (the room was scanned again, or the
   // headset's copy moved): the live planes are the truth, so store them as the room's scan (same id and
   // name; the old scan is kept as a backup) and move the models so they stay put relative to the room.
-  async function refreshRoomScan(r: Recognised) {
+  async function refreshRoomScan(r: Recognised): Promise<boolean> {
     const { room, alignment: a } = r;
     const planes = live;
     const boxes = liveBoxes;
-    if (planes.length < MIN_PLANES) return;
+    if (planes.length < MIN_PLANES) return false;
     refreshed.add(room.id);
     const m = alignMatrix(a);
     const convert = (x: RoomModel): RoomModel => {
@@ -1512,7 +1514,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       for (const p of affected) await backend.saveProject(p.id, { models: p.models.map(convert) });
     } catch (e) {
       refreshed.delete(room.id);
-      return say(`Room update failed: ${errText(e)}`);
+      say(`Room update failed: ${errText(e)}`);
+      return false;
     }
     room.scan = scan;
     for (const x of others) {
@@ -1528,6 +1531,25 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       houses.delete(room.id);
     }
     setRecognised({ room, alignment: identity(planes.length) });
+    return true;
+  }
+
+  // The app relaunches itself from scratch (Account → Riavvia does it by hand): a start like the Library's has no Guardian, finds
+  // the rooms again, and gives a new XR session (one more room scan is allowed). Done after a scan is saved and when a standby
+  // has taken the planes; not twice within a minute and a half (a loop), and only when switched on in Account.
+  function autoRestart(reason: string, delay = 1500): boolean {
+    if (!onRestart || !autoRestartOn()) return false;
+    const age = relaunchAge();
+    if (age < 90000) {
+      logEvent(`riavvio automatico saltato (${reason}): l'ultimo è di ${Math.round(age / 1000)} s fa`);
+      return false;
+    }
+    logEvent(`riavvio automatico: ${reason}`);
+    prepareResume();
+    closeMenu();
+    say('Riapro l\'app per togliere il confine…', 4000);
+    setTimeout(() => onRestart({ auto: true }), delay);
+    return true;
   }
 
   // Remember which project to reopen after the app restarts.
@@ -1601,7 +1623,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
       if (performance.now() < readyAt + 1500 || lastTry < readyAt) return;
       setPendingName(false);
-      return void refreshRoomScan(recognised);
+      return void refreshRoomScan(recognised).then((ok) => ok && autoRestart('scansione aggiornata', 2500));
     }
     if (recognised) return; // another room is recognised (not the one scanned): wait until it lets go, then the new room is offered
     if (failedTries < 1) return; // recognition has not had its chance yet
@@ -1780,10 +1802,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     alignRoom() {
       void startAlign();
     },
-    setRelaunch(mode: string) {
-      if (!(RELAUNCH_MODES as string[]).includes(mode)) return;
-      setRelaunchMode(mode as RelaunchMode);
-      view.relaunch = mode;
+    cycleRelaunch() {
+      view.relaunch = nextRelaunchMode();
+      render();
+    },
+    toggleAutoRestart() {
+      setAutoRestart(!view.autoRestart);
+      view.autoRestart = autoRestartOn();
       render();
     },
     // A by-hand test of the app relaunching itself (see app/relaunch.ts): the same as before a second room scan.
@@ -1834,7 +1859,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const r = changed;
       changed = null;
       say(`Aggiorno "${r.room.name}"...`);
-      void refreshRoomScan(r).then(() => say(`"${r.room.name}" aggiornata: i modelli sono rimasti al loro posto`));
+      void refreshRoomScan(r).then((ok) => {
+        if (!ok) return;
+        say(`"${r.room.name}" aggiornata: i modelli sono rimasti al loro posto`);
+        autoRestart('stanza aggiornata dopo la scansione', 2500);
+      });
     },
     notThisRoom() {
       const id = recognised?.room.id ?? candidate?.room.id;
@@ -3757,6 +3786,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     isScanning: () => scanning,
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume,
+    autoRestart,
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
     // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.

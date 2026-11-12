@@ -11,6 +11,8 @@ export type RelaunchMode = 'clear' | 'remove' | 'vr' | 'legacy';
 const MODES: RelaunchMode[] = ['clear', 'remove', 'vr', 'legacy'];
 const MODE_KEY = 'immersa.relaunch.mode';
 const MARK_KEY = 'immersa.relaunch.mark';
+const LAST_KEY = 'immersa.relaunch.last'; // when the app last asked to relaunch (kept: the guard against relaunch loops)
+const AUTO_KEY = 'immersa.relaunch.auto'; // '0' = the automatic relaunch is switched off
 const PACKAGE = 'app.immersa.quest';
 
 const read = (k: string) => {
@@ -46,6 +48,21 @@ export function relaunchMode(): RelaunchMode {
   return saved && MODES.includes(saved) ? saved : 'remove'; // 'clear' did not work on the headset (the new start is lost); 'remove' reopens the app
 }
 
+// The automatic relaunch (after a scan is saved, after a standby): on unless switched off in Account.
+export const autoRestartOn = () => read(AUTO_KEY) !== '0';
+export const setAutoRestart = (on: boolean) => write(AUTO_KEY, on ? '1' : '0');
+// How long ago the app last relaunched itself (Infinity: never): an automatic relaunch is not repeated within a minute and a half.
+export const relaunchAge = () => {
+  const t = Number(read(LAST_KEY) ?? 0);
+  return t ? Date.now() - t : Infinity;
+};
+// The next way, in Account (the ways are tried one after the other).
+export function nextRelaunchMode(): RelaunchMode {
+  const next = MODES[(MODES.indexOf(relaunchMode()) + 1) % MODES.length];
+  setRelaunchMode(next);
+  return next;
+}
+
 export const relaunchUrl = (mode: RelaunchMode, host = location.host) =>
   mode === 'legacy'
     ? `intent://${host}/#Intent;scheme=https;package=${PACKAGE};end`
@@ -54,6 +71,7 @@ export const relaunchUrl = (mode: RelaunchMode, host = location.host) =>
 // Asks the APK to start the app again. A note is left so that the new start can say it came from here.
 export function relaunchApp(mode = relaunchMode()) {
   write(MARK_KEY, JSON.stringify({ mode, at: Date.now() }));
+  write(LAST_KEY, String(Date.now()));
   try {
     location.href = relaunchUrl(mode);
   } catch {
