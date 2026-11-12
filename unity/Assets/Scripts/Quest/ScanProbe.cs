@@ -22,6 +22,8 @@ namespace Immersa.Quest
         Text label;
         readonly List<string> history = new List<string>();
         string roomsText = "Reading rooms...";
+        public event Action ScanFinished;                    // a scan (or a room save) ended: the app rereads the rooms
+        public string LastMessage => history.Count > 0 ? history[history.Count - 1] : "";
         int scanCount;
         bool busy;
         float sessionStart;
@@ -30,6 +32,8 @@ namespace Immersa.Quest
         {
             sessionStart = Time.realtimeSinceStartup;
             BuildPanel();
+            // The test panel is hidden: the menu (Stanza) drives it. The logic below keeps working.
+            foreach (Transform c in transform) c.gameObject.SetActive(false);
         }
 
         void Start()
@@ -65,6 +69,7 @@ namespace Immersa.Quest
             }
             busy = false;
             Redraw();
+            ScanFinished?.Invoke();
         }
 
         public async void ReloadButton()
@@ -98,6 +103,7 @@ namespace Immersa.Quest
                 var id = await client.CreateRoom(name, scan);
                 Add("Saved '" + name + "': " + scan.Planes.Count + " planes, " + scan.Boxes.Count + " boxes");
                 Debug.Log(Tag + "saved room id " + id);
+                ScanFinished?.Invoke();
             }
             catch (Exception e)
             {

@@ -13,6 +13,7 @@ namespace Immersa.Quest
         public string name;
         public Alignment alignment;      // null when the room was not found
         public Transform frame;          // models of this room are children of it (in web axes through WebSpace); null when not found
+        public MRUKRoom liveRoom;        // the room the headset reports now that this one was matched with
         public string status = "not found";
         public bool found;
     }
@@ -58,6 +59,7 @@ namespace Immersa.Quest
             if (share < NearMatch) { res.status = "not found (" + detail + ")"; return res; }
 
             res.alignment = best;
+            res.liveRoom = liveRooms[bestIndex];
             res.found = true;
             res.status = (share >= Good ? "aligned" : "aligned, weak") + " with room " + (bestIndex + 1) + " (" + detail + ")";
 

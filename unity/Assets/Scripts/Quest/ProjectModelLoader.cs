@@ -41,7 +41,7 @@ namespace Immersa.Quest
             for (int i = 0; i < models.Count; i++)
             {
                 var m = models[i];
-                progress?.Invoke("Loading models " + (i + 1) + "/" + models.Count + "\n" + m.Name);
+                progress?.Invoke("Modelli " + (i + 1) + "/" + models.Count + "\n" + m.Name);
                 Debug.Log(Tag + "model " + m.Name + " | path " + m.Path + " | room '" + m.RoomId + "' | pos (" + m.Pos.X.ToString("0.00") + ", " + m.Pos.Y.ToString("0.00") + ", " + m.Pos.Z.ToString("0.00") + ") | yaw " + m.Yaw.ToString("0.00") + " | scale " + m.Scale.ToString("0.00"));
                 try
                 {

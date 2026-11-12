@@ -130,7 +130,7 @@ GameObject:
   - component: {fileID: 479414700}
   - component: {fileID: 479414699}
   m_Layer: 0
-  m_Name: SupabaseProbe
+  m_Name: App
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -145,7 +145,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 479414698}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: aaf41178b396346489055f87bb396824, type: 3}
+  m_Script: {fileID: 11500000, guid: b7c3a1e94d2f4a6e8c0d5f1a9e3b7c42, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Immersa.Quest.SupabaseProbePanel
   config: {fileID: 11400000, guid: 1b2a2f50a5852284493f6158a117ecdc, type: 2}
