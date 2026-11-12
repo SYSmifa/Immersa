@@ -292,6 +292,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     canVisit: false,
     visit: false,
     showLog: false,
+    logOffset: 0,
     search: '',
     scroll: 0,
     outline: true,
@@ -372,6 +373,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   };
   const pendingName = () => !!pendingTarget();
   const setPendingName = (on: boolean, target = 'new') => {
+    logEvent(on ? `promemoria scansione: salvato (${target})` : 'promemoria scansione: tolto');
     try {
       if (on) localStorage.setItem(PENDING_KEY, `${target}|${Date.now()}`);
       else localStorage.removeItem(PENDING_KEY);
@@ -1899,7 +1901,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (visit) setVisit(false);
       else openVisitWarning();
     },
+    logOlder() {
+      view.logOffset = Math.min(Math.max(0, view.log.length - 6), view.logOffset + 6);
+      render();
+    },
+    logNewer() {
+      view.logOffset = Math.max(0, view.logOffset - 6);
+      render();
+    },
     toggleLog() {
+      view.logOffset = 0;
       view.showLog = !view.showLog;
       render();
     },
@@ -3679,6 +3690,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // launch of the app opens nothing by itself.
       const restart = restartMark.consume();
       const afterScan = pendingName(); // the app restarted at the end of a scan: only the room's save card runs
+      logEvent(`promemoria scansione all'avvio: ${localStorage.getItem(PENDING_KEY) ?? 'nessuno'}`);
       if (scanNextMark.consume()) setTimeout(() => void startScan(), 5000); // the app restarted itself for one more scan
       const inPage = sessionStorage.getItem(RESUME_KEY);
       sessionStorage.removeItem(RESUME_KEY);

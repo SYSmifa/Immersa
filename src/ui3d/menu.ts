@@ -73,6 +73,7 @@ export interface MenuView {
   canVisit: boolean; // the open project is a plan without scanned rooms: it can be visited virtually
   visit: boolean; // the virtual visit is on
   showLog: boolean; // the Account tab shows the long event log (to photograph it)
+  logOffset: number; // lines skipped from the newest end (the log page scrolls back)
   search: string; // the project list is filtered by this name
   scroll: number; // 0..1: how far the project list is scrolled
   outline: boolean;
@@ -100,6 +101,8 @@ export interface MenuActions {
   startLink(): void;
   cancelLink(): void;
   toggleLog(): void;
+  logOlder(): void;
+  logNewer(): void;
   alignRoom(): void;
   openDepthProbe(): void;
   restartApp(): void;
@@ -529,7 +532,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     // the newest lines that fit, shown oldest first
     const shown: { line: string; rows: number }[] = [];
     let used = 0;
-    for (const line of [...v.log].reverse()) {
+    for (const line of [...v.log].slice(0, Math.max(0, v.log.length - v.logOffset)).reverse()) {
       const rows = line.length > 74 ? 2 : 1;
       if (used + rows * 22 + 4 > 316) break;
       shown.unshift({ line, rows });
@@ -540,7 +543,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       out.push(text(it.line, M + 24, y, W - 48, it.rows * 22, 17, T.text2, { wrap: true }));
       y += it.rows * 22 + 4;
     }
-    out.push({ kind: 'pill', rect: { x: M + 24, y: top + 334, w: W - 48, h: 46 }, text: 'Indietro', size: 22, onClick: a.toggleLog });
+    const third = (W - 48 - 24) / 3;
+    out.push({ kind: 'pill', rect: { x: M + 24, y: top + 334, w: third, h: 46 }, text: 'Più vecchi', size: 20, onClick: a.logOlder });
+    out.push({ kind: 'pill', rect: { x: M + 36 + third, y: top + 334, w: third, h: 46 }, text: 'Più recenti', size: 20, onClick: a.logNewer });
+    out.push({ kind: 'pill', rect: { x: M + 48 + 2 * third, y: top + 334, w: third, h: 46 }, text: 'Indietro', size: 20, onClick: a.toggleLog });
   } else {
     out.push(surface(M, top, W, 380));
     out.push({ kind: 'card', icon: 'user', rect: { x: M + 20, y: top + 20, w: W - 40, h: 90 }, text: v.email ?? 'Non collegato', size: 26, sub: 'Account Immersa' });
