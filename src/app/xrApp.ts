@@ -227,7 +227,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
             core.logEvent('nessun piano: aspetto (niente riavvio)');
             core.prepareResume();
             core.showSearching(0);
-            core.autoRestart('piani persi (standby), il confine torna', 1200); // a relaunch from scratch brings the rooms and takes the Guardian away
+            // A relaunch from scratch brings the rooms back and takes the Guardian away. Not around a scan: right after one the new
+            // planes have not arrived yet, and the room still has to be named and saved.
+            if (!core.scanBusy()) core.autoRestart('piani persi (standby), il confine torna', 1200);
+            else core.logEvent('nessun piano, ma una scansione è in corso o appena finita: nessun riavvio');
           } else if (AUTO_SCAN_WINDOW && waiting !== null && !recoverTried && wakeStart && now - waiting > RECOVER_MS) {
             recoverTried = true;
             void core.recoverRooms(); // once per wake; if it does not bring the planes, the card tells to recenter

@@ -340,6 +340,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let stale = 0; // consecutive checks where the recognised room fits poorly
   let scannedThisSession = false; // Meta allows ONE room capture per XR session ("room capture was already called for this session")
   let scanning = false; // the system room scan is running (the session must not be restarted meanwhile)
+  let scanEndedAt = 0; // when the last scan ended (the new planes take a while to arrive: no restart in that time)
   let failedTries = 0; // recognition attempts that found nothing since the last scan / session start
   let readyAt = 0; // don't trust the live planes before this time (a scan just ended)
   let searching = false; // the "looking for the room" card is up
@@ -1591,6 +1592,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const h = lastHead;
     const again = !!recognised && !!h && isInside(recognised, [h.pos.x, h.pos.y, h.pos.z]);
     setPendingName(true, again ? recognised!.room.id : 'new'); // after the scan (even if the session restarts) ask for a name
+    logEvent('scansione: avviata');
     say('Scansione in corso...', 60000);
     closeMenu();
     scanning = true;
@@ -1616,11 +1618,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     if (failure) {
       scanning = false;
+      scanEndedAt = performance.now();
       setPendingName(false);
       openMenu();
       return say(`Scansione non riuscita: ${errText(failure)}`, 9000);
     }
     scanning = false;
+    scanEndedAt = performance.now();
+    logEvent('scansione: finita');
     scannedThisSession = true;
     if (!again && recognised) setRecognised(null); // a new room: the stale one must not take the new planes
     lastTry = 0;
@@ -3798,6 +3803,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     logEvent,
     isScanning: () => scanning,
+    // Scanning, or a scan waiting for its name, or one that ended less than half a minute ago: nothing must restart the app now.
+    scanBusy: () => scanning || pendingName() || (scanEndedAt > 0 && performance.now() - scanEndedAt < 30000),
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume,
     autoRestart,
