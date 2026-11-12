@@ -36,9 +36,9 @@ export async function runHeadsetApp() {
       relaunchApp(mode); // the old way: an intent to the running app, then a new session in this page
       return void setTimeout(() => void enter.restart(), 100);
     }
-    // The APK starts the app again from scratch; this page only ends its session. If nothing happens (an APK without the
-    // relaunch activity), after a few seconds it starts a new session here, as before.
-    void renderer.xr.getSession()?.end().catch(() => undefined);
+    // The APK starts the app again from scratch and closes this one with its task. The session is NOT ended here: ending an XR
+    // session closes the installed app, and then nobody would be left to ask for the relaunch. If nothing happens (an APK
+    // without the relaunch activity), after a few seconds a new session is started here, as before.
     relaunchApp(mode);
     setTimeout(() => {
       if (document.visibilityState !== 'visible') return;
