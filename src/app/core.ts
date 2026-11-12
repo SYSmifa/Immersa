@@ -888,7 +888,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   host.root.add(nameCard.mesh);
   host.add(nameCard);
   let nameRun: { finish: (v: string | null) => void } | null = null;
-  function askNameCard(title: string, hint: string, initial = ''): Promise<string | null> {
+  function askNameCard(title: string, hint: string, initial = '', exceptId?: string): Promise<string | null> {
     return new Promise((resolve) => {
       let text = initial;
       let error = '';
@@ -928,7 +928,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       function submit() {
         const name = text.trim();
         if (!name) return;
-        if (nameTaken(name)) {
+        if (nameTaken(name, exceptId)) {
           error = `"${name}" esiste già: scegli un altro nome`;
           draw();
           typeIn(); // the keyboard closed with OK: it comes back with the same text
@@ -1527,18 +1527,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // Room names are unique (compared without caps or spaces at the ends): a name already in use asks for another one.
   const nameTaken = (name: string, exceptId?: string) => rooms.some((r) => r.id !== exceptId && r.name.trim().toLowerCase() === name.trim().toLowerCase());
-  async function askRoomName(title: string, initial: string, exceptId?: string): Promise<string | null> {
-    let text = initial;
-    let t = title;
-    for (;;) {
-      const name = (await ask(t, text))?.trim();
-      if (!name) return null;
-      if (!nameTaken(name, exceptId)) return name;
-      text = name;
-      t = `"${name}" esiste già: scegli un altro nome`;
-    }
-  }
-
   async function saveRoom() {
     const planes = live; // the scan as it is now, even if the list changes while typing
     const boxes = liveBoxes;
@@ -1575,7 +1563,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   async function renameRoom() {
     if (!recognised) return;
     const room = recognised.room;
-    const name = await askRoomName('Nome della stanza', room.name, room.id);
+    const name = await askNameCard('Rinomina la stanza', 'Come vuoi chiamarla?', room.name, room.id);
     if (!name || name === room.name) return;
     try {
       await backend.renameRoom(room.id, name);
