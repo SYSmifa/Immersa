@@ -2,7 +2,7 @@ import { createSupabaseBackend } from '../cloud/repo';
 import { createStats } from '../ui/stats';
 import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
-import { relaunchApp, relaunchMode, takeRelaunchMark } from './relaunch';
+import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
 import { fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
@@ -40,8 +40,15 @@ export async function runHeadsetApp() {
     // session closes the installed app, and then nobody would be left to ask for the relaunch. If nothing happens (an APK
     // without the relaunch activity), after a few seconds a new session is started here, as before (not for an automatic
     // relaunch: ending the session would close the app for nothing).
+    if (opts?.auto) {
+      // Decided by the app, maybe long after the last tap: the browser follows the link right after a tap only.
+      if (whenAllowed(() => relaunchApp(mode)) === 'tap') {
+        app.core.logEvent('riavvio: aspetto un tocco per poterlo fare');
+        app.core.restartNeedsTap();
+      }
+      return;
+    }
     relaunchApp(mode);
-    if (opts?.auto) return;
     setTimeout(() => {
       if (document.visibilityState !== 'visible') return;
       app.core.logEvent('riavvio: l\'APK non ha risposto, nuova sessione qui');

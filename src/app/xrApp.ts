@@ -1,3 +1,4 @@
+import { tapped } from './relaunch';
 import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'three';
 import type { Backend } from '../cloud/backend';
 import { readBoxes, readPlanes } from '../room/capture';
@@ -137,7 +138,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         core.pinchDown(role, id, consumed);
       }
     });
-    session.addEventListener('select', (ev) => core.host.release(idOf((ev as XRInputSourceEvent).inputSource)));
+    session.addEventListener('select', (ev) => {
+      tapped(); // a relaunch waiting for a tap goes now (the select event counts as a tap for the browser)
+      core.host.release(idOf((ev as XRInputSourceEvent).inputSource));
+    });
     session.addEventListener('selectend', (ev) => {
       const src = (ev as XRInputSourceEvent).inputSource;
       core.host.cancel(idOf(src));

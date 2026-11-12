@@ -1,4 +1,4 @@
-import { autoRestartOn, nextRelaunchMode, relaunchAge, relaunchMode, setAutoRestart } from './relaunch';
+import { autoRestartAge, autoRestartOn, nextRelaunchMode, noteAutoRestart, relaunchMode, setAutoRestart } from './relaunch';
 import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
@@ -1534,21 +1534,36 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return true;
   }
 
+  // The card shown before every restart of the app, so that it is not abrupt: the animated logo and why.
+  let restarting = false;
+  function showRestartCard(sub = 'Per continuare l\'app deve riavviarsi') {
+    restarting = true;
+    awaitingModels = null;
+    closeMenu();
+    setLoadingText('Riavvio dell\'app', sub);
+    loading.mesh.visible = true;
+  }
+
   // The app relaunches itself from scratch (Account → Riavvia does it by hand): a start like the Library's has no Guardian, finds
   // the rooms again, and gives a new XR session (one more room scan is allowed). Done after a scan is saved and when a standby
   // has taken the planes; not twice within a minute and a half (a loop), and only when switched on in Account.
-  function autoRestart(reason: string, delay = 1500): boolean {
-    if (!onRestart || !autoRestartOn()) return false;
-    const age = relaunchAge();
-    if (age < 90000) {
+  function autoRestart(reason: string, delay = 2200): boolean {
+    if (!onRestart) return false;
+    if (!autoRestartOn()) {
+      logEvent(`riavvio automatico spento (${reason})`);
+      return false;
+    }
+    if (restarting) return false; // already on its way
+    const age = autoRestartAge();
+    if (age < 30000) {
       logEvent(`riavvio automatico saltato (${reason}): l'ultimo è di ${Math.round(age / 1000)} s fa`);
       return false;
     }
     logEvent(`riavvio automatico: ${reason}`);
+    noteAutoRestart();
     prepareResume();
-    closeMenu();
-    say('Riapro l\'app per togliere il confine…', 4000);
-    setTimeout(() => onRestart({ auto: true }), delay);
+    showRestartCard();
+    setTimeout(() => onRestart({ auto: true }), delay); // the card is seen for a moment before the app goes
     return true;
   }
 
@@ -1567,9 +1582,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       logEvent('scansione: una sola per sessione, riavvio l\'app per la prossima');
       scanNextMark.set();
       prepareResume();
-      closeMenu();
-      say('Riapro l\'app per scansionare un\'altra stanza…', 5000);
-      setTimeout(onRestart, 900);
+      showRestartCard('Per scansionare un\'altra stanza l\'app deve riavviarsi');
+      setTimeout(() => onRestart(), 1800);
       return;
     }
     // Scanning the room we are in again, or a new one? The room that is recognised may be stale (a room just saved, and you have
@@ -1816,9 +1830,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (!onRestart) return say('Il riavvio non è disponibile qui', 4000);
       logEvent('riavvio a mano');
       prepareResume();
-      closeMenu();
-      say('Riapro l\'app…', 4000);
-      setTimeout(onRestart, 900);
+      showRestartCard();
+      setTimeout(() => onRestart(), 1800);
     },
     // The depth measuring page (see xr/depthProbe.ts): the next start from the Library opens it, once (leaving the session would close the app).
     openDepthProbe() {
@@ -3643,6 +3656,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // stage 0: just looking; 1: after a few seconds the remedy that works (off and on again); 2: after a long time the last resort
     showSearching(stage: 0 | 1 | 2) {
+      if (restarting) return; // the restart card is on
       closeMenu();
       searching = true;
       setLoadingText('Cerco la stanza', stage === 0 ? 'Un attimo…' : stage === 1 ? 'Ricentra la vista: tieni premuto il tasto Meta' : 'Ancora niente? Chiudi e riapri Immersa dalla Libreria');
@@ -3691,7 +3705,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       listLoader.mesh.visible = rig.visible && view.tab === 'load' && view.projects === null && !view.object && view.authKnown && !!view.email;
       if (listLoader.mesh.visible) listLoader.draw();
-      if (searching) loading.mesh.visible = true;
+      if (searching || restarting) loading.mesh.visible = true;
       if (loading.mesh.visible) {
         loading.mesh.position.set(head.pos.x + Math.sin(yawOf(head.fwd)) * 0.9, head.pos.y - 0.05, head.pos.z + Math.cos(yawOf(head.fwd)) * 0.9);
         loading.mesh.rotation.set(0, Math.atan2(head.pos.x - loading.mesh.position.x, head.pos.z - loading.mesh.position.z), 0);
@@ -3787,6 +3801,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Called just before the session is restarted: remember which project to reopen.
     prepareResume,
     autoRestart,
+    restartNeedsTap() {
+      if (restarting) setLoadingText('Riavvio dell\'app', 'Pizzica per riavviare l\'app');
+    },
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
     // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
