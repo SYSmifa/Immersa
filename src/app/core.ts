@@ -1553,7 +1553,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       learnLinks(true); // the other rooms of its place that are placed right now: where they are in relation to this one
       say(`Stanza "${name}" salvata`);
-      if (scannedThisSession) autoRestart('scansione salvata', 2500); // the restart at the end of the scan did not happen
+      if (scannedThisSession) autoRestart('scansione salvata', 2500, 'Stanza salvata', 'L\'app deve riavviarsi per continuare'); // the restart at the end of the scan did not happen
     } catch (e) {
       say(`Salvataggio fallito: ${errText(e)}`);
     }
@@ -1623,18 +1623,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
 
   // The card shown before every restart of the app, so that it is not abrupt: the animated logo and why.
   let restarting = false;
-  function showRestartCard(sub = 'Per continuare l\'app deve riavviarsi') {
+  let restartTitle = 'Riavvio dell\'app';
+  function showRestartCard(title = 'Riavvio dell\'app', sub = 'Per continuare l\'app deve riavviarsi') {
+    restartTitle = title;
     restarting = true;
     awaitingModels = null;
     closeMenu();
-    setLoadingText('Riavvio dell\'app', sub);
+    setLoadingText(title, sub);
     loading.mesh.visible = true;
   }
 
   // The app relaunches itself from scratch (Account → Riavvia does it by hand): a start like the Library's has no Guardian, finds
   // the rooms again, and gives a new XR session (one more room scan is allowed). Done after a scan is saved and when a standby
   // has taken the planes; not twice within a minute and a half (a loop), and only when switched on in Account.
-  function autoRestart(reason: string, delay = 2200, sub?: string): boolean {
+  function autoRestart(reason: string, delay = 2200, title?: string, sub?: string): boolean {
     if (!onRestart) return false;
     if (!autoRestartOn()) {
       logEvent(`riavvio automatico spento (${reason})`);
@@ -1649,7 +1651,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     logEvent(`riavvio automatico: ${reason}`);
     noteAutoRestart();
     prepareResume();
-    showRestartCard(sub);
+    showRestartCard(title, sub);
     setTimeout(() => onRestart({ auto: true }), delay); // the card is seen for a moment before the app goes
     return true;
   }
@@ -1669,7 +1671,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       logEvent('scansione: una sola per sessione, riavvio l\'app per la prossima');
       scanNextMark.set();
       prepareResume();
-      showRestartCard('Per scansionare un\'altra stanza l\'app deve riavviarsi');
+      showRestartCard('Nuova scansione', 'L\'app deve riavviarsi per scansionare un\'altra stanza');
       setTimeout(() => onRestart(), 1800);
       return;
     }
@@ -1720,7 +1722,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // The session that scanned still has the Guardian: the app restarts at once, and the new session reads the room and opens the
     // keyboard for its name (the scan waits for it: setPendingName above). If the restart does not happen (switched off, or one
     // just made), the room is read here, as before.
-    if (autoRestart('scansione finita', 1800, 'Scansione finita. L\'app deve riavviarsi per continuare')) return;
+    if (autoRestart('scansione finita', 1800, 'Scansione riuscita', 'L\'app deve riavviarsi per continuare')) return;
     openMenu();
     say('Scansione finita, leggo la stanza...');
   }
@@ -1787,7 +1789,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
       if (performance.now() < readyAt + 1500 || lastTry < readyAt) return;
       setPendingName(false);
-      return void refreshRoomScan(recognised).then((ok) => ok && scannedThisSession && autoRestart('scansione aggiornata', 2500));
+      return void refreshRoomScan(recognised).then((ok) => ok && scannedThisSession && autoRestart('scansione aggiornata', 2500, 'Stanza aggiornata', 'L\'app deve riavviarsi per continuare'));
     }
     if (recognised) return; // another room is recognised (not the one scanned): wait until it lets go, then the new room is offered
     if (failedTries < 1) return; // recognition has not had its chance yet
@@ -2035,7 +2037,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       void refreshRoomScan(r).then((ok) => {
         if (!ok) return;
         say(`"${r.room.name}" aggiornata: i modelli sono rimasti al loro posto`);
-        if (scannedThisSession) autoRestart('stanza aggiornata dopo la scansione', 2500);
+        if (scannedThisSession) autoRestart('stanza aggiornata dopo la scansione', 2500, 'Stanza aggiornata', 'L\'app deve riavviarsi per continuare');
       });
     },
     notThisRoom() {
@@ -3974,7 +3976,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     prepareResume,
     autoRestart,
     restartNeedsTap() {
-      if (restarting) setLoadingText('Riavvio dell\'app', 'Pizzica per riavviare l\'app');
+      if (restarting) setLoadingText(restartTitle, 'Pizzica per riavviare');
     },
     // The headset moved its coordinate frame (new boundary, recentring, standby). `newOrigin` is the pose of the new
     // origin in the old frame when the browser tells us (column-major matrix): the rooms move with it. Without it,
