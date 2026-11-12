@@ -65,6 +65,15 @@ if ($Undo) {
     [System.IO.File]::WriteAllText($manifest, $text, $utf8)
     Write-Host 'Added RelaunchActivity to the manifest.'
   }
+  # The system's loading screen of the app (the black seconds while it starts) over passthrough instead of black.
+  $text = Get-Content $manifest -Raw
+  if ($text -notmatch 'com\.oculus\.ossplash\.background') {
+    $meta = '        <meta-data android:name="com.oculus.ossplash.background" android:value="passthrough-contextual" />' + "`n"
+    $at = $text.LastIndexOf('</application>')
+    $text = $text.Insert($at, $meta)
+    [System.IO.File]::WriteAllText($manifest, $text, $utf8)
+    Write-Host 'Added the passthrough loading screen (ossplash.background) to the manifest.'
+  }
 }
 
 Set-Location $Project

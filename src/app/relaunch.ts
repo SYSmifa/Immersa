@@ -5,12 +5,11 @@
 //   clear:  start the app's launcher in a new task, clearing the old one
 //   remove: close the app's tasks first, then start it again after half a second
 //   fast:   like remove, but starts again after 0.15 s (a shorter time with the Meta home showing)
-//   overlap: start a second copy first and close the old tasks after 1.8 s (the home may not show at all)
 //   vr:     like clear, with the category the Quest home uses to start VR apps
 //   legacy: the old way (an https intent to the running app: it is only delivered to the app that is already open)
 
-export type RelaunchMode = 'remove' | 'fast' | 'overlap' | 'vr' | 'clear' | 'legacy';
-const MODES: RelaunchMode[] = ['remove', 'fast', 'overlap', 'vr', 'clear', 'legacy'];
+export type RelaunchMode = 'remove' | 'fast' | 'vr' | 'clear' | 'legacy'; // 'overlap' (new app first, old one removed later) only closed the app
+const MODES: RelaunchMode[] = ['fast', 'remove', 'vr', 'clear', 'legacy'];
 const MODE_KEY = 'immersa.relaunch.mode';
 const MARK_KEY = 'immersa.relaunch.mark';
 const AUTO_AT_KEY = 'immersa.relaunch.autoAt'; // when the app last relaunched ITSELF (the guard against relaunch loops)
@@ -47,7 +46,7 @@ export function relaunchMode(): RelaunchMode {
     return asked;
   }
   const saved = read(MODE_KEY) as RelaunchMode | null;
-  return saved && MODES.includes(saved) ? saved : 'remove'; // 'clear' did not work on the headset (the new start is lost); 'remove' reopens the app
+  return saved && MODES.includes(saved) ? saved : 'fast'; // 'clear' did not work on the headset (the new start is lost); 'remove' reopens the app
 }
 
 // The automatic relaunch (after a scan is saved, after a standby): on unless switched off in Account.
@@ -88,7 +87,6 @@ export function nextRelaunchMode(): RelaunchMode {
 const NATIVE: Record<Exclude<RelaunchMode, 'legacy'>, string> = {
   remove: 'mode=remove&delay=500',
   fast: 'mode=remove&delay=150',
-  overlap: 'mode=overlap&delay=1800',
   vr: 'mode=vr',
   clear: 'mode=clear',
 };

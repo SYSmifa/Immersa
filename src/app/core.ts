@@ -1721,6 +1721,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // After a scan: once the new planes arrive, offer to name and save the room.
   function checkPending() {
     if (scanSave) return checkScanSave();
+    if (restarting) return; // the app is about to restart: the new session asks for the name, this one must not use up the reminder
     if (!pendingName() || !roomsLoaded || live.length < MIN_PLANES || keyboard.isOpen()) return;
     if (recognised && pendingTarget() === recognised.room.id) {
       // Scanned again a room we already know: wait for the new planes, then renew its saved scan.
