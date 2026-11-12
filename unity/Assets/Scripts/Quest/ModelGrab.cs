@@ -1,3 +1,4 @@
+using System;
 using Oculus.Interaction;
 using Oculus.Interaction.Surfaces;
 using UnityEngine;
@@ -15,7 +16,7 @@ namespace Immersa.Quest
         const string Tag = "[Grab] ";
 
         /// <summary>Adds a box collider from the renderers' bounds, a Grabbable and a RayInteractable to <paramref name="holder"/>.</summary>
-        public static void Make(GameObject holder)
+        public static void Make(GameObject holder, Action<GameObject> onSelect = null, Action<GameObject> onRelease = null)
         {
             var renderers = holder.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0) return;
@@ -61,6 +62,8 @@ namespace Immersa.Quest
             grabbable.InjectOptionalTargetTransform(holder.transform);
             grabbable.WhenPointerEventRaised += e =>
             {
+                if (e.Type == PointerEventType.Select) onSelect?.Invoke(holder);
+                else if (e.Type == PointerEventType.Unselect || e.Type == PointerEventType.Cancel) onRelease?.Invoke(holder);
                 if (e.Type == PointerEventType.Select || e.Type == PointerEventType.Unselect || e.Type == PointerEventType.Cancel)
                     Debug.Log(Tag + e.Type + " " + holder.name + " at " + holder.transform.position.ToString("0.00"));
             };

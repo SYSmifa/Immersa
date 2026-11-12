@@ -24,6 +24,8 @@ namespace Immersa.Quest
         public SupabaseConfig config;
 
         Text label;
+        ProjectEditSession session;   // the open project: moved models, selection, saving
+        string baseText = "";
         readonly StringBuilder lines = new StringBuilder();
 
         void Awake() => BuildPanel();
@@ -104,12 +106,25 @@ namespace Immersa.Quest
 
             var loader = new ProjectModelLoader(client);
             string rooms = status.ToString();
-            var res = await loader.LoadProject(project, FrameFor, p => Show(header + "\n" + rooms + p));
+            session = await ProjectEditSession.Open(client, project);
+            session.Changed += () => Show(baseText);   // refresh the footer (unsaved changes, selection)
+            var res = await loader.LoadModels(session.Models, FrameFor, p => Show(header + "\n" + rooms + p));
+            foreach (var (model, holder) in res.items) session.Attach(model, holder);   // grab + select + track moves
             var done = new StringBuilder(header).AppendLine().Append(rooms).AppendLine("'" + project.name + "': " + res.placed + "/" + res.total + " model(s) placed");
             foreach (var pl in placements.Values) if (!pl.found) done.AppendLine("! '" + pl.name + "' not aligned: its models are in free space in front of you");
             foreach (var problem in res.problems) done.AppendLine("! " + problem);
+            if (!session.CanSave) done.AppendLine("! Saving is off: " + session.CannotSaveReason);
             Show(done.ToString());
             Debug.Log(Tag + "placed " + res.placed + "/" + res.total + " model(s)");
+        }
+
+        async void SaveChanges()
+        {
+            if (session == null) { Show(baseText + "\nNo project open"); return; }
+            string msg;
+            try { msg = await session.Save(); }
+            catch (Exception e) { msg = "Save ERROR: " + e.Message; Debug.LogError(Tag + e); }
+            Show(baseText + "\n" + msg);
         }
 
         /// <summary>Free-space frame: on the floor, 2.5 m ahead of where the user looks, turned like the user.</summary>
@@ -165,8 +180,16 @@ namespace Immersa.Quest
 
         void Show(string text)
         {
+            baseText = text;
             lines.Clear();
             lines.Append(text);
+            if (session != null)
+            {
+                lines.AppendLine();
+                var sel = session.SelectedModel;
+                if (sel != null) lines.AppendLine("Selected: " + sel.Name);
+                lines.AppendLine(session.DirtyCount > 0 ? "** " + session.DirtyCount + " unsaved change(s) **" : "No unsaved changes");
+            }
             if (label != null) label.text = lines.ToString();
         }
 
@@ -200,6 +223,9 @@ namespace Immersa.Quest
             var tRt = label.rectTransform;
             tRt.anchorMin = Vector2.zero; tRt.anchorMax = Vector2.one;
             tRt.offsetMin = new Vector2(30, 30); tRt.offsetMax = new Vector2(-30, -30);
+
+            try { UiButton.Create(transform, "SAVE CHANGES", new Vector3(0f, -0.38f, -0.02f), new Vector3(0.45f, 0.12f, 0.03f), new Color(0.75f, 0.5f, 0.1f), SaveChanges); }
+            catch (Exception e) { Debug.LogError(Tag + "save button failed: " + e); }
 
             StartCoroutine(PlaceInFrontOfHead());
         }

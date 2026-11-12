@@ -206,14 +206,27 @@ namespace Immersa.Cloud
             return arr.Count > 0 ? (string)arr[0]["id"] : null;
         }
 
-        /// <summary>The models of one project, parsed with the shared Core types (same JSON as the web app).</summary>
-        public async Task<List<Immersa.Core.RoomModel>> GetProjectModels(string projectId)
+        /// <summary>The models of one project as the cloud has them (the raw JSON array).</summary>
+        public async Task<JArray> GetProjectModelsJson(string projectId)
         {
             var (code, text) = await Send("GET", "/rest/v1/projects?select=models&id=eq." + Uri.EscapeDataString(projectId), null, true);
             if (code != 200) throw new Exception(ErrorMessage(code, text));
             var rows = JArray.Parse(text);
-            if (rows.Count == 0 || rows[0]["models"] == null) return new List<Immersa.Core.RoomModel>();
-            return Immersa.Core.Json.Parse<List<Immersa.Core.RoomModel>>(rows[0]["models"].ToString()) ?? new List<Immersa.Core.RoomModel>();
+            return rows.Count > 0 && rows[0]["models"] is JArray m ? m : new JArray();
+        }
+
+        /// <summary>The models of one project, parsed with the shared Core types (same JSON as the web app).</summary>
+        public async Task<List<Immersa.Core.RoomModel>> GetProjectModels(string projectId)
+        {
+            var arr = await GetProjectModelsJson(projectId);
+            return Immersa.Core.Json.Parse<List<Immersa.Core.RoomModel>>(arr.ToString()) ?? new List<Immersa.Core.RoomModel>();
+        }
+
+        /// <summary>Updates some columns of a project (the row is sent as is; RLS limits it to the owner).</summary>
+        public async Task PatchProject(string projectId, JObject row)
+        {
+            var (code, text) = await Send("PATCH", "/rest/v1/projects?id=eq." + Uri.EscapeDataString(projectId), row.ToString(), true, "return=minimal");
+            if (code != 204 && code != 200) throw new Exception(ErrorMessage(code, text));
         }
 
         /// <summary>
