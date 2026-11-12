@@ -28,6 +28,7 @@ namespace Immersa.Core.Tests
             AnnotationsTests.All(Run);
             PartsTests.All(Run);
             PartsGoldenTests.All(Run);
+            PlaneAlignTests.All(Run);
             Console.WriteLine(failed == 0 ? "all ok" : failed + " failed");
             return failed == 0 ? 0 : 1;
         }
