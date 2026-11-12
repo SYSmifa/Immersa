@@ -127,6 +127,29 @@ namespace Immersa.Ui
             go.SetActive(wasActive);
         }
 
+        /// <summary>
+        /// Makes <paramref name="rect"/> a drag area (a scroll bar, a slider): while the ray is held on it, `onDrag` gets the point of the
+        /// ray on the rectangle as 0..1 from the left and from the top (the ray is intersected with the panel, so it keeps working when the
+        /// pointer leaves the rectangle). `onEnd` fires on release.
+        /// </summary>
+        public static void DragArea(RectTransform rect, Action<Vector2> onDrag, Action onEnd = null)
+        {
+            var go = rect.gameObject;
+            bool wasActive = go.activeSelf;
+            go.SetActive(false);
+            var box = go.AddComponent<BoxCollider>();
+            var size = rect.sizeDelta;
+            box.center = new Vector3(size.x * 0.5f, -size.y * 0.5f, 0f);
+            box.size = new Vector3(size.x, size.y, 20f);
+            var surface = go.AddComponent<ColliderSurface>();
+            surface.InjectAllColliderSurface(box);
+            var ray = go.AddComponent<RayInteractable>();
+            ray.InjectAllRayInteractable(surface);
+            var drag = go.AddComponent<UiDrag>();
+            drag.ray = ray; drag.rect = rect; drag.onDrag = onDrag; drag.onEnd = onEnd;
+            go.SetActive(wasActive);
+        }
+
         /// <summary>A pill button: rounded box with a centred label and a hotspot. Returns the box (to restyle it).</summary>
         public static Image Pill(Transform parent, float x, float y, float w, float h, string text, int size, Color fill, Color textColor, Color hoverFill, Action onSelect, bool bold = true)
         {

@@ -25,7 +25,6 @@ namespace Immersa.Quest
         AppController app;
         RectTransform canvas;
         Tab tab = Tab.Projects;
-        int page;
         bool rebuild = true;
         float menuYaw, menuY;
         bool following;
@@ -159,13 +158,29 @@ namespace Immersa.Quest
                 var t = (Tab)i;
                 bool on = t == tab;
                 UiKit.Pill(canvas, 44 + i * (bw + 14), 900, bw, 84, names[i], 28, on ? UiTheme.Accent : UiTheme.Glass, Color.white, on ? UiTheme.AccentHover : UiTheme.GlassHover,
-                    () => { tab = t; page = 0; Refresh(); });
+                    () => { tab = t; scroll = 0; Refresh(); });
             }
         }
 
         // ---- Progetti ----
 
-        struct Row { public bool header; public string text; public ProjectInfo project; public float height => header ? 64f : 140f; }
+        struct Row { public bool header; public string text; public ProjectInfo project; public float height => header ? 64f : 132f; }
+
+        const float ListY = 80f, ListH = 640f, RowGap = 8f;
+        string search = "";
+        float scroll;
+        RectTransform listRoot, track, thumb;
+        Dictionary<string, int> tones;
+
+        /// <summary>Lower case without accents, so "caffè" is found by "caffe".</summary>
+        static string Fold(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new System.Text.StringBuilder(s.Length);
+            foreach (char c in s.ToLowerInvariant())
+                sb.Append("àáâãäå".IndexOf(c) >= 0 ? 'a' : "èéêë".IndexOf(c) >= 0 ? 'e' : "ìíîï".IndexOf(c) >= 0 ? 'i' : "òóôõö".IndexOf(c) >= 0 ? 'o' : "ùúûü".IndexOf(c) >= 0 ? 'u' : c == 'ç' ? 'c' : c == 'ñ' ? 'n' : c);
+            return sb.ToString();
+        }
 
         void BuildProjects(RectTransform content)
         {
@@ -173,59 +188,91 @@ namespace Immersa.Quest
             if (projects == null) { UiKit.Label(content, 44, 40, W - 88, 60, "Carico i progetti...", 30, UiTheme.HeaderSub); return; }
             if (projects.Count == 0) { UiKit.Label(content, 44, 40, W - 88, 120, "Nessun progetto.\nCreane uno dal PC.", 30, UiTheme.HeaderSub); return; }
 
-            // Rows: with a recognized room, its projects come first under "IN QUESTA STANZA", the others under "ALTRE STANZE".
+            tones = UiTheme.ProjectTones(projects.Select(p => (p.id, p.tone)).ToList());
+            // The search field is built once: typing redraws only the list below it, so the keyboard keeps working.
+            new UiTextField(content, 44, 4, W - 88, 64, search, "Cerca un progetto", t => { search = t; scroll = 0; RedrawList(); }, null, false, false, 60, 28);
+
+            listRoot = UiKit.NewRect(content, "List", 0, ListY, W, ListH);
+            listRoot.gameObject.AddComponent<RectMask2D>();
+
+            // Scroll bar on the right: drag the rail with the ray.
+            track = UiKit.NewRect(content, "Track", W - 36, ListY, 24, ListH);
+            var rail = track.gameObject.AddComponent<Image>(); rail.color = new Color(1, 1, 1, 0.10f); rail.sprite = UiKit.Rounded(); rail.type = Image.Type.Sliced; rail.raycastTarget = false;
+            thumb = UiKit.NewRect(track, "Thumb", 0, 0, 24, 80);
+            var ti = thumb.gameObject.AddComponent<Image>(); ti.color = UiTheme.Accent; ti.sprite = UiKit.Rounded(); ti.type = Image.Type.Sliced; ti.raycastTarget = false;
+            UiKit.DragArea(track, p =>
+            {
+                float total = RowsTotal(); float max = Mathf.Max(0, total - ListH);
+                float thumbFrac = Mathf.Clamp(ListH / Mathf.Max(total, 1f), 0.08f, 1f);
+                scroll = Mathf.Clamp01((p.y - thumbFrac / 2f) / Mathf.Max(0.0001f, 1f - thumbFrac)) * max;
+                RedrawList();
+            });
+            RedrawList();
+        }
+
+        List<Row> BuildRows()
+        {
             var rows = new List<Row>();
+            var all = app.Projects.Where(p => string.IsNullOrEmpty(search) || Fold(p.name).Contains(Fold(search))).ToList();
             var current = app.CurrentRoom();
             if (current != null)
             {
-                var here = projects.Where(p => p.roomIds.Contains(current.roomId)).ToList();
-                var other = projects.Except(here).ToList();
+                var here = all.Where(p => p.roomIds.Contains(current.roomId)).ToList();
+                var other = all.Except(here).ToList();
                 if (here.Count > 0) { rows.Add(new Row { header = true, text = "IN QUESTA STANZA · " + current.name }); rows.AddRange(here.Select(p => new Row { project = p })); }
                 if (other.Count > 0) { if (here.Count > 0) rows.Add(new Row { header = true, text = "ALTRE STANZE" }); rows.AddRange(other.Select(p => new Row { project = p })); }
             }
-            else rows.AddRange(projects.Select(p => new Row { project = p }));
+            else rows.AddRange(all.Select(p => new Row { project = p }));
+            return rows;
+        }
 
-            // Pages of rows that fit in the height available.
-            const float avail = 650f;
-            var pages = new List<List<Row>>();
-            float used = 0; var cur = new List<Row>();
+        float RowsTotal() { float t = 0; foreach (var r in BuildRows()) t += r.height + RowGap; return t; }
+
+        void RedrawList()
+        {
+            if (listRoot == null) return;
+            for (int i = listRoot.childCount - 1; i >= 0; i--) Destroy(listRoot.GetChild(i).gameObject);
+            var rows = BuildRows();
+            float total = 0; foreach (var r in rows) total += r.height + RowGap;
+            float max = Mathf.Max(0, total - ListH);
+            scroll = Mathf.Clamp(scroll, 0, max);
+
+            if (rows.Count == 0) UiKit.Label(listRoot, 44, 30, W - 88, 60, "Nessun progetto trovato.", 28, UiTheme.HeaderSub);
+
+            float y = 0;
             foreach (var r in rows)
             {
-                if (used + r.height > avail && cur.Count > 0) { pages.Add(cur); cur = new List<Row>(); used = 0; }
-                cur.Add(r); used += r.height + 8;
-            }
-            if (cur.Count > 0) pages.Add(cur);
-            page = Mathf.Clamp(page, 0, pages.Count - 1);
-
-            var tones = UiTheme.ProjectTones(projects.Select(p => (p.id, p.tone)).ToList());
-            float y = 8;
-            foreach (var r in pages[page])
-            {
-                if (r.header) { UiKit.Label(content, 52, y + 20, W - 104, 34, r.text, 22, UiTheme.HeaderSub, TextAnchor.UpperLeft, true); y += r.height + 8; continue; }
-                DrawProject(content, y, r.project, tones[r.project.id]);
-                y += r.height + 8;
+                float top = y - scroll;
+                if (top + r.height >= 0 && top <= ListH)   // drawn (clipped by the mask) when it touches the window
+                {
+                    if (r.header) UiKit.Label(listRoot, 52, top + 20, W - 104, 34, r.text, 22, UiTheme.HeaderSub, TextAnchor.UpperLeft, true);
+                    else DrawProject(listRoot, top, r.project, tones[r.project.id], top >= 0 && top + r.height <= ListH);   // only fully visible cards can be selected
+                }
+                y += r.height + RowGap;
             }
 
-            if (pages.Count > 1)
+            bool scrollable = total > ListH;
+            track.gameObject.SetActive(scrollable);
+            if (scrollable)
             {
-                UiKit.Label(content, W / 2 - 80, 672, 160, 44, (page + 1) + " / " + pages.Count, 26, UiTheme.HeaderSub, TextAnchor.MiddleCenter);
-                if (page > 0) UiKit.Pill(content, 44, 664, 120, 56, "<", 30, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { page--; Refresh(); });
-                if (page < pages.Count - 1) UiKit.Pill(content, W - 164, 664, 120, 56, ">", 30, UiTheme.Glass, Color.white, UiTheme.GlassHover, () => { page++; Refresh(); });
+                float thumbH = Mathf.Max(60f, ListH * ListH / total);
+                thumb.sizeDelta = new Vector2(24, thumbH);
+                thumb.anchoredPosition = new Vector2(0, -(scroll / max) * (ListH - thumbH));
             }
         }
 
-        void DrawProject(RectTransform content, float y, ProjectInfo p, int toneIndex)
+        void DrawProject(RectTransform content, float y, ProjectInfo p, int toneIndex, bool selectable)
         {
             bool open = app.OpenProjectId == p.id;
-            var card = UiKit.Box(content, 44, y, W - 88, 132, open ? UiTheme.AccentSoft : UiTheme.Surface, true, "Project-" + p.name);
+            var card = UiKit.Box(content, 44, y, W - 88 - 40, 132, open ? UiTheme.AccentSoft : UiTheme.Surface, true, "Project-" + p.name);
             var tone = UiTheme.Tones[Mathf.Clamp(toneIndex, 0, UiTheme.Tones.Length - 1)];
             UiKit.Box(card.transform, 16, 17, 98, 98, tone.a, true, "Tile");
             string initial = string.IsNullOrEmpty(p.name) ? "?" : p.name.Substring(0, 1).ToUpperInvariant();
             UiKit.Label(card.transform, 16, 17, 98, 98, initial, 54, Color.white, TextAnchor.MiddleCenter, true, "Initial");
-            UiKit.Label(card.transform, 136, 22, W - 88 - 136 - (open ? 190 : 24), 44, p.name, 34, UiTheme.Text, TextAnchor.UpperLeft, true, "Name");
-            UiKit.Label(card.transform, 136, 72, W - 88 - 136 - 24, 36, Subtitle(p), 24, UiTheme.Sub, TextAnchor.UpperLeft, false, "Sub");
-            if (open) UiKit.Pill(card.transform, W - 88 - 176, 40, 150, 52, "Aperto", 24, UiTheme.Accent, Color.white, UiTheme.Accent, null);
-            UiKit.Hotspot(card.rectTransform, () => app.OpenProject(p), card, UiTheme.SurfaceHover, open ? UiTheme.AccentSoft : UiTheme.Surface);
+            UiKit.Label(card.transform, 136, 22, W - 128 - 136 - (open ? 190 : 24), 44, p.name, 34, UiTheme.Text, TextAnchor.UpperLeft, true, "Name");
+            UiKit.Label(card.transform, 136, 72, W - 128 - 136 - 24, 36, Subtitle(p), 24, UiTheme.Sub, TextAnchor.UpperLeft, false, "Sub");
+            if (open) UiKit.Pill(card.transform, W - 128 - 176, 40, 150, 52, "Aperto", 24, UiTheme.Accent, Color.white, UiTheme.Accent, null);
+            if (selectable) UiKit.Hotspot(card.rectTransform, () => app.OpenProject(p), card, UiTheme.SurfaceHover, open ? UiTheme.AccentSoft : UiTheme.Surface);
         }
 
         static string Subtitle(ProjectInfo p)

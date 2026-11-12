@@ -142,6 +142,39 @@ namespace Immersa.Cloud
             return (LinkStatus.Error, "Sign-in failed.");
         }
 
+        /// <summary>Creates an account. Returns (error, signedIn): signedIn is false when the email must be confirmed first.</summary>
+        public async Task<(string error, bool signedIn)> SignUp(string email, string password)
+        {
+            var body = new JObject { ["email"] = email, ["password"] = password }.ToString();
+            var (code, text) = await Send("POST", "/auth/v1/signup", body, false);
+            if (code != 200) return (ErrorMessage(code, text), false);
+            var j = JObject.Parse(text);
+            if (j["access_token"] != null) { ApplyTokens(j, email); return (null, true); }
+            return (null, false);
+        }
+
+        /// <summary>Sends a one-time code to the email of an EXISTING account (a wrong address must not create one). Null on success.</summary>
+        public async Task<string> SendEmailCode(string email)
+        {
+            var body = new JObject { ["email"] = email.Trim(), ["create_user"] = false }.ToString();
+            var (code, text) = await Send("POST", "/auth/v1/otp", body, false);
+            if (code == 200) return null;
+            var msg = ErrorMessage(code, text);
+            if (System.Text.RegularExpressions.Regex.IsMatch(msg, "signups? not allowed|not found|otp", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return "Non c'è nessun account con questa email.";
+            if (System.Text.RegularExpressions.Regex.IsMatch(msg, "rate|seconds|too many", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return "Troppe richieste: aspetta un minuto e riprova.";
+            return msg;
+        }
+
+        /// <summary>Signs in with the code received by email. Null on success.</summary>
+        public async Task<string> VerifyEmailCode(string email, string codeText)
+        {
+            var body = new JObject { ["email"] = email.Trim(), ["token"] = System.Text.RegularExpressions.Regex.Replace(codeText ?? "", @"\s", ""), ["type"] = "email" }.ToString();
+            var (code, text) = await Send("POST", "/auth/v1/verify", body, false);
+            if (code != 200) return System.Text.RegularExpressions.Regex.IsMatch(ErrorMessage(code, text), "expired|invalid", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ? "Codice sbagliato o scaduto." : ErrorMessage(code, text);
+            ApplyTokens(JObject.Parse(text), email.Trim());
+            return null;
+        }
+
         public void SignOut()
         {
             session = null;

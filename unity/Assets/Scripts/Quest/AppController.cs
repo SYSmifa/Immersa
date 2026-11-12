@@ -22,6 +22,7 @@ namespace Immersa.Quest
 
         SupabaseClient client;
         AppMenu menu;
+        LoginPanel login;
         RoomRegistry registry = new RoomRegistry();
         Task registryTask = Task.CompletedTask;
         ProjectEditSession session;
@@ -67,6 +68,7 @@ namespace Immersa.Quest
             BuildStatusCard();
             menu = gameObject.AddComponent<AppMenu>();
             menu.Init(this);
+            login = gameObject.AddComponent<LoginPanel>();
         }
 
         async void Start()
@@ -96,7 +98,7 @@ namespace Immersa.Quest
                 Status("Immersa", "Mi collego...");
 
                 bool ok = await client.RestoreSession();
-                if (!ok && !await SignInWithPcCode()) return;
+                if (!ok) { HideStatus(); await login.Run(client); }
 
                 Status("Immersa", "Carico i progetti...");
                 Projects = await client.ListProjects();
@@ -114,27 +116,6 @@ namespace Immersa.Quest
                 Status("Errore", e.Message);
             }
             finally { running = false; }
-        }
-
-        /// <summary>Shows a code and waits for the PC (editor: "Collega un visore") to approve it. A new code is asked when it expires.</summary>
-        async Task<bool> SignInWithPcCode()
-        {
-            while (this != null)
-            {
-                var link = await client.StartDeviceLink();
-                if (link.error != null) { Status("Accesso", "Non riesco a ottenere un codice:\n" + link.error); return false; }
-                Debug.Log(Tag + "device code " + link.code);
-                Status("Accedi con un codice dal PC", "Sul PC apri Immersa, accedi e premi\n\"Collega un visore\", poi approva questo codice.", link.code);
-                while (this != null)
-                {
-                    await Task.Delay(2000);
-                    var (status, error) = await client.PollDeviceLink(link);
-                    if (status == SupabaseClient.LinkStatus.SignedIn) { Debug.Log(Tag + "signed in as " + client.Email); return true; }
-                    if (status == SupabaseClient.LinkStatus.Expired) break;
-                    if (status == SupabaseClient.LinkStatus.Error) { Status("Accesso", "Accesso non riuscito:\n" + error); return false; }
-                }
-            }
-            return false;
         }
 
         // ---- projects ----
