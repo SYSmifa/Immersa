@@ -347,6 +347,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // After the app restarted because a scan ended: only the card to save that room (name, place) runs; no splash, menu or project.
   let scanSave: { since: number } | null = null;
   let scanSaveBusy = false;
+  let scanSaveState = '';
   let autoTab = true;
   let splash: { since: number; endAt: number | null; placed: boolean } | null = null; // the start-up screen with the logo
   let lastHead: Head | null = null;
@@ -1683,7 +1684,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const now = performance.now();
     if (!target) return endScanSave();
     const have = roomsLoaded && live.length >= MIN_PLANES;
+    const state = `${roomsLoaded ? 'stanze ok' : 'stanze no'}, piani ${live.length}/${rawLive.length}`;
+    if (state !== scanSaveState) {
+      scanSaveState = state;
+      logEvent(`salvataggio dopo scansione: ${state}`);
+      if (!have) setLoadingText('Leggo la stanza', `Piani trovati: ${live.length}`);
+    }
     if (now - s.since > 30000 && !have) {
+      logEvent('salvataggio dopo scansione: piani non trovati, rinuncio');
       setPendingName(false);
       endScanSave();
       return say('Non ho trovato la scansione: Stanza → Scansiona di nuovo', 9000);
@@ -1704,7 +1712,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     scanSaveBusy = true;
     setPendingName(false);
     loading.mesh.visible = false;
-    void saveRoom().finally(endScanSave);
+    logEvent('salvataggio dopo scansione: chiedo il nome');
+    void saveRoom()
+      .catch((e) => logEvent(`salvataggio dopo scansione: errore ${errText(e)}`))
+      .finally(endScanSave);
   }
 
   // After a scan: once the new planes arrive, offer to name and save the room.
@@ -3677,6 +3688,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       // With no project to reopen the id is empty: just wait for the rooms, then the menu opens.
       resumePending = afterScan ? null : saved ? { id: saved, since: performance.now() } : restart ? { id: '', since: performance.now() } : null;
       scanSave = afterScan ? { since: performance.now() } : null;
+      scanSaveState = '';
+      if (!afterScan) logEvent('avvio normale (nessuna scansione da salvare)');
       scanSaveBusy = false;
       if (afterScan) setLoadingText('Leggo la stanza', 'Un attimo…');
       else if (resumePending) setLoadingText(resumePending.id ? 'Carico il progetto' : 'Cerco le stanze');
