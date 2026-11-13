@@ -44,6 +44,7 @@ const visible = (o: Object3D | null) => {
 export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) => void) {
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const panels = new Map<Panel, Item>();
+  const behind = new Set<Panel>(); // panels whose layer is under the scene (the keyboard: the hands are drawn over it)
   const labelItems = new Map<HTMLCanvasElement, Item>();
   const labelMats = new Map<HTMLCanvasElement, MeshBasicMaterial>();
   let labelSource: ((max: number) => LabelLayer[]) | null = null;
@@ -201,8 +202,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
     get active() {
       return active;
     },
-    register(panel: Panel) {
+    // `under`: the layer goes BEHIND the scene's own layer, so what the scene draws (the virtual hands) is seen over the panel.
+    register(panel: Panel, under = false) {
       panels.set(panel, item(panel.canvas));
+      if (under) behind.add(panel);
     },
     // Measure and annotation labels: asked every frame for the ones that should be layers.
     setLabelSource(fn: (max: number) => LabelLayer[]) {
@@ -239,6 +242,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
       const proj = renderer.xr.getBaseLayer() as any;
       const can = enabled && !!binding && typeof binding.createQuadLayer === 'function' && !!proj && 'textureWidth' in proj;
       const list: any[] = [];
+      const back: any[] = []; // layers under the scene's
       try {
         // Labels first: layers are drawn in this order, and the menu must stay above them.
         const wanted = can && labelSource ? labelSource(MAX_LABEL_LAYERS) : [];
@@ -268,7 +272,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
             panel.mesh.matrixWorld.decompose(pos, quat, scl);
             const g = (panel.mesh.geometry as PlaneGeometry).parameters;
             const layer = sync(binding, frame, ref, it, true, panel.stamp, g.width * scl.x, g.height * scl.y, 'pannello');
-            if (layer) list.push(layer);
+            if (layer) (behind.has(panel) ? back : list).push(layer);
           } else {
             it.shown = false;
           }
@@ -303,9 +307,10 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
           if (layer) list.push(layer);
         } else reticle.shown = false;
         reticleAsk = null;
-        if (list.length !== applied.length || list.some((l, i) => l !== applied[i])) {
-          frame.session.updateRenderState({ layers: [proj, ...list] } as any);
-          applied = list;
+        const all = [...back, proj, ...list];
+        if (all.length !== applied.length || all.some((l, i) => l !== applied[i])) {
+          frame.session.updateRenderState({ layers: all } as any);
+          applied = all;
         }
         if (can && !announced && list.length) {
           announced = true;
@@ -315,7 +320,7 @@ export function createPanelLayers(renderer: WebGLRenderer, log: (text: string) =
           announced = true;
           log(`layer non usati: ${enabled ? (binding ? 'non supportati' : 'binding assente') : 'disattivati'}`);
         }
-        active = can && !!list.length;
+        active = can && all.length > 1;
       } catch (e) {
         // Anything unexpected: back to panels in the scene, for good in this session.
         for (const [panel] of panels) (panel.mesh.material as MeshBasicMaterial).visible = true;
