@@ -30,3 +30,26 @@ funzione manda la mail con **Resend** (gratis fino a 100 mail al giorno, 3000 al
 ## Note
 - Le segnalazioni automatiche possono essere fino a 5 per sessione: se diventano troppe si possono filtrare nella funzione (`row.kind`).
 - La mail contiene nomi di progetto e stanza: per i clienti va nell'informativa privacy, come la segnalazione stessa.
+
+## Se nel pannello non trovi "Database Webhooks": un trigger SQL al posto del webhook (provato, funziona)
+Nelle versioni nuove di Supabase i Webhook stanno sotto Integrations. In alternativa, SQL Editor → incolla, cambia `IL_TUO_PROGETTO` e
+`IL_TUO_WEBHOOK_SECRET` (lo stesso del segreto `WEBHOOK_SECRET`) → Run. NON salvare qui il segreto vero: va solo nella query lanciata.
+
+```sql
+create extension if not exists pg_net with schema extensions;
+
+create or replace function public.notify_report() returns trigger
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform net.http_post(
+    url := 'https://IL_TUO_PROGETTO.supabase.co/functions/v1/notify-report',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-webhook-secret', 'IL_TUO_WEBHOOK_SECRET'),
+    body := jsonb_build_object('type', TG_OP, 'table', TG_TABLE_NAME, 'schema', TG_TABLE_SCHEMA, 'record', to_jsonb(new), 'old_record', case when TG_OP = 'UPDATE' then to_jsonb(old) else null end)
+  );
+  return new;
+end $$;
+
+drop trigger if exists notify_report on public.reports;
+create trigger notify_report after insert or update on public.reports
+  for each row execute function public.notify_report();
+```
