@@ -25,6 +25,13 @@ export async function runHeadsetApp() {
   const features = [...FEATURES, ...(UNBOUNDED ? ['unbounded'] : []), ...(depth ? ['depth-sensing'] : [])];
   const { renderer, scene, camera } = createStage({ features, arButton: false });
   renderer.xr.setReferenceSpaceType(UNBOUNDED ? 'unbounded' : 'local-floor');
+  // With the depth on, three.js also draws the headset's depth into the scene so that the real world hides virtual things (the sofa
+  // behind your hand): at the depth's low resolution the edges are blocky. We only READ the depth (for the correction of the rooms),
+  // so that occlusion is left out, as it was before: the walls and hands are handled as they always were.
+  if (depth) {
+    renderer.xr.getDepthSensingMesh = () => null;
+    renderer.xr.hasDepthSensing = () => false;
+  }
   const stats = createStats(camera); // fps readout, shown only when Options → "Pannello fps" is on
   stats.setEnabled(fpsPreferred());
   const enter = createEnterAr(renderer, features, depth ? { depthSensing: { usagePreference: ['cpu-optimized', 'gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } } : {});
