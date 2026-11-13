@@ -4,7 +4,7 @@ import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
-import { fpsPreferred } from './core';
+import { depthFixPreferred, fpsPreferred } from './core';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
@@ -20,12 +20,14 @@ const UNBOUNDED = new URLSearchParams(location.search).get('ref') !== 'local-flo
 export async function runHeadsetApp() {
   if (takeDepthProbeRequest()) return (await import('../xr/depthProbe')).runDepthProbe(true); // asked in Account: this start is the depth measuring page, once
   const backend = createSupabaseBackend();
-  const features = UNBOUNDED ? [...FEATURES, 'unbounded'] : FEATURES;
+  // The depth correction of the rooms (Options → "Correzione con la profondità") needs the depth; it is asked for only when on.
+  const depth = depthFixPreferred();
+  const features = [...FEATURES, ...(UNBOUNDED ? ['unbounded'] : []), ...(depth ? ['depth-sensing'] : [])];
   const { renderer, scene, camera } = createStage({ features, arButton: false });
   renderer.xr.setReferenceSpaceType(UNBOUNDED ? 'unbounded' : 'local-floor');
   const stats = createStats(camera); // fps readout, shown only when Options → "Pannello fps" is on
   stats.setEnabled(fpsPreferred());
-  const enter = createEnterAr(renderer, features);
+  const enter = createEnterAr(renderer, features, depth ? { depthSensing: { usagePreference: ['cpu-optimized', 'gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } } : {});
   // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
   // (same relaunch as the old standby restart); the new session starts the scan by itself.
   const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), (opts) => {

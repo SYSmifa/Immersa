@@ -84,6 +84,8 @@ export interface MenuView {
   tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
+  depthFix: boolean; // the rooms are corrected with the depth (the choice is read when the session starts)
+  depthInfo: string; // what the correction is doing, for the card
   dominant: 'left' | 'right'; // the hand that points with the laser
   snap: boolean; // magnetic snap of rotation and scale (two-hand gesture)
   showOccluders: boolean;
@@ -131,6 +133,7 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
+  toggleDepthFix(): void;
   toggleHand(): void;
   toggleOccluders(): void;
   closeProject(): void;
@@ -523,6 +526,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
+    out.push(toggle(1, 5, 'Correzione profondità', v.depthInfo || 'Riavvia l\'app per applicarla', v.depthFix, a.toggleDepthFix, 'scale'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Allinea la stanza', size: 22, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push(surface(M, top + 6 * STEP + 2, W, 44));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 6 * STEP + 6, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));

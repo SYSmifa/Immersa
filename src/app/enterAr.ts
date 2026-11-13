@@ -6,8 +6,8 @@ import type { WebGLRenderer } from 'three';
 export const isInstalledApp = () =>
   document.referrer.startsWith('android-app://') || ['standalone', 'fullscreen'].some((m) => matchMedia(`(display-mode: ${m})`).matches);
 
-export function createEnterAr(renderer: WebGLRenderer, features: string[]) {
-  const init: XRSessionInit = { optionalFeatures: ['local-floor', ...features] };
+export function createEnterAr(renderer: WebGLRenderer, features: string[], extra: Record<string, unknown> = {}) {
+  const init: XRSessionInit = { optionalFeatures: ['local-floor', ...features], ...extra };
   const button = document.createElement('button');
   button.textContent = 'Entra in AR';
   const note = document.createElement('div');

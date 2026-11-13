@@ -16,6 +16,8 @@ import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
+import { apply as applyFix, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
+import type { World3 } from '../xr/depthWorld';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
 import { compose, invert, isConfirmed, learnedLinks, linkBetween, placeByLinks } from '../room/layout';
@@ -103,6 +105,15 @@ export const fpsPreferred = () => {
     return localStorage.getItem(FPS_KEY) === '1';
   } catch {
     return false;
+  }
+};
+// The correction of the rooms with the depth (Options): on unless switched off; read when the XR session starts (the depth is asked for then).
+const DEPTH_KEY = 'immersa.depthfix';
+export const depthFixPreferred = () => {
+  try {
+    return localStorage.getItem(DEPTH_KEY) !== '0';
+  } catch {
+    return true;
   }
 };
 const SNAP_KEY = 'immersa.snap';
@@ -304,6 +315,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
+    depthFix: depthFixPreferred(),
+    depthInfo: '',
     dominant: handPreferred(),
     showOccluders: false,
     message: '',
@@ -321,6 +334,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let projectsLoaded = false;
   let current: Project | null = null;
   const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
+  let depthOn = depthFixPreferred();
   let foreign: { key: string; roomId: string; matrix: Matrix4 } | null = null; // project shown away from its rooms
   let foreignMode = false; // the project was opened with none of its rooms found: shown away from them
   let lastFar = 0;
@@ -663,6 +677,87 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   const alignMatrix = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
+  // Where the headset puts a room is not always where it is: the depth correction (see depthPoints) moves it a little, on top of that.
+  const fixes = new Map<string, Fix>();
+  const depthBuf: { p: World3; t: number }[] = []; // the depth points of the last few seconds, in the session's world
+  let depthAt = 0;
+  let depthLogAt = 0;
+  let depthLogShift = -1;
+  let depthMissAt = 0;
+  const placeMatrix = (id: string, a: Alignment) => {
+    const f = fixes.get(id);
+    return f ? new Matrix4().makeRotationY(-f.theta).setPosition(f.tx, 0, f.tz).multiply(alignMatrix(a)) : alignMatrix(a);
+  };
+  // Puts the rooms where their matrices (and the correction) say, without rebuilding anything.
+  function applyFixes() {
+    if (recognised) {
+      roomRoot.matrix.copy(placeMatrix(recognised.room.id, recognised.alignment));
+      roomRoot.matrixWorldNeedsUpdate = true;
+    }
+    for (const [id, h] of houses) {
+      const a = aligns.get(id);
+      if (!a) continue;
+      h.root.matrix.copy(placeMatrix(id, a));
+      h.root.matrixWorldNeedsUpdate = true;
+    }
+  }
+
+  // The headset's own copy of a room can sit a few centimetres off (it moves between sessions and with time). The depth sees the
+  // real walls: every second the points of the last few seconds are compared with the walls of the room we are in, as it is placed
+  // now, and the room is moved a little towards what the depth says (xr/depthFit.ts has the maths and its limits). Only for the
+  // recognised room, only sideways and a small turn (the floor is left as the headset has it), and only for this session: the
+  // saved room is not touched.
+  function depthCheck(now: number) {
+    const r = recognised;
+    if (!r || gap || visit || grab || partGrab || structGrab || annotGrab) return;
+    const a = aligns.get(r.room.id) ?? r.alignment;
+    const M = placeMatrix(r.room.id, a);
+    const lines: WallLine[] = [];
+    const v = new Vector3();
+    r.room.scan.planes.forEach((pl, i) => {
+      const sg = planeSeg(pl, i);
+      if (!sg) return;
+      const A = v.set(sg.a[0], 0, sg.a[1]).applyMatrix4(M).toArray();
+      const B = v.set(sg.b[0], 0, sg.b[1]).applyMatrix4(M).toArray();
+      const len = Math.hypot(B[0] - A[0], B[2] - A[2]);
+      if (len < 0.8) return;
+      const t: [number, number] = [(B[0] - A[0]) / len, (B[2] - A[2]) / len];
+      const n: [number, number] = [t[1], -t[0]];
+      lines.push({ id: `p${i}`, n, d: n[0] * A[0] + n[1] * A[2], t, t0: t[0] * A[0] + t[1] * A[2], t1: t[0] * B[0] + t[1] * B[2], y0: sg.y0 + a.ty, y1: sg.y1 + a.ty });
+    });
+    if (lines.length < 2) return;
+    const pts = depthBuf.map((q) => q.p);
+    const reads = readWalls(pts, lines);
+    if (reads.length < 2) {
+      if (now - depthMissAt > 20000) {
+        depthMissAt = now;
+        logEvent(`profondità: ${reads.length} muri letti su ${lines.length} (${pts.length} punti): guardati intorno`);
+      }
+      return;
+    }
+    const s = solveMove(reads, lines);
+    if (!s) return;
+    const fc = floorCentre(r.room.scan.planes);
+    const c = v.set(fc[0], 0, fc[2]).applyMatrix4(M);
+    const old = fixes.get(r.room.id) ?? NO_FIX;
+    const nf = nextFix(old, s, [c.x, c.z]);
+    const total = (f: Fix) => {
+      const p = applyFix(f, [c.x, c.z]);
+      return Math.hypot(p[0] - c.x, p[1] - c.z);
+    };
+    if (nf) {
+      fixes.set(r.room.id, nf.fix);
+      applyFixes();
+    }
+    const shown = total(nf?.fix ?? old);
+    view.depthInfo = shown > 0.004 ? `Correzione ${(shown * 100).toFixed(1)} cm` : `${reads.length} muri, a posto`;
+    if (now - depthLogAt > 8000 && (nf || depthLogShift < 0)) {
+      depthLogAt = now;
+      depthLogShift = shown;
+      const worst = reads.map((q) => `${(q.r * 100).toFixed(1)}`).join('/');
+      logEvent(`profondità: ${reads.length} muri (${worst} cm), resta ${(s.rms * 100).toFixed(1)} cm, correzione ${(shown * 100).toFixed(1)} cm ${((((nf?.fix ?? old).theta) * 180) / Math.PI).toFixed(2)}°`);
+    }
+  }
   const modelsOf = (roomId: string) => current?.models.filter((m) => m.roomId === roomId) ?? [];
 
   function houseFor(roomId: string): House {
@@ -716,7 +811,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (recognised) {
       const t = floorCentre(recognised.room.scan.planes);
       const shift = new Matrix4().makeTranslation(t[0] - pivot[0], t[1] - pivot[1], t[2] - pivot[2]);
-      return alignMatrix(recognised.alignment).multiply(shift);
+      return placeMatrix(recognised.room.id, recognised.alignment).multiply(shift);
     }
     const h = lastHead?.pos;
     const floorY = live.find((x) => x.label === 'floor')?.pos[1] ?? (h ? h.y - 1.5 : 0);
@@ -1297,7 +1392,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     for (const id of ids) {
       const h = houseFor(id);
       const a = aligns.get(id);
-      if (a) h.root.matrix.copy(alignMatrix(a));
+      if (a) h.root.matrix.copy(placeMatrix(id, a));
       else if (foreign?.roomId === id) h.root.matrix.copy(foreign.matrix);
       h.root.visible = !gap && (!!a || foreign?.roomId === id);
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
@@ -1401,7 +1496,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const a = r.alignment;
       aligns.set(r.room.id, a); // stays valid after we walk out of the room
       // three's Y rotation is the opposite sense of our xz yaw.
-      roomRoot.matrix.makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
+      roomRoot.matrix.copy(placeMatrix(r.room.id, a));
       drawPlanes(r.room.scan.planes, outline, false, r.room.scan.boxes ?? [], false, OUTLINE_WIDTH); // no floor outline: it only confuses
       drawBoxes(r.room.scan.boxes ?? [], outline, false, OUTLINE_WIDTH);
       if (autoTab) view.tab = 'load';
@@ -1428,7 +1523,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         // The headset moved the room: follow it.
         recognised!.alignment = found.alignment;
         aligns.set(found.room.id, found.alignment);
-        roomRoot.matrix.copy(alignMatrix(found.alignment));
+        roomRoot.matrix.copy(placeMatrix(found.room.id, found.alignment));
         syncHouses();
       }
     } else if (found) {
@@ -1605,6 +1700,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return false;
     }
     room.scan = scan;
+    fixes.delete(room.id); // the scan is now the live planes themselves
     for (const x of others) {
       const l = x.scan.links![room.id];
       x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)), cand: l.cand && { ...l.cand, ...compose(l.cand, invert(a)) } } } };
@@ -2282,6 +2378,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         /* storage can be unavailable */
       }
       onHand?.(view.dominant);
+      refreshView();
+    },
+    toggleDepthFix() {
+      view.depthFix = !view.depthFix;
+      try {
+        localStorage.setItem(DEPTH_KEY, view.depthFix ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      depthOn = view.depthFix;
+      if (!depthOn) {
+        fixes.clear();
+        depthBuf.length = 0;
+        applyFixes();
+        view.depthInfo = '';
+      } else view.depthInfo = '';
+      logEvent(`correzione con la profondità: ${depthOn ? 'accesa (si applica al prossimo avvio dell\'app se la sessione non ha la profondità)' : 'spenta'}`);
       refreshView();
     },
     toggleFps() {
@@ -3780,6 +3893,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       ignored.clear();
       aligns.clear(); // a new session has a new origin
+      fixes.clear();
+      depthBuf.length = 0;
       sessionId = String(Date.now());
       createdThisSession.clear();
       manual.clear();
@@ -3969,6 +4084,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       host.update();
     },
     logEvent,
+    // The depth correction: the xr layer asks whether to read the depth, and hands the points over (see depthCheck).
+    depthWanted: () => depthOn && !!recognised && !gap,
+    depthPoints(points: World3[], now: number) {
+      for (const p of points) depthBuf.push({ p, t: now });
+      while (depthBuf.length && (now - depthBuf[0].t > 6000 || depthBuf.length > 12000)) depthBuf.shift();
+      if (now - depthAt < 1000) return;
+      depthAt = now;
+      depthCheck(now);
+    },
     isScanning: () => scanning,
     // Scanning, or a scan waiting for its name, or one that ended less than half a minute ago: nothing must restart the app now.
     scanBusy: () => scanning || pendingName() || (scanEndedAt > 0 && performance.now() - scanEndedAt < 30000),
@@ -3983,6 +4107,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
     referenceReset(newOrigin?: ArrayLike<number> | null) {
       if (newOrigin || rawLive.length < MIN_PLANES) {
+        fixes.clear(); // the correction was measured in the old frame
+        depthBuf.length = 0;
         closeWarning();
         setVisit(false); // the headset moved its frame: the visit's place is no longer valid
         if (newOrigin) {
@@ -4003,6 +4129,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       logEvent('reset del riferimento');
       aligns.clear();
+      fixes.clear();
+      depthBuf.length = 0;
       sessionId = String(Date.now());
       createdThisSession.clear();
       manual.clear();

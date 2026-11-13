@@ -6,6 +6,7 @@ import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
 import { createHands } from '../xr/hands';
 import { palmNormal, pinchPoint } from '../xr/pinch';
+import { createDepthSampler } from '../xr/depthWorld';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -177,6 +178,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
 
   const dir = new Vector3();
   const quat = new Quaternion();
+  // The depth of the headset, for the correction of the rooms (core.depthPoints): read about twice a second, only while it is wanted.
+  const depthSampler = createDepthSampler(renderer);
+  let depthReadAt = 0;
+  let depthWarned = false;
 
   return {
     core,
@@ -193,6 +198,15 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      if (core.depthWanted() && now - depthReadAt > 400) {
+        depthReadAt = now;
+        const r = depthSampler.sample(frame, ref, frame.session);
+        if (r) core.depthPoints(r.points, now);
+        else if (!depthWarned && !depthSampler.state.worked && depthSampler.state.fails >= 20) {
+          depthWarned = true; // once: this session has no depth to read
+          core.logEvent(`profondità: non disponibile in questa sessione${depthSampler.error ? ` (${depthSampler.error})` : ''}`);
+        }
+      }
 
       if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) {
         const planes = readPlanes(frame, ref);
