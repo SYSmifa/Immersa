@@ -125,8 +125,7 @@ create table if not exists public.device_link_failures (
 alter table public.device_link_failures enable row level security;
 
 -- Reports sent from the headset (Account -> "Invia segnalazione"): the event log and a few facts about the session, to find out what
--- went wrong at a customer's. A user can only ADD rows for himself (nobody can read them back through the API: read them in the
--- dashboard's table editor, or with the service role).
+-- went wrong at a customer's. The developer reads them all in the dashboard's table editor (or with the service role).
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
@@ -137,9 +136,15 @@ create table if not exists public.reports (
   payload jsonb,
   constraint reports_size check (octet_length(coalesce(note, '')) <= 2000 and pg_column_size(payload) <= 300000)
 );
+alter table public.reports add column if not exists kind text not null default 'manual'; -- 'manual' (headset button), 'auto' (a serious error), 'pc' (written in the editor)
 alter table public.reports enable row level security;
 drop policy if exists "reports: insert own" on public.reports;
 create policy "reports: insert own" on public.reports for insert to authenticated with check (user_id = (select auth.uid()));
+-- A user sees his own reports (the PC editor lists them, to add the details written on a keyboard) and can complete the text.
+drop policy if exists "reports: read own" on public.reports;
+create policy "reports: read own" on public.reports for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists "reports: update own" on public.reports;
+create policy "reports: update own" on public.reports for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- Make the API see the new tables right away.
 notify pgrst, 'reload schema';

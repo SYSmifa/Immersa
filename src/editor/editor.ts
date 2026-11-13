@@ -1677,6 +1677,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
     // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
     onExportPdf: () => run(exportPdf),
+    // Reports: the ones sent from the headset (and the automatic ones) to complete with a keyboard, and new ones written here.
+    onReports: () =>
+      run(async () => {
+        const list = await backend.listReports();
+        ui.showReports(list, {
+          create: async (text) => {
+            await backend.sendReport({
+              kind: 'pc',
+              note: text,
+              appVersion: __BUILD_ID__,
+              device: navigator.userAgent.slice(0, 240),
+              payload: { source: 'editor', project: project ? { id: project.id, name: project.name, rooms: project.roomIds.length, models: project.models.length, structures: project.structures.length } : null, rooms: rooms.length, screen: `${window.innerWidth}x${window.innerHeight}`, page: location.pathname + location.search },
+            });
+            return backend.listReports();
+          },
+          edit: async (id, text) => {
+            await backend.updateReportNote(id, text);
+            return backend.listReports();
+          },
+        });
+      }),
     onDuplicateProject: () =>
       run(async () => {
         if (!project) return;

@@ -116,6 +116,14 @@ export const depthFixPreferred = () => {
     return true;
   }
 };
+const AUTOREP_KEY = 'immersa.autoreports';
+export const autoReportsPreferred = () => {
+  try {
+    return localStorage.getItem(AUTOREP_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 const SNAP_KEY = 'immersa.snap';
 const readSnap = () => {
   try {
@@ -316,6 +324,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     layers: layersPreferred(),
     fps: fpsPreferred(),
     depthFix: depthFixPreferred(),
+    autoReports: autoReportsPreferred(),
     depthInfo: '',
     dominant: handPreferred(),
     showOccluders: false,
@@ -336,6 +345,28 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
   let depthOn = depthFixPreferred();
   let reportBusy = false;
+  // Serious errors are sent by themselves (Account -> "Segnalazioni automatiche"): a JS error, a failed scan or save, a layer that
+  // broke. Not more than 5 per session, not the same one twice in ten minutes, not two within twenty seconds.
+  const SERIOUS = /^(scansione: tentativo \d+ fallito|scansione non riuscita|salvataggio dopo scansione: (piani non trovati|errore)|salvataggio stanza fallito|aggiornamento stanza fallito|layer( \w+)?: |posizione relativa non salvata|errore JS)/;
+  let autoOn = autoReportsPreferred();
+  let autoCount = 0;
+  let autoLast = 0;
+  const autoSent = new Map<string, number>();
+  function autoReport(reason: string) {
+    if (!autoOn || !view.email) return;
+    const nowMs = Date.now();
+    const key = reason.slice(0, 60);
+    if (autoCount >= 5 || nowMs - autoLast < 20000 || nowMs - (autoSent.get(key) ?? 0) < 600000) return;
+    autoSent.set(key, nowMs);
+    autoLast = nowMs;
+    autoCount++;
+    void backend
+      .sendReport({ kind: 'auto', note: reason.slice(0, 300), appVersion: typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev', device: navigator.userAgent.slice(0, 240), payload: reportPayload() })
+      .then(() => logEvent('segnalazione automatica inviata'))
+      .catch((e) => logEvent(`segnalazione automatica non inviata (${errText(e)})`));
+  }
+  window.addEventListener('error', (e) => logEvent(`errore JS: ${e.message || 'sconosciuto'}${e.lineno ? ` (riga ${e.lineno})` : ''}`));
+  window.addEventListener('unhandledrejection', (e) => logEvent(`errore JS: ${errText(e.reason)}`));
   // The facts of this session that go with a report (besides the event log): enough to tell what state the app was in.
   function reportPayload(): Record<string, unknown> {
     const fix = recognised ? fixes.get(recognised.room.id) : undefined;
@@ -1691,6 +1722,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       say(`Stanza "${name}" salvata`);
       if (scannedThisSession) autoRestart('scansione salvata', 2500, 'Stanza salvata', 'L\'app deve riavviarsi per continuare'); // the restart at the end of the scan did not happen
     } catch (e) {
+      logEvent(`salvataggio stanza fallito: ${errText(e)}`);
       say(`Salvataggio fallito: ${errText(e)}`);
     }
   }
@@ -1737,6 +1769,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       for (const p of affected) await backend.saveProject(p.id, { models: p.models.map(convert) });
     } catch (e) {
       refreshed.delete(room.id);
+      logEvent(`aggiornamento stanza fallito: ${errText(e)}`);
       say(`Room update failed: ${errText(e)}`);
       return false;
     }
@@ -1846,6 +1879,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       scanEndedAt = performance.now();
       setPendingName(false);
       openMenu();
+      logEvent(`scansione non riuscita: ${errText(failure)}`);
       return say(`Scansione non riuscita: ${errText(failure)}`, 9000);
     }
     scanning = false;
@@ -2440,6 +2474,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         /* storage can be unavailable */
       }
       onHand?.(view.dominant);
+      refreshView();
+    },
+    toggleAutoReports() {
+      view.autoReports = !view.autoReports;
+      autoOn = view.autoReports;
+      try {
+        localStorage.setItem(AUTOREP_KEY, autoOn ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      logEvent(`segnalazioni automatiche: ${autoOn ? 'accese' : 'spente'}`);
       refreshView();
     },
     toggleDepthFix() {
@@ -3891,6 +3936,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     console.log(`[immersa] ${text}`);
     if (events.length > 8) events.shift();
     view.log = [...view.log, `${hms} ${text}`].slice(-150);
+    if (SERIOUS.test(text)) autoReport(text);
     try {
       localStorage.setItem(LOG_KEY, JSON.stringify(view.log));
     } catch {

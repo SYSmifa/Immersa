@@ -165,8 +165,17 @@ export function createSupabaseBackend(): Backend {
       check(error);
     },
     async sendReport(r) {
-      const { error } = await client().from('reports').insert({ note: r.note, app_version: r.appVersion, device: r.device, payload: r.payload }); // no .select(): users cannot read reports back
+      const { error } = await client().from('reports').insert({ kind: r.kind ?? 'manual', note: r.note, app_version: r.appVersion, device: r.device, payload: r.payload });
       if (error) throw new Error(/reports/.test(error.message) && /schema cache|does not exist/i.test(error.message) ? 'manca la tabella delle segnalazioni: riesegui supabase/schema.sql' : error.message);
+    },
+    async listReports() {
+      const { data, error } = await client().from('reports').select('id, created_at, kind, app_version, note').order('created_at', { ascending: false }).limit(30);
+      check(error);
+      return (data ?? []).map((x) => ({ id: x.id as string, createdAt: x.created_at as string, kind: (x.kind ?? 'manual') as 'manual' | 'auto' | 'pc', appVersion: (x.app_version ?? '') as string, note: (x.note ?? '') as string }));
+    },
+    async updateReportNote(id, note) {
+      const { error } = await client().from('reports').update({ note }).eq('id', id);
+      check(error);
     },
     async saveRoomData(id, scan) {
       const { error } = await client().from('rooms').update({ data: scan }).eq('id', id); // not `updated_at`: this is not a new scan

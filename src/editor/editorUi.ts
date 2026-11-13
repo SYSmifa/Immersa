@@ -4,6 +4,7 @@ import { TEXTURES, textureCanvas } from '../room/textures';
 import { hexToHsv, hsvToHex } from '../ui3d/color';
 import { drawLoader } from '../ui3d/loader';
 import type { SheetOptions } from './planPdf';
+import type { ReportRow } from '../cloud/backend';
 import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
 import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
@@ -51,6 +52,7 @@ export interface EditorHandlers {
   onRenameProject(): void;
   onDuplicateProject(): void;
   onExportPdf(): void;
+  onReports(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
   onRoomVisible(id: string): void;
@@ -412,7 +414,10 @@ export function createEditorUi(h: EditorHandlers) {
   const linkBtn = el('button', '', 'ed-pill ed-link');
   linkBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.visor}</span>Collega un visore`;
   linkBtn.onclick = () => openLinkCard();
-  footer.append(linkBtn);
+  const reportBtn = el('button', '', 'ed-pill ed-link');
+  reportBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.note}</span>Segnalazioni`;
+  reportBtn.onclick = () => h.onReports();
+  footer.append(linkBtn, reportBtn);
   const version = el('div', `Versione ${__BUILD_ID__}`, 'ed-ver'); // to tell which build is online
   side.append(brand, body, footer, version);
 
@@ -1445,6 +1450,74 @@ export function createEditorUi(h: EditorHandlers) {
         input.focus();
         input.select();
       });
+    },
+    // The reports of the account (sent from the headset or written here): a list, to add the details with a keyboard, and a way
+    // to write a new one. `act` does the saving and hands back the fresh list.
+    showReports(items: ReportRow[], act: { create(text: string): Promise<ReportRow[]>; edit(id: string, text: string): Promise<ReportRow[]> }) {
+      const overlay = el('div', '', 'ed-modal');
+      const panel = el('div', '', 'ed-panel ed-login');
+      const listEl = el('div', '', 'ed-waiting');
+      const err = el('div', '', 'ed-warn');
+      const KIND: Record<ReportRow['kind'], string> = { manual: 'Dal visore', auto: 'Automatica', pc: 'Dal PC' };
+      const fmt = (iso: string) => new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      let busy = false;
+      const guard = async (fn: () => Promise<ReportRow[]>) => {
+        if (busy) return;
+        busy = true;
+        err.textContent = '';
+        try {
+          draw(await fn());
+        } catch (e) {
+          err.textContent = e instanceof Error ? e.message : String(e);
+        } finally {
+          busy = false;
+        }
+      };
+      const write = async (title: string, initial: string, ok: string) => this.askText(title, initial, { ok, multiline: true, validate: (v) => (v ? (v.length > 2000 ? 'Massimo 2000 caratteri.' : '') : 'Scrivi qualcosa.') });
+      const draw = (list: ReportRow[]) => {
+        listEl.replaceChildren();
+        if (!list.length) listEl.append(el('div', 'Nessuna segnalazione. Dal visore: Account → Invia segnalazione.', 'ed-sub'));
+        for (const it of list) {
+          const row = el('div', '', 'ed-visor');
+          const first = it.note.replace(/\s+/g, ' ').slice(0, 90) || 'senza testo';
+          row.append(el('div', `${fmt(it.createdAt)} · ${KIND[it.kind]}`), el('small', `${first}${it.note.length > 90 ? '…' : ''} · ${it.appVersion.split(' ')[0]}`));
+          row.append(
+            pill(it.note ? 'Modifica il testo' : 'Aggiungi dettagli', () =>
+              void write('Dettagli della segnalazione', it.note, 'Salva').then((t) => {
+                if (t) void guard(() => act.edit(it.id, t));
+              }),
+            ),
+          );
+          listEl.append(row);
+        }
+      };
+      draw(items);
+      const close = () => {
+        window.removeEventListener('keydown', key, true);
+        overlay.remove();
+      };
+      const key = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && !document.querySelector('.ed-modal ~ .ed-modal')) close();
+        e.stopPropagation();
+      };
+      window.addEventListener('keydown', key, true);
+      panel.append(
+        el('h3', 'Segnalazioni'),
+        el('div', 'Le segnalazioni inviate dal visore e quelle automatiche compaiono qui: puoi aggiungere i dettagli scrivendo da tastiera. Arrivano a chi sviluppa Immersa.', 'ed-sub'),
+        pill(
+          'Nuova segnalazione',
+          () =>
+            void write('Descrivi il problema', '', 'Invia').then((t) => {
+              if (t) void guard(() => act.create(t));
+            }),
+          'acc',
+        ),
+        listEl,
+        err,
+        pill('Chiudi', close),
+      );
+      overlay.append(panel);
+      root.append(overlay);
     },
     // The options of the plan PDF: sheet, orientation, scale, sizes. `preview` says what the choice gives (the scale it ends up at).
     askPlanExport(start: SheetOptions, preview: (o: SheetOptions) => string) {

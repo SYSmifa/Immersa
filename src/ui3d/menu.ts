@@ -84,6 +84,7 @@ export interface MenuView {
   tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
+  autoReports: boolean; // serious errors are sent by themselves
   depthFix: boolean; // the rooms are corrected with the depth (the choice is read when the session starts)
   depthInfo: string; // what the correction is doing, for the card
   dominant: 'left' | 'right'; // the hand that points with the laser
@@ -135,6 +136,7 @@ export interface MenuActions {
   toggleLayers(): void;
   toggleFps(): void;
   toggleDepthFix(): void;
+  toggleAutoReports(): void;
   toggleHand(): void;
   toggleOccluders(): void;
   closeProject(): void;
@@ -563,7 +565,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const half = (W - 56 - 12) / 2;
     out.push({ kind: 'pill', rect: { x: M + 28, y: top + 196, w: half, h: 40 }, text: `Riavvio automatico: ${v.autoRestart ? 'Sì' : 'No'}`, size: 17, ...(v.autoRestart ? { color: T.good } : {}), onClick: a.toggleAutoRestart });
     out.push({ kind: 'pill', rect: { x: M + 28 + half + 12, y: top + 196, w: half, h: 40 }, text: `Modo: ${v.relaunch}`, size: 17, onClick: a.cycleRelaunch });
-    out.push({ kind: 'pill', icon: 'check', rect: { x: M + 28, y: top + 244, w: W - 56, h: 42 }, text: 'Invia segnalazione', size: 19, onClick: a.sendReport });
+    out.push({ kind: 'pill', icon: 'check', rect: { x: M + 28, y: top + 244, w: half, h: 42 }, text: 'Invia segnalazione', size: 19, onClick: a.sendReport });
+    out.push({ kind: 'pill', rect: { x: M + 28 + half + 12, y: top + 244, w: half, h: 42 }, text: `Errori in automatico: ${v.autoReports ? 'Sì' : 'No'}`, size: 17, ...(v.autoReports ? { color: T.good } : {}), onClick: a.toggleAutoReports });
     out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 296, W - 56, 24, 16, T.dim));
     // The last events, kept across app restarts: what the session did around a standby.
     v.log.slice(-2).forEach((line, i) => out.push(text(line, M + 28, top + 322 + i * 20, W - 56, 20, 14, T.sub)));

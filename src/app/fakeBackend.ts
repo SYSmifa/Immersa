@@ -70,6 +70,7 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     { id: 'r1', name: 'Salotto', createdAt: '2026-03-14T10:00:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6), boxes: boxRoomBoxes(5, 4) } },
     { id: 'r2', name: 'Cucina', createdAt: '2026-05-02T16:30:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
+  const reports: import('../cloud/backend').ReportRow[] = [];
   const projects: Project[] = [
     { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], annotations: [
         { id: 'n1', roomId: 'r1', kind: 'note', a: [0.5, 0.95, -0.5], text: 'Passa il cavo qui', color: '#ffb020' },
@@ -138,7 +139,15 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       if (r) r.place = place ?? undefined;
     },
     async sendReport(r) {
+      reports.unshift({ id: `rep${reports.length + 1}`, createdAt: now(), kind: r.kind ?? 'manual', appVersion: r.appVersion, note: r.note });
       (window as unknown as { __reports?: unknown[] }).__reports = [...((window as unknown as { __reports?: unknown[] }).__reports ?? []), r]; // test hook
+    },
+    async listReports() {
+      return reports.map((x) => ({ ...x }));
+    },
+    async updateReportNote(id, note) {
+      const r = reports.find((x) => x.id === id);
+      if (r) r.note = note;
     },
     async saveRoomData(id, scan) {
       const r = rooms.find((x) => x.id === id);

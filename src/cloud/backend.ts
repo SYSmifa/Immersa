@@ -2,6 +2,7 @@ import type { Annotation, Project, Room, RoomModel, RoomScan, Structure } from '
 
 // A report sent from the headset: what the user wrote, which build, which device, and the session's log and state.
 export interface Report {
+  kind?: 'manual' | 'auto' | 'pc'; // default 'manual'
   note: string;
   appVersion: string;
   device: string;
@@ -43,4 +44,14 @@ export interface Backend {
   saveProject(id: string, patch: { name?: string; roomIds?: string[]; models?: RoomModel[]; structures?: Structure[]; annotations?: Annotation[]; tone?: number }): Promise<{ skipped?: string[] } | void>;
   deleteProject(id: string): Promise<void>;
   sendReport(report: Report): Promise<void>;
+  listReports(): Promise<ReportRow[]>; // the user's own, newest first
+  updateReportNote(id: string, note: string): Promise<void>;
+}
+
+export interface ReportRow {
+  id: string;
+  createdAt: string;
+  kind: 'manual' | 'auto' | 'pc';
+  appVersion: string;
+  note: string;
 }
