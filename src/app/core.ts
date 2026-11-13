@@ -16,7 +16,7 @@ import { createMeasureView } from '../room/measureView';
 import { applySelectionLook, clearSelectionLook, listMaterials, modelBox, modelSize, pickDistance, surfaceUnder } from '../room/selection';
 import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
-import { apply as applyFix, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
+import { apply as applyFix, createSettler, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
 import type { World3 } from '../xr/depthWorld';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
@@ -681,6 +681,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   const fixes = new Map<string, Fix>();
   const depthBuf: { p: World3; t: number }[] = []; // the depth points of the last few seconds, in the session's world
   let depthAt = 0;
+  const settler = createSettler(); // holds the room once it is where the depth says
+  let depthRoomId = '';
+  const resetDepth = () => {
+    fixes.clear();
+    depthBuf.length = 0;
+    settler.reset();
+  };
   let depthLogAt = 0;
   let depthLogShift = -1;
   let depthMissAt = 0;
@@ -737,25 +744,35 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     }
     const s = solveMove(reads, lines);
     if (!s) return;
+    if (depthRoomId !== r.room.id) {
+      depthRoomId = r.room.id;
+      settler.reset(); // another room: look at it again
+    }
     const fc = floorCentre(r.room.scan.planes);
     const c = v.set(fc[0], 0, fc[2]).applyMatrix4(M);
     const old = fixes.get(r.room.id) ?? NO_FIX;
-    const nf = nextFix(old, s, [c.x, c.z]);
     const total = (f: Fix) => {
       const p = applyFix(f, [c.x, c.z]);
       return Math.hypot(p[0] - c.x, p[1] - c.z);
     };
+    // How much the readings still ask for (a turn counted by what it does at the walls, ~2 m away), and whether to act on it.
+    const big = Math.hypot(s.vx, s.vz) + Math.abs(s.theta) * 2;
+    const step = settler.step(big, s.rms);
+    const worst = reads.map((q) => `${(q.r * 100).toFixed(1)}`).join('/');
+    const deg = (f: Fix) => ((f.theta * 180) / Math.PI).toFixed(2);
+    if (step.event === 'settled') logEvent(`profondità: stanza a posto, la lascio ferma (${reads.length} muri, correzione ${(total(old) * 100).toFixed(1)} cm ${deg(old)}°)`);
+    if (step.event === 'woke') logEvent(`profondità: la stanza si è spostata di ${(big * 100).toFixed(1)} cm (${worst} cm), correggo`);
+    const nf = step.apply ? nextFix(old, s, [c.x, c.z]) : null;
     if (nf) {
       fixes.set(r.room.id, nf.fix);
       applyFixes();
     }
     const shown = total(nf?.fix ?? old);
-    view.depthInfo = shown > 0.004 ? `Correzione ${(shown * 100).toFixed(1)} cm` : `${reads.length} muri, a posto`;
-    if (now - depthLogAt > 8000 && (nf || depthLogShift < 0)) {
+    view.depthInfo = settler.settled ? `A posto (${(shown * 100).toFixed(1)} cm)` : `Correzione ${(shown * 100).toFixed(1)} cm`;
+    if (!settler.settled && now - depthLogAt > 8000 && (nf || depthLogShift < 0)) {
       depthLogAt = now;
       depthLogShift = shown;
-      const worst = reads.map((q) => `${(q.r * 100).toFixed(1)}`).join('/');
-      logEvent(`profondità: ${reads.length} muri (${worst} cm), resta ${(s.rms * 100).toFixed(1)} cm, correzione ${(shown * 100).toFixed(1)} cm ${((((nf?.fix ?? old).theta) * 180) / Math.PI).toFixed(2)}°`);
+      logEvent(`profondità: ${reads.length} muri (${worst} cm), resta ${(s.rms * 100).toFixed(1)} cm, correzione ${(shown * 100).toFixed(1)} cm ${deg(nf?.fix ?? old)}°`);
     }
   }
   const modelsOf = (roomId: string) => current?.models.filter((m) => m.roomId === roomId) ?? [];
@@ -2389,8 +2406,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       depthOn = view.depthFix;
       if (!depthOn) {
-        fixes.clear();
-        depthBuf.length = 0;
+        resetDepth();
         applyFixes();
         view.depthInfo = '';
       } else view.depthInfo = '';
@@ -3893,8 +3909,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       switching = lost = 0;
       ignored.clear();
       aligns.clear(); // a new session has a new origin
-      fixes.clear();
-      depthBuf.length = 0;
+      resetDepth();
       sessionId = String(Date.now());
       createdThisSession.clear();
       manual.clear();
@@ -4107,8 +4122,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // and with no planes to find the rooms again, they stay where they are; otherwise they are found again.
     referenceReset(newOrigin?: ArrayLike<number> | null) {
       if (newOrigin || rawLive.length < MIN_PLANES) {
-        fixes.clear(); // the correction was measured in the old frame
-        depthBuf.length = 0;
+        resetDepth();
         closeWarning();
         setVisit(false); // the headset moved its frame: the visit's place is no longer valid
         if (newOrigin) {
@@ -4129,8 +4143,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       logEvent('reset del riferimento');
       aligns.clear();
-      fixes.clear();
-      depthBuf.length = 0;
+      resetDepth();
       sessionId = String(Date.now());
       createdThisSession.clear();
       manual.clear();

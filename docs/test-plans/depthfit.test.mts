@@ -1,6 +1,6 @@
 // Run: npx tsx docs/test-plans/depthfit.test.mts   (depth correction maths: readings of the walls, the move that fits them, limits)
 import assert from 'node:assert/strict';
-import { apply, compose, FIT, LIMITS, nextFix, NO_FIX, readWalls, solveMove, type Fix, type P2, type P3, type WallLine } from '../../src/xr/depthFit.ts';
+import { apply, compose, createSettler, FIT, LIMITS, nextFix, NO_FIX, readWalls, solveMove, type Fix, type P2, type P3, type WallLine } from '../../src/xr/depthFit.ts';
 
 const near = (a: number, b: number, eps = 5e-3) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
 // a deterministic noise
@@ -154,6 +154,34 @@ function depthPoints(fix: Fix, noise = 0.01): P3[] {
     fix = nextFix(fix, s, [2.5, 2])?.fix ?? fix;
   }
   near(fix.tx, 0.08, 0.008);
+}
+// settling: it holds once the moves asked for are small for 4 checks in a row, and wakes only for a big, lasting difference
+{
+  const st = createSettler();
+  assert.deepEqual(st.step(0.05, 0.01), { apply: true, event: null }); // being brought in
+  assert.deepEqual(st.step(0.006, 0.01), { apply: true, event: null });
+  assert.deepEqual(st.step(0.02, 0.01), { apply: true, event: null }); // not calm again: the count restarts
+  for (let i = 0; i < 3; i++) assert.deepEqual(st.step(0.004, 0.008), { apply: true, event: null });
+  assert.deepEqual(st.step(0.004, 0.008), { apply: false, event: 'settled' });
+  assert.equal(st.settled, true);
+  // noise of a centimetre or two does nothing while held, however long it goes on
+  for (let i = 0; i < 50; i++) assert.deepEqual(st.step(0.012 + (i % 3) * 0.004, 0.015), { apply: false, event: null });
+  // a big difference for one or two checks only (a glitch) is ignored; the next calm check clears the count
+  assert.deepEqual(st.step(0.08, 0.02), { apply: false, event: null });
+  assert.deepEqual(st.step(0.08, 0.02), { apply: false, event: null });
+  assert.deepEqual(st.step(0.005, 0.01), { apply: false, event: null });
+  assert.deepEqual(st.step(0.08, 0.02), { apply: false, event: null });
+  assert.deepEqual(st.step(0.08, 0.02), { apply: false, event: null });
+  // three in a row: the room has really moved: wake up and correct again
+  assert.deepEqual(st.step(0.08, 0.02), { apply: true, event: 'woke' });
+  assert.equal(st.settled, false);
+  st.reset();
+  // a room that is right from the start settles without ever being moved
+  const fresh = createSettler();
+  let moves = 0;
+  for (let i = 0; i < 4; i++) moves += fresh.step(0.003, 0.006).apply ? 1 : 0;
+  assert.equal(fresh.settled, true);
+  assert.equal(moves, 3); // the first three checks were "apply" but with moves under the quiet limit: nextFix does nothing then
 }
 void FIT;
 console.log('depthfit: ok');

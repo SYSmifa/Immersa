@@ -213,3 +213,55 @@ export function nextFix(old: Fix, s: Solved, at: P2, lim: Limits = LIMITS): { fi
   if (Math.hypot(p[0] - at[0], p[1] - at[1]) > lim.maxShift || Math.abs(fix.theta) > lim.maxTurn) return null; // too far from the headset's: not believed
   return { fix, moved: Math.hypot(vx, vz) };
 }
+
+// When to stop. The depth is noisy by a centimetre or so, so correcting at every check would never stop: the room would wander by
+// a few millimetres with whatever the headset is looking at. Instead: apply corrections while the room is being brought in; once
+// the move that would still be applied has been small for a few checks in a row, HOLD the room where it is; wake up only when the
+// difference gets clearly big (the headset moved the room) and stays so for a few checks.
+export interface SettleOptions {
+  calmBelow: number; // m: a proposed move under this is "nothing to do"
+  rmsBelow: number; // m: and the readings agree under this
+  calmChecks: number; // this many in a row to settle
+  wakeAbove: number; // m: a proposed move over this wakes it up
+  wakeChecks: number; // this many in a row
+}
+export const SETTLE: SettleOptions = { calmBelow: 0.01, rmsBelow: 0.02, calmChecks: 4, wakeAbove: 0.025, wakeChecks: 3 };
+
+export function createSettler(o: SettleOptions = SETTLE) {
+  let settled = false;
+  let calm = 0;
+  let off = 0;
+  return {
+    get settled() {
+      return settled;
+    },
+    reset() {
+      settled = false;
+      calm = 0;
+      off = 0;
+    },
+    // `big`: the size of the whole move the readings ask for (m; a turn counted by its effect at the walls), `rms` what is left over.
+    // `apply`: do the (damped) correction now. `event`: the state changed.
+    step(big: number, rms: number): { apply: boolean; event: 'settled' | 'woke' | null } {
+      if (settled) {
+        if (big < o.wakeAbove) {
+          off = 0;
+          return { apply: false, event: null };
+        }
+        if (++off < o.wakeChecks) return { apply: false, event: null };
+        settled = false;
+        calm = 0;
+        off = 0;
+        return { apply: true, event: 'woke' };
+      }
+      if (big < o.calmBelow && rms < o.rmsBelow) {
+        if (++calm >= o.calmChecks) {
+          settled = true;
+          off = 0;
+          return { apply: false, event: 'settled' };
+        }
+      } else calm = 0;
+      return { apply: true, event: null };
+    },
+  };
+}
