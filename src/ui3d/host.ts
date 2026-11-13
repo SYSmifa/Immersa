@@ -113,6 +113,7 @@ export class UiHost {
     p.lastFx = p.hover.fx;
     p.lastFy = p.hover.fy;
     p.press?.widget?.onPoint?.(Math.min(1, Math.max(0, p.hover.fx)), Math.min(1, Math.max(0, p.hover.fy))); // a plain click picks too
+    p.press?.widget?.onDown?.();
     return true;
   }
 
@@ -120,6 +121,7 @@ export class UiHost {
     const p = this.pointer(id);
     const hit = p.press;
     p.press = null;
+    hit?.widget?.onUp?.();
     hit?.widget?.onClick?.();
   }
 
@@ -134,7 +136,9 @@ export class UiHost {
   }
 
   cancel(id: string) {
-    this.pointer(id).press = null;
+    const p = this.pointer(id);
+    p.press?.widget?.onUp?.();
+    p.press = null;
   }
 
   // Once per frame, after setRay calls: refresh highlights and redraw changed panels.

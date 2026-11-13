@@ -22,8 +22,10 @@ export interface Widget {
   // button / row / key / field: the basic controls. surface: a white card behind other widgets. card: a tappable card
   // (project, setting). chip: a small pill label. nav: a bottom-bar tab. iconbtn: a round icon button. pill: a
   // call-to-action pill. wheel / slider / bar: pickers.
-  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar' | 'scroll' | 'canvas';
+  kind?: 'button' | 'label' | 'row' | 'key' | 'field' | 'surface' | 'card' | 'chip' | 'nav' | 'iconbtn' | 'pill' | 'loader' | 'splash' | 'wheel' | 'slider' | 'bar' | 'scroll' | 'canvas' | 'grip';
   onClick?: () => void;
+  onDown?: () => void; // the pointer pressed it (a pinch landed on it)
+  onUp?: () => void; // ... and let go (or was lost)
   active?: boolean; // selected tab / current item
   primary?: boolean; // gradient fill
   glass?: boolean; // translucent white (on the gradient)
@@ -296,13 +298,13 @@ export class Panel {
     }
   }
 
-  // (u, v) as in three's uv: origin bottom-left. Labels, chips and plain surfaces are not targets.
+  // (u, v) as in three's uv: origin bottom-left. Labels, plain chips and plain surfaces are not targets.
   widgetAt(u: number, v: number): Widget | null {
     const x = u * this.pxW;
     const y = (1 - v) * this.pxH;
     for (let i = this.widgets.length - 1; i >= 0; i--) {
       const w = this.widgets[i];
-      if (w.kind === 'label' || w.kind === 'chip' || w.kind === 'canvas' || (w.kind === 'surface' && !w.onClick)) continue;
+      if (w.kind === 'label' || w.kind === 'canvas' || ((w.kind === 'surface' || w.kind === 'chip') && !w.onClick)) continue; // a chip with an action (the note's colours) is a button
       const r = w.rect;
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return w;
     }
@@ -479,6 +481,14 @@ export class Panel {
       c.font = font(17, true);
       c.textAlign = 'center';
       c.fillText(w.text, x + ww / 2, y + h * 0.77);
+      return;
+    }
+    if (kind === 'grip') {
+      // a small bar to take hold of: the hit area is the whole rect, the bar drawn is thinner
+      const bh = Math.min(h, 12);
+      c.fillStyle = down ? '#2dd4bf' : hover ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.4)';
+      roundRect(c, x + ww * 0.12, y + (h - bh) / 2, ww * 0.76, bh, bh / 2);
+      c.fill();
       return;
     }
     if (kind === 'iconbtn') {

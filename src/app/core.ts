@@ -3862,7 +3862,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice],
+    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice, keyboard.panel],
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
@@ -3989,6 +3989,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     tick(now: number, head: Head, dt: number) {
       void pollLink(now);
       keyboard.follow(head, dt);
+      keyboard.carry(pinchR); // the keyboard's grip bar pinched: it goes with the hand
       lastHead = head;
       if (now - lastHere > 1000) {
         lastHere = now;

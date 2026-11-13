@@ -68,7 +68,7 @@ function rows(mode: Mode, multiline = false): Key[][] {
 }
 
 const W = 1080;
-const H = 572; // five rows of keys (130 + 5 x 76 + 4 x 8 = 542) and a margin under them
+const H = 616; // five rows of keys (130 + 5 x 76 + 4 x 8 = 542), the grip bar under them and a margin
 const PAD = 12;
 const GAP = 8;
 
@@ -84,60 +84,82 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
   parent.add(panel.mesh);
   host.add(panel);
   // 0.4 m in front of you and 0.38 m below the eyes, turned to face you, the top leaning away: where a hand rests to type.
-  // It stays put while you type and follows like the menu does: round when you turn far, up or down when you stand or sit.
+  // Once there it STAYS there, however you turn your head (it is not a panel that follows your look): it comes to you again only
+  // when you have gone so far that it is no longer in front of you (behind you, to the side, too far, or a floor higher or
+  // lower). The small bar under it takes hold of it: pinch the bar and the keyboard goes with the hand until you let go.
   const DIST = 0.4;
   const DROP = 0.38;
-  let kYaw = 0;
+  const FAR = 1.4; // m: farther than this it is no longer "in front"
+  const SIDE = 1.2; // rad (~69°): more than this from where you look, horizontally, it is no longer in front
+  const HIGH = 0.5; // m: this much higher or lower than where it should be
+  let kYaw = 0; // which way it faces (set when it is put, not turned with the head)
   let kPos = new Vector3();
   let kY = 0;
-  let followYaw = false;
-  let followPos = false;
-  let followY = false;
+  let to: { x: number; z: number; y: number; yaw: number } | null = null; // a new place it is on its way to
+  let grabbing = false;
+  let grabNew = false; // the grab has just begun: the offset to the hand is taken on the next carry()
+  const grabOff = new Vector3();
+  let holdUntil = 0; // after a grab it is left where it was put for a while
   const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-  function apply(h: { pos: Vector3 }) {
+  function apply() {
     panel.mesh.position.set(kPos.x, kY, kPos.z);
-    panel.mesh.rotation.set(-0.85, Math.atan2(h.pos.x - kPos.x, h.pos.z - kPos.z), 0, 'YXZ');
+    panel.mesh.rotation.set(-0.85, kYaw, 0, 'YXZ');
     panel.mesh.updateMatrixWorld(true);
+  }
+  // The place in front of the head: 0.4 m ahead on the level, 0.38 m below the eyes, turned to the head.
+  function placeFor(h: { pos: Vector3; fwd: Vector3 }) {
+    const f = new Vector3(h.fwd.x, 0, h.fwd.z);
+    if (f.length() < 0.2) f.set(0, 0, -1);
+    f.normalize();
+    const x = h.pos.x + f.x * DIST;
+    const z = h.pos.z + f.z * DIST;
+    return { x, z, y: h.pos.y - DROP, yaw: Math.atan2(h.pos.x - x, h.pos.z - z) };
   }
   function place() {
     const h = head();
     if (!h) return;
-    const f = new Vector3(h.fwd.x, 0, h.fwd.z);
-    if (f.length() < 0.2) f.set(0, 0, -1);
-    f.normalize();
-    kYaw = Math.atan2(f.x, f.z);
-    kPos = new Vector3(h.pos.x + f.x * DIST, 0, h.pos.z + f.z * DIST);
-    kY = h.pos.y - DROP;
-    followYaw = followPos = followY = false;
-    apply(h);
+    const t = placeFor(h);
+    kPos = new Vector3(t.x, 0, t.z);
+    kY = t.y;
+    kYaw = t.yaw;
+    to = null;
+    grabbing = false;
+    holdUntil = 0;
+    apply();
+  }
+  // Is it still where you can use it?
+  function lost(h: { pos: Vector3; fwd: Vector3 }): boolean {
+    const dx = kPos.x - h.pos.x;
+    const dz = kPos.z - h.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > FAR || Math.abs(kY - (h.pos.y - DROP)) > HIGH) return true;
+    const fl = Math.hypot(h.fwd.x, h.fwd.z);
+    if (fl < 0.3 || dist < 0.05) return false; // looking down at it, or standing on it
+    return (dx * h.fwd.x + dz * h.fwd.z) / (dist * fl) < Math.cos(SIDE);
   }
   function follow(h: { pos: Vector3; fwd: Vector3 }, dt: number) {
-    if (!panel.mesh.visible) return;
-    if (Math.hypot(h.fwd.x, h.fwd.z) > 0.3) {
-      const d = wrapAngle(Math.atan2(h.fwd.x, h.fwd.z) - kYaw);
-      if (Math.abs(d) > 0.75) followYaw = true;
-      if (followYaw) {
-        kYaw += d * Math.min(1, dt * 3);
-        if (Math.abs(wrapAngle(Math.atan2(h.fwd.x, h.fwd.z) - kYaw)) < 0.12) followYaw = false;
-      }
+    if (!panel.mesh.visible || grabbing || performance.now() < holdUntil) return;
+    if (!to && lost(h)) to = placeFor(h);
+    if (!to) return;
+    const k = Math.min(1, dt * 4);
+    kPos.x += (to.x - kPos.x) * k;
+    kPos.z += (to.z - kPos.z) * k;
+    kY += (to.y - kY) * k;
+    kYaw += wrapAngle(to.yaw - kYaw) * k;
+    if (Math.hypot(to.x - kPos.x, to.z - kPos.z) < 0.02 && Math.abs(to.y - kY) < 0.02 && Math.abs(wrapAngle(to.yaw - kYaw)) < 0.05) to = null;
+    apply();
+  }
+  // While the grip is held: the keyboard keeps its place relative to the hand (no jump when it is taken).
+  function carry(hand: Vector3 | null) {
+    if (!grabbing || !hand) return;
+    if (grabNew) {
+      grabOff.set(kPos.x - hand.x, kY - hand.y, kPos.z - hand.z);
+      grabNew = false;
     }
-    const tx = h.pos.x + Math.sin(kYaw) * DIST;
-    const tz = h.pos.z + Math.cos(kYaw) * DIST;
-    const err = Math.hypot(tx - kPos.x, tz - kPos.z);
-    if (err > 0.18) followPos = true;
-    if (followPos) {
-      const k = Math.min(1, dt * 3);
-      kPos.x += (tx - kPos.x) * k;
-      kPos.z += (tz - kPos.z) * k;
-      if (err < 0.04) followPos = false;
-    }
-    const dy = h.pos.y - DROP - kY;
-    if (Math.abs(dy) > 0.07) followY = true;
-    if (followY) {
-      kY += dy * Math.min(1, dt * 2);
-      if (Math.abs(dy) < 0.02) followY = false;
-    }
-    apply(h);
+    kPos.set(hand.x + grabOff.x, 0, hand.z + grabOff.z);
+    kY = hand.y + grabOff.y;
+    to = null;
+    apply();
   }
 
   let req: KeyboardRequest | null = null;
@@ -256,10 +278,24 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
         x += w + GAP;
       }
     });
+    widgets.push({
+      kind: 'grip',
+      rect: { x: W / 2 - 150, y: 552, w: 300, h: 40 },
+      text: '',
+      onDown: () => {
+        grabbing = true;
+        grabNew = true;
+      },
+      onUp: () => {
+        grabbing = false;
+        holdUntil = performance.now() + 4000; // where you put it, it stays
+      },
+    });
     panel.set(widgets);
   }
 
   function close() {
+    grabbing = false;
     panel.mesh.visible = false;
     req = null;
   }
@@ -276,6 +312,7 @@ export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos
     },
     close,
     follow,
+    carry,
     panel,
     isOpen: () => panel.mesh.visible,
     // Test hook: what a typed sequence of keys would produce.
