@@ -3862,8 +3862,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // Test hook: every model's scene object, whichever room it is in.
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
-    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice],
-    layerBehind: () => [keyboard.panel], // under the scene's layer: the virtual hands are drawn over the keyboard
+    layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice], // the keyboard is NOT a layer: layers sit over the whole scene and would hide the virtual hands
     layerLabels: (max: number) => measureView.layerLabels(max),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
