@@ -25,7 +25,7 @@ export function createLaser() {
       'a *= a; gl_FragColor = vec4(tint, a * opacity); }',
   });
   const mesh = new Mesh(geo, beam);
-  mesh.renderOrder = 1000;
+  mesh.renderOrder = 1410;
   mesh.frustumCulled = false;
   mesh.visible = false;
 
@@ -34,8 +34,8 @@ export function createLaser() {
   const ringMat = new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false });
   const disc = new Mesh(new CircleGeometry(1, 32), discMat);
   const ring = new Mesh(new RingGeometry(0.92, 1, 32), ringMat);
-  disc.renderOrder = 1001;
-  ring.renderOrder = 1002;
+  disc.renderOrder = 1411;
+  ring.renderOrder = 1412;
   reticle.add(disc, ring);
   reticle.visible = false;
   let size = 1; // 1 = resting, RETICLE_PINCH = pinching (eased)

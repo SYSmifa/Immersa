@@ -26,7 +26,7 @@ export function createPoke(host: UiHost, panel: Panel) {
       const dot = new Mesh(new CircleGeometry(1, 20), cursorMaterial(0xffffff));
       const halo = new Mesh(new RingGeometry(0.82, 1, 32), cursorMaterial(0x2dd4bf));
       for (const m of [dot, halo]) {
-        m.renderOrder = 1002;
+        m.renderOrder = 1350; // over the keyboard (1300), under the hands
         m.visible = false;
         m.raycast = () => undefined;
         panel.mesh.add(m);

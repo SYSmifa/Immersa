@@ -42,7 +42,7 @@ export class UiHost {
         new SphereGeometry(0.007, 12, 8),
         new MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
       );
-      cursor.renderOrder = 1001;
+      cursor.renderOrder = 1500;
       cursor.visible = false;
       this.root.add(cursor);
       p = { cursor, hover: null, press: null, flash: null, lastFx: -1, lastFy: -1 };

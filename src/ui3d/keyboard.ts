@@ -80,6 +80,7 @@ const KEY = { fill: 'rgba(46,50,60,0.96)', hoverFill: 'rgba(32,128,118,0.97)', d
 
 export function createKeyboard(host: UiHost, parent: Object3D, head: () => { pos: Vector3; fwd: Vector3 } | null) {
   const panel = new Panel(SIZE, (SIZE * H) / W, W / SIZE);
+  panel.mesh.renderOrder = 1300; // over the panels and the notes' labels and lines (1000-1200), under the hands (1400+)
   panel.mesh.visible = false;
   parent.add(panel.mesh);
   host.add(panel);

@@ -15,12 +15,12 @@ function style(root: Object3D) {
     const mesh = o as SkinnedMesh;
     if (!mesh.isSkinnedMesh) return;
     mesh.material = fill;
-    mesh.renderOrder = 1001;
+    mesh.renderOrder = 1401; // over everything, the keyboard (1300) included
     mesh.frustumCulled = false;
     mesh.raycast = () => undefined; // never picked
     const shell = new SkinnedMesh(mesh.geometry, edge);
     shell.bind(mesh.skeleton, mesh.bindMatrix);
-    shell.renderOrder = 1000;
+    shell.renderOrder = 1400;
     shell.frustumCulled = false;
     shell.raycast = () => undefined;
     mesh.parent?.add(shell);

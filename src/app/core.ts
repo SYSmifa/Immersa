@@ -3863,7 +3863,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     holders: () => new Map([...houses.values()].flatMap((h) => [...h.layer.holders])),
     // Every panel that should be shown as a WebXR layer.
     layerPanels: () => [menu, menuToast, warn, alignCard, choiceCard, nameCard, listLoader, loading, splashPanel, hud, objButton, notice], // the keyboard is NOT a layer: layers sit over the whole scene and would hide the virtual hands
-    layerLabels: (max: number) => measureView.layerLabels(max),
+    // The notes' labels are layers (over the whole scene) unless the keyboard is open: then they are drawn in the scene, under it.
+    layerLabels: (max: number) => (keyboard.isOpen() ? [] : measureView.layerLabels(max)),
     // True while a model, a component, a wall or a floor is being carried (the laser changes colour).
     moving: () => (!!grab && grab.phase !== 'pending') || (!!structGrab && structGrab.phase !== 'pending') || !!partGrab || annotGrab?.phase === 'move',
     keyboard,
