@@ -137,6 +137,9 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
       const r = rooms.find((x) => x.id === id);
       if (r) r.place = place ?? undefined;
     },
+    async sendReport(r) {
+      (window as unknown as { __reports?: unknown[] }).__reports = [...((window as unknown as { __reports?: unknown[] }).__reports ?? []), r]; // test hook
+    },
     async saveRoomData(id, scan) {
       const r = rooms.find((x) => x.id === id);
       if (r) r.scan = scan;

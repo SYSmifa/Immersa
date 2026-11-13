@@ -109,6 +109,7 @@ export interface MenuActions {
   alignRoom(): void;
   openDepthProbe(): void;
   restartApp(): void;
+  sendReport(): void;
   cycleRelaunch(): void;
   toggleAutoRestart(): void;
   askSearch(): void;
@@ -562,9 +563,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     const half = (W - 56 - 12) / 2;
     out.push({ kind: 'pill', rect: { x: M + 28, y: top + 196, w: half, h: 40 }, text: `Riavvio automatico: ${v.autoRestart ? 'Sì' : 'No'}`, size: 17, ...(v.autoRestart ? { color: T.good } : {}), onClick: a.toggleAutoRestart });
     out.push({ kind: 'pill', rect: { x: M + 28 + half + 12, y: top + 196, w: half, h: 40 }, text: `Modo: ${v.relaunch}`, size: 17, onClick: a.cycleRelaunch });
-    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 246, W - 56, 24, 16, T.dim));
+    out.push({ kind: 'pill', icon: 'check', rect: { x: M + 28, y: top + 244, w: W - 56, h: 42 }, text: 'Invia segnalazione', size: 19, onClick: a.sendReport });
+    out.push(text(`Versione ${typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'}  ·  ${v.startup ? `Avvio: ${v.startup}` : 'Avvio: -'}`, M + 28, top + 296, W - 56, 24, 16, T.dim));
     // The last events, kept across app restarts: what the session did around a standby.
-    v.log.slice(-4).forEach((line, i) => out.push(text(line, M + 28, top + 276 + i * 20, W - 56, 20, 14, T.sub)));
+    v.log.slice(-2).forEach((line, i) => out.push(text(line, M + 28, top + 322 + i * 20, W - 56, 20, 14, T.sub)));
   }
   return out;
 }

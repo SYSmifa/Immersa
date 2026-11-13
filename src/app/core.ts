@@ -335,6 +335,30 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let current: Project | null = null;
   const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
   let depthOn = depthFixPreferred();
+  let reportBusy = false;
+  // The facts of this session that go with a report (besides the event log): enough to tell what state the app was in.
+  function reportPayload(): Record<string, unknown> {
+    const fix = recognised ? fixes.get(recognised.room.id) : undefined;
+    return {
+      sentAt: new Date().toISOString(),
+      log: view.log,
+      project: current ? { id: current.id, name: current.name, rooms: current.roomIds.length, models: current.models.length, structures: current.structures?.length ?? 0 } : null,
+      room: recognised ? { id: recognised.room.id, name: recognised.room.name, matched: recognised.alignment.matched, total: recognised.alignment.total, residCm: Math.round(recognised.alignment.resid * 1000) / 10 } : null,
+      rooms: rooms.length,
+      planes: { here: live.length, seen: rawLive.length },
+      aligned: [...aligns.keys()].length,
+      depth: { on: depthOn, info: view.depthInfo, fix: fix ? { cmShift: Math.round(Math.hypot(fix.tx, fix.tz) * 1000) / 10, deg: Math.round(((fix.theta * 180) / Math.PI) * 100) / 100 } : null },
+      session: sessionId,
+      scannedThisSession,
+      startup: view.startup,
+      hand: view.dominant,
+      layers: view.layers,
+      autoRestart: autoRestartOn(),
+      relaunch: relaunchMode(),
+      screen: `${window.innerWidth}x${window.innerHeight}`,
+      page: location.pathname + location.search,
+    };
+  }
   let foreign: { key: string; roomId: string; matrix: Matrix4 } | null = null; // project shown away from its rooms
   let foreignMode = false; // the project was opened with none of its rooms found: shown away from them
   let lastFar = 0;
@@ -611,7 +635,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       finish: shownFinish(m, colorTarget, mats),
     };
   }
-  const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean; multiline?: boolean } = {}) =>
+  const ask = (title: string, initial = '', opts: { max?: number; secret?: boolean; capital?: boolean; multiline?: boolean; allowEmpty?: boolean } = {}) =>
     new Promise<string | null>((resolve) => keyboard.open({ title, initial, ...opts, onDone: resolve, onCancel: () => resolve(null) }));
   // Start-up timeline (seconds since the page loaded), shown in the Account tab to see where the time goes.
   const marks = new Map<string, number>();
@@ -2099,6 +2123,27 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       setAutoRestart(!view.autoRestart);
       view.autoRestart = autoRestartOn();
       render();
+    },
+    // Account -> "Invia segnalazione": what the user says (may be empty), the build, the device, the event log and a few facts about the
+    // session go to the account's cloud (table `reports`), to see what went wrong at a customer's without a cable.
+    async sendReport() {
+      if (reportBusy) return;
+      if (!view.email) return say('Accedi per inviare una segnalazione', 5000);
+      const note = await ask('Cosa è successo? (puoi lasciare vuoto)', '', { max: 300, capital: true, multiline: true, allowEmpty: true });
+      if (note === null) return;
+      reportBusy = true;
+      logEvent('segnalazione: invio');
+      say('Invio la segnalazione...', 20000);
+      try {
+        await backend.sendReport({ note, appVersion: typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev', device: navigator.userAgent.slice(0, 240), payload: reportPayload() });
+        logEvent('segnalazione: inviata');
+        say('Segnalazione inviata, grazie', 5000);
+      } catch (e) {
+        logEvent(`segnalazione: non inviata (${errText(e)})`);
+        say(`Segnalazione non inviata: ${errText(e)}`, 9000);
+      } finally {
+        reportBusy = false;
+      }
     },
     // A by-hand test of the app relaunching itself (see app/relaunch.ts): the same as before a second room scan.
     restartApp() {
@@ -3845,7 +3890,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     events.push(`${hms} ${text}`);
     console.log(`[immersa] ${text}`);
     if (events.length > 8) events.shift();
-    view.log = [...view.log, `${hms} ${text}`].slice(-30);
+    view.log = [...view.log, `${hms} ${text}`].slice(-150);
     try {
       localStorage.setItem(LOG_KEY, JSON.stringify(view.log));
     } catch {
@@ -4176,6 +4221,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selectedStruct: () => selectedStructId,
     selectedPart: () => selectedPart,
     openObject: () => openObjectMenu(), // test hook
+    sendReport: () => actions.sendReport(), // test hook
     startAlign: () => startAlign(), // test hook
     choiceOptions: () => choiceRun?.options ?? null, // test hooks
     pickChoice: (i: number | null) => finishChoice(i),

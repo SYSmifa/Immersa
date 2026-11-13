@@ -164,6 +164,10 @@ export function createSupabaseBackend(): Backend {
       if (missingColumn(error)) throw new Error('Il luogo non si può salvare: va rieseguito supabase/schema.sql');
       check(error);
     },
+    async sendReport(r) {
+      const { error } = await client().from('reports').insert({ note: r.note, app_version: r.appVersion, device: r.device, payload: r.payload }); // no .select(): users cannot read reports back
+      if (error) throw new Error(/reports/.test(error.message) && /schema cache|does not exist/i.test(error.message) ? 'manca la tabella delle segnalazioni: riesegui supabase/schema.sql' : error.message);
+    },
     async saveRoomData(id, scan) {
       const { error } = await client().from('rooms').update({ data: scan }).eq('id', id); // not `updated_at`: this is not a new scan
       check(error);

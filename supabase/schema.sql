@@ -124,5 +124,22 @@ create table if not exists public.device_link_failures (
 );
 alter table public.device_link_failures enable row level security;
 
+-- Reports sent from the headset (Account -> "Invia segnalazione"): the event log and a few facts about the session, to find out what
+-- went wrong at a customer's. A user can only ADD rows for himself (nobody can read them back through the API: read them in the
+-- dashboard's table editor, or with the service role).
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users on delete cascade,
+  created_at timestamptz not null default now(),
+  app_version text,
+  device text,
+  note text,
+  payload jsonb,
+  constraint reports_size check (octet_length(coalesce(note, '')) <= 2000 and pg_column_size(payload) <= 300000)
+);
+alter table public.reports enable row level security;
+drop policy if exists "reports: insert own" on public.reports;
+create policy "reports: insert own" on public.reports for insert to authenticated with check (user_id = (select auth.uid()));
+
 -- Make the API see the new tables right away.
 notify pgrst, 'reload schema';
