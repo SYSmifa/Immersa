@@ -1337,6 +1337,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     toRoom?: Matrix4; // the points are in the session frame but the plan is the room's: this brings them to the plan
     needFloor: boolean; // after the points, one more touch on the real floor (at the end, so the points can be touched at any height)
     floorStep: boolean;
+    lastAt: number; // when the last point was taken (a second pinch by mistake right after is not a new one)
     done: (r: { pts: Vector3[]; floor: number | null } | null) => void;
   };
   let refRun: RefRun | null = null;
@@ -1359,6 +1360,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         toRoom: opts.toRoom,
         needFloor: !!opts.needFloor,
         floorStep: false,
+        lastAt: 0,
         done: (r) => {
           refRun = null;
           alignCard.mesh.visible = false;
@@ -1487,8 +1489,19 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done({ pts: run.pts, floor: null }) });
     }
     if (run.floorStep) rows.push({ kind: 'pill', rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: 'Salta (altezza approssimata)', size: 25, onClick: () => run.done({ pts: run.pts, floor: null }) });
+    if (run.kind === 'align' && n) rows.push({ kind: 'pill', rect: { x: 36, y: H - (run.floorStep ? 240 : 168), w: w - 72, h: 60 }, text: 'Ricomincia dal punto 1', size: 25, onClick: restartRefs });
     rows.push({ kind: 'pill', rect: { x: 36, y: H - 96, w: w - 72, h: 60 }, text: 'Annulla', size: 27, color: '#f87171', onClick: () => run.done(null) });
     alignCard.set(rows as never);
+  }
+
+  function restartRefs() {
+    const run = refRun;
+    if (!run) return;
+    run.pts = [];
+    run.floorStep = false;
+    run.error = '';
+    clearAlignMarks();
+    drawRefCard();
   }
 
   function undoRef() {
@@ -1510,7 +1523,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       return true;
     }
     const at = pinchR.clone();
+    const now = performance.now();
     if (run.kind === 'place') {
+      if (now - run.lastAt < 800) return true; // a second pinch by mistake
       const why = refProblem([at.x, at.y, at.z], run.pts.map((p) => [p.x, p.y, p.z] as Vec3));
       if (why) {
         run.error = why;
@@ -1518,13 +1533,32 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         return true;
       }
       run.error = '';
+      run.lastAt = now;
       addRefDot(at);
       if (run.pts.length >= MAX_REFS) run.done({ pts: run.pts, floor: null });
       else drawRefCard();
       return true;
     }
+    const last = run.pts[run.pts.length - 1];
+    if (now - run.lastAt < 1200 || (last && !run.floorStep && Math.hypot(at.x - last.x, at.z - last.z) < 0.15)) {
+      return true; // the same pinch twice (or two in a row by mistake): not a new point
+    }
+    if (run.floorStep) {
+      // The floor: below your head, and below every point already touched.
+      const floor = at.y - 0.01;
+      const low = Math.min(...run.pts.map((p) => p.y));
+      const headY = lastHead?.pos.y ?? Infinity;
+      const guess = liveFloorGuess();
+      if (floor > low + 0.12 || floor > headY - 0.7 || (guess !== null && Math.abs(floor - guess) > 0.12)) {
+        run.error = 'Non sembra il pavimento: appoggia la mano a terra e pizzica di nuovo.';
+        run.lastAt = now;
+        drawRefCard();
+        return true;
+      }
+      return run.done({ pts: run.pts, floor }), true; // the hand on the real floor
+    }
     run.error = '';
-    if (run.floorStep) return run.done({ pts: run.pts, floor: at.y - 0.01 }), true; // the hand on the real floor
+    run.lastAt = now;
     addRefDot(at);
     if (run.pts.length >= run.saved.length) {
       const why = run.check?.(run.pts) ?? null;
@@ -3473,7 +3507,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
   function updateMeasures(head: Head) {
     if (refRun) {
-      measureList = refMeasures();
+      // The lines follow your hand, so the list changes all the time, and each change rebuilds the line geometry and repaints the labels:
+      // done every frame it made the whole scene (the virtual hands too) stutter. About ten times a second is enough.
+      const t = performance.now();
+      if (t - measureAt > 100) {
+        measureAt = t;
+        measureList = refMeasures();
+      }
       measureView.update(measureList, head.pos);
       return;
     }
