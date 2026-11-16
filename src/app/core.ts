@@ -45,6 +45,7 @@ export interface Head {
 interface Options {
   onLayers?(on: boolean): void; // the Options switch for panels as WebXR layers
   onFps?(on: boolean): void; // the Options switch for the fps readout
+  onFoveation?(v: number): void; // the Options switch for the foveation of the picture
   onHand?(hand: 'left' | 'right'): void; // the Options switch for the dominant hand
   scene: Scene;
   backend: Backend;
@@ -106,6 +107,17 @@ export const RATE_KEY = 'immersa.rate';
 // The reference space of the session: 'unbounded' (the default, no Guardian when the room changes) or 'local-floor'. Read when the session
 // starts. Chosen in Options to find out whether the unbounded space makes the virtual things shake while you walk.
 export const REF_KEY = 'immersa.ref';
+// Foveation: how much the edges of the picture are drawn at lower resolution (1 = most, three.js' own default). Moving the head, the soft
+// edges of the models shimmer and look like shaking: off (0) by default, Options can bring it back (it also saves some GPU).
+const FOV_KEY = 'immersa.fov';
+export const foveationPreferred = (): number => {
+  try {
+    const v = localStorage.getItem(FOV_KEY);
+    return v === null ? 0 : Math.min(1, Math.max(0, Number(v) || 0));
+  } catch {
+    return 0;
+  }
+};
 export const refSpacePreferred = (): 'unbounded' | 'local-floor' => {
   try {
     return localStorage.getItem(REF_KEY) === 'local-floor' ? 'local-floor' : 'unbounded';
@@ -199,7 +211,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Everything the headset app does, independent of how rays and planes arrive
 // (WebXR in xrApp.ts, a mouse and fake planes in the UI test harness).
-export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand, onRestart }: Options) {
+export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFoveation, onHand, onRestart }: Options) {
   const host = new UiHost();
   scene.add(host.root);
   const rig = new Group(); // menu + keyboard, follows the head
@@ -342,6 +354,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     fps: fpsPreferred(),
     rate: 0,
     refSpace: refSpacePreferred(),
+    foveation: foveationPreferred(),
     depthFix: depthFixPreferred(),
     autoReports: autoReportsPreferred(),
     depthInfo: '',
@@ -2902,6 +2915,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // The display rate of the headset (72 / 90 / 120 Hz): the app draws at 80-90 fps, and a rate it cannot keep makes everything it draws
     // (models, hands) judder when you move, while the system's own layers (the menu) stay smooth. xrApp reports what the session offers.
+    toggleFoveation() {
+      const steps = [0, 0.5, 1];
+      view.foveation = steps[(steps.indexOf(view.foveation) + 1) % steps.length] ?? 0;
+      try {
+        localStorage.setItem(FOV_KEY, String(view.foveation));
+      } catch {
+        /* storage can be unavailable */
+      }
+      onFoveation?.(view.foveation);
+      logEvent(`foveazione: ${view.foveation}`);
+      refreshView();
+    },
     toggleRefSpace() {
       view.refSpace = view.refSpace === 'unbounded' ? 'local-floor' : 'unbounded';
       try {

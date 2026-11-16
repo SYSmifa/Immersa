@@ -86,6 +86,7 @@ export interface MenuView {
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
   autoReports: boolean; // serious errors are sent by themselves
+  foveation: number; // 0 none, 0.5 medium, 1 high: the edges of the picture at lower resolution
   refSpace: 'unbounded' | 'local-floor'; // the session's reference space (read when the session starts)
   rate: number; // display rate of the headset in Hz (0 = not known)
   depthFix: boolean; // the rooms are corrected with the depth (the choice is read when the session starts)
@@ -126,6 +127,7 @@ export interface MenuActions {
   changeRefs(): void;
   toggleRate(): void;
   toggleRefSpace(): void;
+  toggleFoveation(): void;
   notThisRoom(): void;
   scan(): void;
   reread(): void;
@@ -538,7 +540,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push(toggle(1, 5, 'Correzione profondità', v.depthInfo || 'Riavvia l\'app per applicarla', v.depthFix, a.toggleDepthFix, 'scale'));
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
-    out.push({ kind: 'card', icon: 'room', rect: at(1, 6), text: 'Spazio di riferimento', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.refSpace === 'unbounded' ? 'Libero' : 'Fisso', badgeOn: v.refSpace === 'unbounded', onClick: a.toggleRefSpace });
+    out.push({ kind: 'card', icon: 'sliders', rect: at(1, 6), text: 'Foveazione', size: 19, sub: 'Bordi a bassa risoluzione', badge: v.foveation === 0 ? 'No' : v.foveation === 1 ? 'Alta' : 'Media', badgeOn: v.foveation > 0, onClick: a.toggleFoveation });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));

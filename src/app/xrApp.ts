@@ -34,7 +34,7 @@ function planeFeed(frame: XRFrame, ref: XRReferenceSpace): string {
   return `detectedPlanes ${set.size} (con posa ${posed})`;
 }
 
-export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onRestart?: (opts?: { auto?: boolean }) => void) {
+export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: PerspectiveCamera, backend: Backend, onFps: (on: boolean) => void, onFoveation: (v: number) => void, onRestart?: (opts?: { auto?: boolean }) => void) {
   let dominant: 'left' | 'right' = handPreferred(); // the hand that points with the laser; the other one is the "off hand"
   let rightPinching = false; // the dominant hand is pinching
   // Laser smoothing (exponential, time based): light while pointing, heavier while pinching (grabs) for precision.
@@ -48,6 +48,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   const core = createAppCore({
     onLayers: (on) => layers.setEnabled(on),
     onFps,
+    onFoveation,
     onRestart,
     onHand: (h) => {
       dominant = h; // the laser, the selection and the two-hand gesture swap hands

@@ -4,7 +4,7 @@ import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
-import { depthFixPreferred, fpsPreferred, refSpacePreferred } from './core';
+import { depthFixPreferred, foveationPreferred, fpsPreferred, refSpacePreferred } from './core';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
@@ -44,7 +44,8 @@ export async function runHeadsetApp() {
   const enter = createEnterAr(renderer, features, depth ? { depthSensing: { usagePreference: ['cpu-optimized', 'gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } } : {});
   // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
   // (same relaunch as the old standby restart); the new session starts the scan by itself.
-  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), (opts) => {
+  renderer.xr.setFoveation(foveationPreferred()); // three.js' own default is the maximum
+  const app = createXrApp(renderer, scene, camera, backend, (on) => stats.setEnabled(on), (v) => renderer.xr.setFoveation(v), (opts) => {
     const mode = relaunchMode();
     app.core.logEvent(isInstalledApp() ? `riavvio: ${mode}` : 'riavvio: nuova sessione');
     if (!isInstalledApp()) return void setTimeout(() => void enter.restart(), 100);
