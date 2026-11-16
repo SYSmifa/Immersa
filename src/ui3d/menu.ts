@@ -542,7 +542,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
-    out.push({ kind: 'card', icon: 'sliders', rect: at(1, 6), text: 'Foveazione', size: 19, sub: 'Bordi a bassa risoluzione', badge: v.foveation === 0 ? 'No' : v.foveation === 1 ? 'Alta' : 'Media', badgeOn: v.foveation > 0, onClick: a.toggleFoveation });
+    out.push({ kind: 'card', icon: 'room', rect: at(1, 6), text: 'Spazio di riferimento', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.refSpace === 'unbounded' ? 'Libero' : 'Fisso', badgeOn: v.refSpace === 'unbounded', onClick: a.toggleRefSpace });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));
