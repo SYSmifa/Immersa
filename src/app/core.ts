@@ -2437,7 +2437,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     beginModelLoad();
   }
 
+  let projectOpenedAt = 0;
   function openProject(p: Project) {
+    projectOpenedAt = performance.now();
     closeCurrent();
     unsaved = false;
     adoptOrphans(p, rooms); // models of a room that no longer exists go to the free space
@@ -4719,7 +4721,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     // How often the live planes are read: often while the room is being found, rarely once it is recognised (each read costs the browser).
     // Once the room has been recognised for 10 s and the models are in, they are read only every 15 s (the wake from standby and the headset moving its
     // frame read them at once): reading them is not what is needed to keep the models where they are, and it may be what makes them shake.
-    planesEvery: (now: number) => (recognised && !gap ? (now - recognisedSince > 10000 && modelsPending() === 0 ? 15000 : 2000) : 500),
+    planesEvery: (now: number) => {
+      if (gap) return 500;
+      // A project is open and all its rooms are placed, its models are in, and 10 s have passed: nothing more to find.
+      if (current && current.roomIds.length && current.roomIds.every((id) => aligns.has(id)) && modelsPending() === 0 && now - Math.max(recognisedSince, projectOpenedAt) > 10000) return 15000;
+      return recognised || (current && current.roomIds.every((id) => aligns.has(id))) ? 2000 : 500;
+    },
     sessionRates(rates: number[], current: number, set: (r: number) => void) {
       rateCtl = { rates, set };
       view.rate = current;
