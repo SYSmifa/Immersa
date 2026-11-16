@@ -532,7 +532,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'room'));
     out.push(toggle(1, 0, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'room_plan'));
     out.push(toggle(0, 1, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
-    out.push(toggle(1, 1, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
+    out.push(toggle(1, 1, 'Pannelli nitidi', 'Riavvia l\'app per applicarlo', v.layers, a.toggleLayers, 'check'));
     out.push(toggle(0, 2, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
     out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 19, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
     out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 19, sub: 'Dell\'oggetto scelto', badge: v.measures === 'off' ? 'No' : 'Sì', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });

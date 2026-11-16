@@ -6,6 +6,7 @@ import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
 import { depthFixPreferred, foveationPreferred, fpsPreferred, meshesNeeded, planesPreferred, refSpacePreferred } from './core';
+import { layersPreferred } from '../ui3d/layers';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
@@ -21,7 +22,10 @@ const FEATURES = [
   .map(([name]) => name)
   // `mesh-detection` (the furniture volumes of a scan) makes the models shake while you walk: asked for only to save a just-scanned room
   .filter((name) => name !== 'mesh-detection' || meshesNeeded())
-  .filter((name) => name !== 'plane-detection' || planesPreferred() || meshesNeeded());
+  .filter((name) => name !== 'plane-detection' || planesPreferred() || meshesNeeded())
+  // "Pannelli nitidi" off: the session is asked WITHOUT quad layers (the panels are meshes in the scene). With planes and hands on, "Fisso" and no
+  // layers the models did not shake in the tests of 16/11; the layers add to the system's load.
+  .filter((name) => name !== 'layers' || layersPreferred());
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
 // recentred when you change room (the Guardian does not come back). If the browser refuses it we
