@@ -77,8 +77,10 @@ export async function runHeadsetApp() {
   renderer.xr.addEventListener('sessionend', () => launcher.show());
   void enter.autoStart(); // the installed app's launch is the gesture; in a plain tab the button stays
   renderer.setAnimationLoop((_t, frame) => {
-    renderer.render(scene, camera);
+    // First what moves with the frame's poses (hands, laser, cards, menu), then the drawing: the other way round everything the app
+    // moves was drawn one frame late, which with the head moving shows as shaking (hands most of all).
     app.tick(frame);
+    renderer.render(scene, camera);
     stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris`);
     stats.tick(renderer.xr.isPresenting);
   });

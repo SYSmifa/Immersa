@@ -33,6 +33,10 @@ export function createStats(camera: PerspectiveCamera) {
   let info = '';
   let frames = 0;
   let last = performance.now();
+  let lastFrame = performance.now();
+  let worst = 0; // the longest gap between two frames in this window (ms)
+  let late = 0; // frames that took more than 1.5 times the usual
+  const gaps: number[] = [];
 
   function draw(text: string) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -57,10 +61,20 @@ export function createStats(camera: PerspectiveCamera) {
       panel.visible = inXr && enabled;
       frames++;
       const now = performance.now();
+      const gap = now - lastFrame;
+      lastFrame = now;
+      gaps.push(gap);
+      worst = Math.max(worst, gap);
       const dt = now - last;
       if (dt < 500) return;
-      const text = `${((frames * 1000) / dt).toFixed(0)} fps  ${(dt / frames).toFixed(1)} ms\n${info}`;
+      // A steady run has gaps all alike; a late frame is one clearly longer than the middle one (that is what shakes the picture).
+      const sorted = [...gaps].sort((a, b) => a - b);
+      const mid = sorted[Math.floor(sorted.length / 2)] || 1;
+      late = gaps.filter((g) => g > mid * 1.5).length;
+      const text = `${((frames * 1000) / dt).toFixed(0)} fps  ${(dt / frames).toFixed(1)} ms\nmax ${worst.toFixed(0)} ms  lenti ${late}/${gaps.length}\n${info}`;
       frames = 0;
+      worst = 0;
+      gaps.length = 0;
       last = now;
       dom.textContent = text;
       draw(text);
