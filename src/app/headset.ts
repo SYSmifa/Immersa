@@ -8,7 +8,14 @@ import { depthFixPreferred, fpsPreferred, refSpacePreferred } from './core';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
-const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking', 'layers'];
+// ?off=planes,meshes,hands,layers asks the session WITHOUT those features (to find which one makes the models shake); the app is made to cope.
+const OFF = (new URLSearchParams(location.search).get('off') ?? '').split(',');
+const FEATURES = [
+  ['plane-detection', 'planes'],
+  ['mesh-detection', 'meshes'],
+  ['hand-tracking', 'hands'],
+  ['layers', 'layers'],
+].filter(([, key]) => !OFF.includes(key)).map(([name]) => name);
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
 // recentred when you change room (the Guardian does not come back). If the browser refuses it we
