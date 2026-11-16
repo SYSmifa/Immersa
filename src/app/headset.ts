@@ -94,7 +94,8 @@ export async function runHeadsetApp() {
     stats.section('app', t1 - t0);
     stats.section('disegno', performance.now() - t1);
     const hz = (renderer.xr.getSession() as unknown as { frameRate?: number } | null)?.frameRate;
-    stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris${hz ? `  ${Math.round(hz)} Hz` : ''}`);
+    const pe = app.core.planesEvery(performance.now());
+    stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris${hz ? `  ${Math.round(hz)} Hz` : ''}  piani ${pe >= 1000 ? `${pe / 1000}s` : `${pe}ms`}`);
     stats.tick(renderer.xr.isPresenting);
   });
 }
