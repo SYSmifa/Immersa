@@ -1593,13 +1593,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       return true; // the same pinch twice (or two in a row by mistake): not a new point
     }
     if (run.floorStep) {
-      // The floor: below your head, and below every point already touched.
-      const floor = at.y - 0.01;
-      const low = Math.min(...run.pts.map((p) => p.y));
+      // The floor: clearly below your head (the hand can be a few cm above it, and the headset's own floor is not exact either).
+      const floor = at.y - 0.02;
       const headY = lastHead?.pos.y ?? Infinity;
-      const guess = liveFloorGuess();
-      if (floor > low + 0.12 || floor > headY - 0.7 || (guess !== null && Math.abs(floor - guess) > 0.12)) {
-        run.error = 'Non sembra il pavimento: appoggia la mano a terra e pizzica di nuovo.';
+      if (floor > headY - 0.45) {
+        run.error = 'Non sembra il pavimento: porta la mano più in basso, a terra, e pizzica di nuovo.';
         run.lastAt = now;
         drawRefCard();
         return true;
@@ -3632,13 +3630,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
   function updateMeasures(head: Head) {
     if (refRun) {
-      // The lines follow your hand, so the list changes all the time, and each change rebuilds the line geometry and repaints the labels:
-      // done every frame it made the whole scene (the virtual hands too) stutter. About ten times a second is enough.
-      const t = performance.now();
-      if (t - measureAt > 100) {
-        measureAt = t;
-        measureList = refMeasures();
-      }
+      // The lines follow your hand: made again every frame, so they never lag behind it.
+      measureList = refMeasures();
       measureView.update(measureList, head.pos);
       return;
     }
