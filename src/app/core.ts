@@ -1262,19 +1262,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   let cardPlaced = false; // false until the card has been put in front of you the first time
-  // The card is always in front of you; it glides to the new spot (position and turn) instead of jumping.
+  // The card is always in front of you. Like the menu it is rigid with your head's position (no lag behind you while you walk, which
+  // looked like stutter) and only its direction glides after where you look.
+  let cardYaw = 0;
   function placeAlignCard(head: Head, dt = 0.016) {
     if (!alignRun && !refRun) return;
-    // low in front of you, a little to the left: the corner stays in view above it
-    const f = new Vector3(head.fwd.x, 0, head.fwd.z);
-    if (f.length() < 0.2) f.set(0, 0, -1);
-    f.normalize();
+    if (Math.hypot(head.fwd.x, head.fwd.z) > 0.3) {
+      const target = yawOf(head.fwd);
+      cardYaw = cardPlaced ? cardYaw + wrap(target - cardYaw) * Math.min(1, dt * 4) : target;
+      cardPlaced = true;
+    }
+    const f = new Vector3(Math.sin(cardYaw), 0, Math.cos(cardYaw));
     const right = new Vector3(-f.z, 0, f.x);
-    const target = new Vector3(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
+    // low in front of you, a little to the left: the corner stays in view above it
     const pos = alignCard.mesh.position;
-    if (!cardPlaced) pos.copy(target);
-    else pos.lerp(target, Math.min(1, dt * 4));
-    cardPlaced = true;
+    pos.set(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
     alignCard.mesh.rotation.set(0, Math.atan2(head.pos.x - pos.x, head.pos.z - pos.z), 0);
   }
 
@@ -4585,10 +4587,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     logEvent,
     // The depth correction: the xr layer asks whether to read the depth, and hands the points over (see depthCheck).
-    depthWanted: () => depthOn && !!recognised && !gap,
+    // Reading the depth stalls the GPU for a moment (a synchronous read-back): only while it can still change something. Not for a room
+    // placed on its reference points, nor one that gave up; and rarely once the room is settled (just to notice if it is moved).
+    depthWanted: () => depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
+    depthEvery: () => (settler.settled ? 4000 : 800),
     depthPoints(points: World3[], now: number) {
       for (const p of points) depthBuf.push({ p, t: now });
-      while (depthBuf.length && (now - depthBuf[0].t > 6000 || depthBuf.length > 12000)) depthBuf.shift();
+      // trim once (shifting one by one over thousands of points made a hitch at every reading)
+      let drop = 0;
+      while (drop < depthBuf.length && now - depthBuf[drop].t > 6000) drop++;
+      drop = Math.max(drop, depthBuf.length - 12000);
+      if (drop > 0) depthBuf.splice(0, drop);
       if (now - depthAt < 1000) return;
       depthAt = now;
       depthCheck(now);

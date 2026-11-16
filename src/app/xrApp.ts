@@ -198,7 +198,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      if (core.depthWanted() && now - depthReadAt > 400) {
+      if (core.depthWanted() && now - depthReadAt > core.depthEvery()) {
         depthReadAt = now;
         const r = depthSampler.sample(frame, ref, frame.session);
         if (r) core.depthPoints(r.points, now);
