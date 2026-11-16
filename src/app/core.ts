@@ -1261,22 +1261,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     ]);
   }
 
-  let cardPlaced = false; // the card stays where it was put, and only follows when you are far from it (like the menus)
-  let cardFollowing = false;
+  let cardPlaced = false; // false until the card has been put in front of you the first time
+  // The card is always in front of you; it glides to the new spot (position and turn) instead of jumping.
   function placeAlignCard(head: Head, dt = 0.016) {
     if (!alignRun && !refRun) return;
-    if (cardPlaced) {
-      const m = alignCard.mesh.position;
-      const dx = m.x - head.pos.x;
-      const dz = m.z - head.pos.z;
-      const dist = Math.hypot(dx, dz);
-      const f = Math.hypot(head.fwd.x, head.fwd.z) || 1;
-      const cos = (dx * head.fwd.x + dz * head.fwd.z) / (dist * f || 1);
-      const lost = dist > 1.4 || cos < Math.cos((69 * Math.PI) / 180) || Math.abs(m.y - (head.pos.y - 0.34)) > 0.5;
-      if (lost) cardFollowing = true;
-      if (!cardFollowing) return;
-    }
-    cardPlaced = true;
     // low in front of you, a little to the left: the corner stays in view above it
     const f = new Vector3(head.fwd.x, 0, head.fwd.z);
     if (f.length() < 0.2) f.set(0, 0, -1);
@@ -1284,11 +1272,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const right = new Vector3(-f.z, 0, f.x);
     const target = new Vector3(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
     const pos = alignCard.mesh.position;
-    if (!cardFollowing) pos.copy(target); // first placement
-    else {
-      pos.lerp(target, Math.min(1, dt * 3)); // glides after you, like the menu
-      if (pos.distanceTo(target) < 0.1) cardFollowing = false;
-    }
+    if (!cardPlaced) pos.copy(target);
+    else pos.lerp(target, Math.min(1, dt * 4));
+    cardPlaced = true;
     alignCard.mesh.rotation.set(0, Math.atan2(head.pos.x - pos.x, head.pos.z - pos.z), 0);
   }
 
@@ -1321,7 +1307,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     clearAlignMarks();
     alignRun = { room, plan, step: 0, touches: [], error: '' };
     cardPlaced = false;
-    cardFollowing = false;
     alignCard.mesh.visible = true;
     if (lastHead) placeAlignCard(lastHead);
     drawAlignCard();
@@ -1359,7 +1344,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check'], opts: { toRoom?: Matrix4; needFloor?: boolean } = {}): Promise<{ pts: Vector3[]; floor: number | null } | null> {
     return new Promise((resolve) => {
       cardPlaced = false;
-      cardFollowing = false;
       closeMenu();
       selectModel(null);
       selectStruct(null);
