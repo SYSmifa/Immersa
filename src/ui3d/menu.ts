@@ -515,28 +515,28 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(text('Dopo averla messa, tieni il pinch sul punto per spostarla con la mano.', M + 24, top + 334, W - 48, 40, 20, T.dim, { wrap: true }));
   } else if (v.tab === 'options') {
     const half = (W - 14) / 2;
-    const STEP = 58; // six rows of cards fit above the info line
-    const H = 52;
+    const STEP = 50; // seven rows of cards fit above the info line
+    const H = 44;
     const at = (col: number, row: number) => ({ x: M + col * (half + 14), y: top + row * STEP, w: half, h: H });
     const toggle = (col: number, row: number, name: string, sub: string, on: boolean, onClick: () => void, icon: IconName): Widget => ({
-      kind: 'card', icon, rect: at(col, row), text: name, size: 22, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
+      kind: 'card', icon, rect: at(col, row), text: name, size: 19, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
     });
     out.push(toggle(0, 0, 'Contorno stanza', 'Senza progetto aperto', v.outline, a.toggleOutline, 'room'));
     out.push(toggle(1, 0, 'Pareti invisibili', 'Nascondono le altre stanze', v.showOccluders, a.toggleOccluders, 'room_plan'));
     out.push(toggle(0, 1, 'Snap', 'Rotazione e scala', v.snap, a.toggleSnap, 'sliders'));
     out.push(toggle(1, 1, 'Pannelli nitidi', 'Layer del visore', v.layers, a.toggleLayers, 'check'));
     out.push(toggle(0, 2, 'Pannello fps', 'Prestazioni', v.fps, a.toggleFps, 'sliders'));
-    out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 22, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
-    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 22, sub: 'Dell\'oggetto scelto', badge: v.measures === 'off' ? 'No' : 'Sì', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
-    out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 22, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
+    out.push({ kind: 'card', icon: 'user', rect: at(1, 2), text: 'Mano dominante', size: 19, sub: 'Laser e selezione', badge: v.dominant === 'right' ? 'Destra' : 'Sinistra', badgeOn: true, onClick: a.toggleHand });
+    out.push({ kind: 'card', icon: 'scale', rect: at(0, 3), text: 'Misure', size: 19, sub: 'Dell\'oggetto scelto', badge: v.measures === 'off' ? 'No' : 'Sì', badgeOn: v.measures !== 'off', onClick: a.toggleMeasures });
+    out.push({ kind: 'card', icon: 'cube', rect: at(1, 3), text: 'Visita virtuale', size: 19, sub: v.visit ? 'Attiva: muoviti col laser' : v.canVisit ? 'Muoviti col laser' : 'Serve una pianta CAD', badge: v.visit ? 'Disattiva' : 'Avvia', badgeOn: v.canVisit || v.visit, disabled: !v.canVisit && !v.visit, onClick: a.toggleVisit });
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
-    out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 22, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
+    out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 19, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push(toggle(1, 5, 'Correzione profondità', v.depthInfo || 'Riavvia l\'app per applicarla', v.depthFix, a.toggleDepthFix, 'scale'));
-    out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Allinea la stanza', size: 22, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
-    out.push(surface(M, top + 6 * STEP + 2, W, 44));
-    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 6 * STEP + 6, W - 48, 20, 16, v.fits[0].includes(': NO') ? T.bad : T.good));
-    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 6 * STEP + 26, W - 48, 18, 14, T.dim)));
+    out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
+    out.push(surface(M, top + 7 * STEP + 2, W, 34));
+    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
+    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));
   } else if (v.showLog) {
     // The event log in big, readable lines: the headset has no copy and paste, so it is meant to be photographed.
     out.push(surface(M, top, W, 392));
