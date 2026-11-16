@@ -11,7 +11,7 @@ export interface SpaceSize {
   side: number; // m, longest side of the bounding box
 }
 
-function floorPoints(planes: RoomPlane[]): [number, number][][] {
+export function floorPoints(planes: RoomPlane[]): [number, number][][] {
   const polys: [number, number][][] = [];
   for (const p of planes) {
     if (p.label !== 'floor' || !p.quat || !p.poly || p.poly.length < 6) continue;

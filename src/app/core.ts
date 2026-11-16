@@ -18,7 +18,9 @@ import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
 import { apply as applyFix, createSettler, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
 import type { World3 } from '../xr/depthWorld';
-import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
+import { alignFromTouches, floorHeight, suggestCorners, type CornerPlan } from '../room/anchors';
+import { floorPoints, isBigSpace } from '../room/bigSpace';
+import { MAX_REFS, MIN_REFS, MIN_REF_GAP, REF_TOLERANCE, alignFromRefs, refProblem } from '../room/refs';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
 import { compose, invert, isConfirmed, learnedLinks, linkBetween, placeByLinks } from '../room/layout';
 import { isGoodFit, isInside, recognizeRoom, type Recognised } from '../room/recognize';
@@ -297,6 +299,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     alignRoom: null,
     changedRoom: null,
     info: '',
+    refsInfo: null,
     resid: null,
     liveReady: false,
     captureAvailable: false,
@@ -474,6 +477,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     view.roomPlace = recognised?.room.place ?? null;
     view.candidate = candidate?.room.name ?? null;
     view.changedRoom = changed?.room.name ?? null;
+    view.refsInfo = recognised && isBigSpace(recognised.room.scan.planes) ? (recognised.room.scan.refs?.length ? `${recognised.room.scan.refs.length} punti` : 'da mettere') : null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
@@ -688,7 +692,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     rig.rotation.set(0, Math.atan2(head.pos.x - rig.position.x, head.pos.z - rig.position.z), 0);
   }
   function openMenu() {
-    if (alignRun || choiceRun || nameRun) return; // a card is up: it has its own Cancel
+    if (alignRun || refRun || choiceRun || nameRun) return; // a card is up: it has its own Cancel
     if (splash || warnOpen) return; // the splash screen is up: the menu opens when it goes
     rig.visible = true;
     if (lastHead) {
@@ -1147,10 +1151,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   type AlignRun = { room: Room; plan: CornerPlan; step: 0 | 1 | 2; touches: Vector3[]; error: string };
   let alignRun: AlignRun | null = null;
 
+  const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS && isBigSpace(r.scan.planes);
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
   function alignableRoom(): Room | null {
     if (!current) return null;
-    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !!suggestCorners(r.scan.planes));
+    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !hasRefs(r) && !!suggestCorners(r.scan.planes));
     return rs.find((r) => !aligns.has(r.id)) ?? rs.find((r) => r.id === recognised?.room.id) ?? rs[0] ?? null;
   }
 
@@ -1241,7 +1246,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function placeAlignCard(head: Head) {
-    if (!alignRun) return;
+    if (!alignRun && !refRun) return;
     // low in front of you, a little to the left: the corner stays in view above it
     const f = new Vector3(head.fwd.x, 0, head.fwd.z);
     if (f.length() < 0.2) f.set(0, 0, -1);
@@ -1292,6 +1297,268 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     clearAlignMarks();
     refreshView();
     releaseModels();
+  }
+
+
+  // ---- reference points of big spaces (room/refs.ts): 3-4 spots on the floor the user marks when the room is saved and touches
+  // again in every session, so a hangar whose walls Meta only approximates still lands right. Mandatory above the size threshold.
+  const refsDone = new Set<string>(); // rooms already aligned on their points in this session
+  type RefRun = {
+    kind: 'place' | 'align';
+    title: string;
+    planes: RoomPlane[];
+    saved: Vec3[]; // align: the room's points (room frame), in order
+    pts: Vector3[]; // the points touched so far (session frame)
+    error: string;
+    check?: (pts: Vector3[]) => string | null; // align: null = the points fit the saved ones
+    done: (r: Vector3[] | null) => void;
+  };
+  let refRun: RefRun | null = null;
+
+  function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check']): Promise<Vector3[] | null> {
+    return new Promise((resolve) => {
+      closeMenu();
+      selectModel(null);
+      selectStruct(null);
+      clearAlignMarks();
+      refRun = {
+        kind,
+        title,
+        planes,
+        saved,
+        pts: [],
+        error: '',
+        check,
+        done: (r) => {
+          refRun = null;
+          alignCard.mesh.visible = false;
+          clearAlignMarks();
+          resolve(r);
+        },
+      };
+      for (const p of start) addRefDot(p);
+      alignCard.mesh.visible = true;
+      if (lastHead) placeAlignCard(lastHead);
+      drawRefCard();
+    });
+  }
+
+  function addRefDot(at: Vector3) {
+    const dot = new Mesh(new SphereGeometry(0.03, 12, 8), new MeshBasicMaterial({ color: 0x2dd4bf, depthTest: false, transparent: true }));
+    dot.renderOrder = 998;
+    dot.position.copy(at);
+    alignMarks.add(dot);
+    refRun?.pts.push(at);
+  }
+
+  // The lines of the running card: while placing, from each point already placed to your hand with the distance (red when too close);
+  // while aligning, from each point touched to your hand with the distance and the one the saved points expect.
+  function refMeasures(): Measure[] {
+    const run = refRun;
+    if (!run || !pinchR) return [];
+    const out: Measure[] = [];
+    run.pts.forEach((p, i) => {
+      const d = Math.hypot(pinchR!.x - p.x, pinchR!.z - p.z);
+      const a: Vec3 = [p.x, p.y, p.z];
+      const b: Vec3 = [pinchR!.x, p.y, pinchR!.z];
+      if (run.kind === 'place') {
+        out.push({ kind: 'ruler', a, b, text: formatLength(d), owner: 'ref', color: d < MIN_REF_GAP ? '#f87171' : '#4ade80' });
+      } else if (run.pts.length < run.saved.length) {
+        const k = run.pts.length;
+        const e = Math.hypot(run.saved[k][0] - run.saved[i][0], run.saved[k][2] - run.saved[i][2]);
+        const ok = Math.abs(d - e) <= Math.max(REF_TOLERANCE, 0.06 * e);
+        out.push({ kind: 'ruler', a, b, text: `${formatLength(d)} (deve essere ${formatLength(e)})`, owner: 'ref', color: ok ? '#4ade80' : '#fbbf24' });
+      }
+    });
+    return out;
+  }
+
+  function paintRefs(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, run: RefRun) {
+    const polys = floorPoints(run.planes);
+    const marks: [number, number][] = run.kind === 'align' ? run.saved.map((p) => [p[0], p[2]]) : run.pts.map((p) => [p.x, p.z]);
+    const pts = [...polys.flat(), ...marks];
+    c.save();
+    c.fillStyle = 'rgba(255,255,255,0.08)';
+    c.beginPath();
+    c.roundRect(x, y, w, h, 24);
+    c.fill();
+    if (!pts.length) return c.restore();
+    const minX = Math.min(...pts.map((p) => p[0]));
+    const maxX = Math.max(...pts.map((p) => p[0]));
+    const minZ = Math.min(...pts.map((p) => p[1]));
+    const maxZ = Math.max(...pts.map((p) => p[1]));
+    const pad = 44;
+    const k = Math.min((w - 2 * pad) / Math.max(0.5, maxX - minX), (h - 2 * pad) / Math.max(0.5, maxZ - minZ));
+    const X = (v: number) => x + (w - k * (maxX - minX)) / 2 + k * (v - minX);
+    const Z = (v: number) => y + (h - k * (maxZ - minZ)) / 2 + k * (v - minZ);
+    c.strokeStyle = '#e8edf5';
+    c.lineWidth = 6;
+    for (const poly of polys) {
+      c.beginPath();
+      poly.forEach((p, i) => (i ? c.lineTo(X(p[0]), Z(p[1])) : c.moveTo(X(p[0]), Z(p[1]))));
+      c.closePath();
+      c.stroke();
+    }
+    marks.forEach((p, i) => {
+      const done = run.kind === 'place' || run.pts.length > i;
+      const now = run.kind === 'align' && run.pts.length === i;
+      c.fillStyle = done ? '#22c55e' : now ? '#2dd4bf' : 'rgba(255,255,255,0.35)';
+      c.beginPath();
+      c.arc(X(p[0]), Z(p[1]), now ? 26 : 22, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = '#04211d';
+      c.font = '700 28px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(String(i + 1), X(p[0]), Z(p[1]) + 2);
+    });
+    c.restore();
+  }
+
+  function drawRefCard() {
+    const run = refRun;
+    if (!run) return;
+    const w = alignCard.pxW;
+    const n = run.pts.length;
+    const text =
+      run.kind === 'place'
+        ? `Punto ${Math.min(n + 1, MAX_REFS)} di ${MIN_REFS}-${MAX_REFS}: vai dove vuoi un riferimento fisso (un pilastro, un angolo, un segno a terra), appoggia la mano sul pavimento e pizzica. Almeno ${MIN_REF_GAP} m tra un punto e l'altro: la linea sulla mano dice la distanza.`
+        : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo), appoggia la mano sul pavimento e pizzica. Le linee dicono se la distanza dagli altri punti torna.`;
+    const rows: object[] = [
+      { kind: 'label', rect: { x: 36, y: 22, w: w - 72, h: 46 }, text: run.title, size: 34, bold: true, color: '#ffffff' },
+      { kind: 'canvas', rect: { x: 36, y: 82, w: w - 72, h: 300 }, text: '', paint: (c: CanvasRenderingContext2D, x: number, y: number, ww: number, hh: number) => paintRefs(c, x, y, ww, hh, run) },
+      { kind: 'label', rect: { x: 36, y: 392, w: w - 72, h: 196 }, text: run.error || text, size: 26, color: run.error ? '#f87171' : '#ffffff', wrap: true },
+    ];
+    const H = alignCard.pxH;
+    if (run.kind === 'place') {
+      if (n) rows.push({ kind: 'pill', rect: { x: 36, y: H - 240, w: w - 72, h: 60 }, text: 'Togli l\'ultimo punto', size: 25, onClick: undoRef });
+      if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done(run.pts) });
+    }
+    rows.push({ kind: 'pill', rect: { x: 36, y: H - 96, w: w - 72, h: 60 }, text: 'Annulla', size: 27, color: '#f87171', onClick: () => run.done(null) });
+    alignCard.set(rows as never);
+  }
+
+  function undoRef() {
+    const run = refRun;
+    if (!run || !run.pts.length) return;
+    run.pts.pop();
+    const m = alignMarks.children[alignMarks.children.length - 1];
+    if (m) alignMarks.remove(m);
+    run.error = '';
+    drawRefCard();
+  }
+
+  function refTouch(): boolean {
+    const run = refRun;
+    if (!run) return false;
+    if (!pinchR) {
+      run.error = 'Non vedo la mano: tienila davanti al visore e pizzica di nuovo.';
+      drawRefCard();
+      return true;
+    }
+    const at = pinchR.clone();
+    if (run.kind === 'place') {
+      const why = refProblem([at.x, at.y, at.z], run.pts.map((p) => [p.x, p.y, p.z] as Vec3));
+      if (why) {
+        run.error = why;
+        drawRefCard();
+        return true;
+      }
+      run.error = '';
+      addRefDot(at);
+      if (run.pts.length >= MAX_REFS) run.done(run.pts);
+      else drawRefCard();
+      return true;
+    }
+    run.error = '';
+    addRefDot(at);
+    if (run.pts.length >= run.saved.length) {
+      const why = run.check?.(run.pts) ?? null;
+      if (why) {
+        run.error = why;
+        run.pts = [];
+        clearAlignMarks();
+      } else return run.done(run.pts), true;
+    }
+    drawRefCard();
+    return true;
+  }
+
+  // The floor of the session under the points just touched.
+  const floorOfTouches = (t: Vector3[]) => liveFloorGuess() ?? Math.min(...t.map((p) => p.y)) - 0.02;
+
+  // Aligns a room on its saved points: you touch them in order, the room is placed so that they coincide.
+  async function alignRoomOnRefs(room: Room): Promise<boolean> {
+    const refs = room.scan.refs;
+    if (!refs || refs.length < MIN_REFS) return false;
+    const saved = refs.map((r) => r.pos);
+    let fit: ReturnType<typeof alignFromRefs> | null = null;
+    const check = (pts: Vector3[]) => {
+      fit = alignFromRefs(saved, pts.map((p) => [p.x, p.y, p.z] as Vec3), floorOfTouches(pts));
+      return fit.ok ? null : `Le distanze tra i punti non tornano (fino a ${Math.round(fit.worst * 100)} cm di differenza). Sono i punti giusti, nell'ordine giusto? Ricomincia dal punto 1.`;
+    };
+    const touches = await runRefs('align', `Allinea: ${room.name}`, room.scan.planes, saved, [], check);
+    if (!touches || !fit) return false;
+    const r = (fit as ReturnType<typeof alignFromRefs>).alignment;
+    aligns.set(room.id, r);
+    manual.add(room.id);
+    misses.delete(room.id);
+    foreignMode = false;
+    refsDone.add(room.id);
+    logEvent(`punti di riferimento: ${room.name} allineata (scarto ${Math.round(r.resid * 100)} cm)`);
+    syncHouses();
+    learnLinks(true);
+    refreshView();
+    return true;
+  }
+
+  // Marks the points of a room (the planes are in the session frame: right after a scan the room frame IS the session's).
+  async function placeRefsLive(planes: RoomPlane[], title: string, start: Vec3[] = []): Promise<Vec3[] | null> {
+    const pts = await runRefs('place', title, planes, [], start.map((p) => new Vector3(...p)));
+    if (!pts) return null;
+    const y = floorHeight(planes);
+    return pts.map((p) => [p.x, y, p.z] as Vec3);
+  }
+
+  // The button "Punti di riferimento" of a big room: first you touch the old points (the room is placed on them), then you
+  // mark the new set; the old set stays as a backup.
+  async function changeRefs() {
+    const room = recognised?.room;
+    if (!room) return say('Serve una stanza riconosciuta');
+    const a = aligns.get(room.id);
+    if (!a) return say('La stanza non è posizionata');
+    const old = room.scan.refs ?? [];
+    if (old.length >= MIN_REFS && !refsDone.has(room.id)) {
+      if (!(await alignRoomOnRefs(room))) return openMenu();
+    }
+    const m = placeMatrix(room.id, aligns.get(room.id)!);
+    const inv = m.clone().invert();
+    const start = (room.scan.refs ?? []).map((r) => new Vector3(...r.pos).applyMatrix4(m));
+    const live = await placeRefsLive([], `Punti: ${room.name}`, start.map((v) => [v.x, v.y, v.z] as Vec3));
+    openMenu();
+    if (!live) return;
+    const floor = floorHeight(room.scan.planes);
+    const refs = live.map((p, i) => {
+      const v = new Vector3(...p).applyMatrix4(inv);
+      return { pos: [v.x, floor, v.z] as Vec3, name: room.scan.refs?.[i]?.name };
+    });
+    room.scan = { ...room.scan, refsPrev: old.length ? old : room.scan.refsPrev, refs };
+    refsDone.add(room.id);
+    try {
+      await backend.saveRoomData(room.id, room.scan);
+      say('Punti di riferimento salvati');
+    } catch (e) {
+      say(`Errore: ${errText(e)}`);
+    }
+    refreshView();
+  }
+
+  // A project with big rooms opens: each one is aligned on its points before the models show.
+  async function refsOnOpen(rs: Room[]) {
+    for (const room of rs) {
+      if (refsDone.has(room.id)) continue;
+      if (!(await alignRoomOnRefs(room))) notify(`"${room.name}" non è allineata sui punti di riferimento`, 4000);
+    }
   }
 
   // A pinch while aligning: the touched point is where the pinch is (between thumb and index finger).
@@ -1701,10 +1968,21 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!name) return;
     const place = await pickPlace();
     if (place === undefined) return;
+    // A big space (hangar, workshop): the reference points are mandatory, there is no way round them from the headset.
+    let refs: { pos: Vec3 }[] | undefined;
+    if (isBigSpace(planes)) {
+      const pts = await placeRefsLive(planes, 'Spazio grande: punti di riferimento');
+      if (!pts) {
+        openMenu();
+        return say('Stanza non salvata: in uno spazio grande servono i punti di riferimento');
+      }
+      refs = pts.map((pos) => ({ pos }));
+    }
     openMenu();
     say('Salvo la stanza...');
     try {
-      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes }, place || undefined);
+      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes, ...(refs ? { refs } : {}) }, place || undefined);
+      if (refs) refsDone.add(room.id); // saved in this session's frame: nothing to touch again now
       rooms.unshift(room);
       createdThisSession.add(room.id);
       setRecognised({ room, alignment: identity(planes.length) });
@@ -2020,12 +2298,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const a = aligns.get(id);
       return !!room && !!a && isInside({ room, alignment: a }, [lastHead!.pos.x, lastHead!.pos.y, lastHead!.pos.z]);
     });
-    modelsHeld = unplaced && !inPlaced;
+    const refRooms = p.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && hasRefs(r) && !refsDone.has(r.id));
+    modelsHeld = (unplaced && !inPlaced) || refRooms.length > 0;
     syncHouses();
     closeMenu();
     refreshView();
     if (!modelsHeld) beginModelLoad();
-    if (modelsHeld) {
+    if (refRooms.length) {
+      say(`Aperto: ${p.name}: spazio grande, tocca i punti di riferimento per allinearlo`, 6000);
+      void refsOnOpen(refRooms).finally(() => {
+        if (!alignRun && !refRun && !choiceRun && !nameRun) releaseModels();
+      });
+    } else if (modelsHeld) {
       say(`Aperto: ${p.name}: nessuna stanza è stata ritrovata qui, scegli in quale sei e allineala`, 6000);
       // the chooser or the card up = still aligning; if neither came (nothing to do, or cancelled) the models load now
       void startAlign().finally(() => {
@@ -2220,6 +2504,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const r = candidate;
       candidate = null;
       setRecognised(r);
+    },
+    changeRefs() {
+      void changeRefs();
     },
     updateChanged() {
       if (!changed) return;
@@ -3129,6 +3416,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     return out;
   }
   function updateMeasures(head: Head) {
+    if (refRun) {
+      measureList = refMeasures();
+      measureView.update(measureList, head.pos);
+      return;
+    }
     if (selectedAnnotId && !annotOf(selectedAnnotId)) selectedAnnotId = null; // deleted elsewhere
     const notes = view.annotations && !!current?.annotations.length;
     if (!current || (view.measures === 'off' && !view.gaps && !measureOverride.size && !gapOverride.size && !notes)) {
@@ -3674,6 +3966,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   // main hand is already pinching: then it is the second hand of the turn / scale gesture.
   let mainHeld = false;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
+    if (refRun && hand === 'right' && !consumedByUi && refTouch()) {
+      mainHeld = true;
+      return;
+    }
     if (alignRun && hand === 'right' && !consumedByUi && alignTouch()) {
       mainHeld = true;
       return;
@@ -4271,6 +4567,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     startAlign: () => startAlign(), // test hook
     choiceOptions: () => choiceRun?.options ?? null, // test hooks
     pickChoice: (i: number | null) => finishChoice(i),
+    refsPlace: () => placeRefsLive(live, 'Spazio grande: punti di riferimento'), // test hook
+    refsState: () => (refRun ? { n: refRun.pts.length, error: refRun.error, shown: alignCard.mesh.visible } : null), // test hook
+    refTouchAt: (x: number, y: number, z: number) => {
+      pinchR = new Vector3(x, y, z);
+      return refTouch();
+    }, // test hook
     alignTouchAt: (x: number, y: number, z: number) => {
       pinchR = new Vector3(x, y, z);
       return alignTouch();

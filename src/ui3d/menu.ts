@@ -60,6 +60,7 @@ export interface MenuView {
   alignRoom: string | null; // a room of the open project that can be placed by touching two of its corners (its name)
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
   changedRoom: string | null; // saved room that only partly fits the live scan: probably this room, with a moved or changed scan
+  refsInfo: string | null; // recognised room is a big space: how many reference points it has (null = not big)
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
@@ -120,6 +121,7 @@ export interface MenuActions {
   renameRoom(): void;
   confirmCandidate(): void;
   updateChanged(): void;
+  changeRefs(): void;
   notThisRoom(): void;
   scan(): void;
   reread(): void;
@@ -450,7 +452,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       }
     }
   } else if (v.tab === 'scan') {
-    out.push(surface(M, top, W, 380));
+    out.push(surface(M, top, W, v.roomName && v.refsInfo ? 446 : 380));
     const inner = M + 28;
     const iw = W - 56;
     // The buttons stack from `y`; the last one is always "Allineamento manuale" (place the room by touching two corners).
@@ -466,6 +468,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       y = top + 104;
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);
+      if (v.refsInfo) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);
       if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
       manual();
     } else if (v.candidate) {
