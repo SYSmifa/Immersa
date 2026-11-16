@@ -4724,7 +4724,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     planesEvery: (now: number) => {
       if (gap) return 500;
       // A project is open and all its rooms are placed, its models are in, and 10 s have passed: nothing more to find.
-      if (current && current.roomIds.length && current.roomIds.every((id) => aligns.has(id)) && modelsPending() === 0 && now - Math.max(recognisedSince, projectOpenedAt) > 10000) return 15000;
+      // (a project without rooms has nothing to find: free space)
+      if (current && current.roomIds.every((id) => aligns.has(id)) && modelsPending() === 0 && now - Math.max(recognisedSince, projectOpenedAt) > 10000) return 15000;
       return recognised || (current && current.roomIds.every((id) => aligns.has(id))) ? 2000 : 500;
     },
     sessionRates(rates: number[], current: number, set: (r: number) => void) {
