@@ -538,7 +538,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 19, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
-    out.push(toggle(1, 5, 'Correzione profondità', v.depthInfo || 'Riavvia l\'app per applicarla', v.depthFix, a.toggleDepthFix, 'scale'));
+    out.push({ kind: 'card', icon: 'sliders', rect: at(1, 5), text: 'Frequenza immagini', size: 19, sub: v.rate ? 'Tocca per cambiarla' : 'Non disponibile', badge: v.rate ? `${v.rate} Hz` : '—', badgeOn: !!v.rate, disabled: !v.rate, onClick: a.toggleRate });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push({ kind: 'card', icon: 'sliders', rect: at(1, 6), text: 'Foveazione', size: 19, sub: 'Bordi a bassa risoluzione', badge: v.foveation === 0 ? 'No' : v.foveation === 1 ? 'Alta' : 'Media', badgeOn: v.foveation > 0, onClick: a.toggleFoveation });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));

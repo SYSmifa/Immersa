@@ -88,7 +88,8 @@ export async function runHeadsetApp() {
     renderer.render(scene, camera);
     stats.section('app', t1 - t0);
     stats.section('disegno', performance.now() - t1);
-    stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris`);
+    const hz = (renderer.xr.getSession() as unknown as { frameRate?: number } | null)?.frameRate;
+    stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris${hz ? `  ${Math.round(hz)} Hz` : ''}`);
     stats.tick(renderer.xr.isPresenting);
   });
 }
