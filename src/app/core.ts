@@ -1889,6 +1889,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // the headset reports for them (it reports every stored room), one room per call. The headset
   // can move its frame (new boundary, relocalisation), so every alignment is re-checked: updated
   // when the room is found elsewhere, dropped (room hidden) when it cannot be found at all.
+  const farCheckedAt = new Map<string, number>();
+  const FAR_RECHECK_MS = 8000;
   function alignFar(now: number) {
     if (!current || now - lastFar < 1200 || rawLive.length < MIN_PLANES) return;
     lastFar = now;
@@ -1897,6 +1899,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const nextId = ids[farIndex++ % ids.length]; // once: inside the callback it advanced for every room tried
     const room = rooms.find((r) => r.id === nextId)!;
     if (pinned(room.id)) return;
+    // Looking for a room costs 5-15 ms (the fit of its planes): once every 1.2 s it was a late frame that made everything shake. A room that
+    // is already placed is only looked at again every 8 s; one that is not placed yet keeps being tried often.
+    if (aligns.has(room.id) && now - (farCheckedAt.get(room.id) ?? 0) < FAR_RECHECK_MS) return;
+    farCheckedAt.set(room.id, now);
     const fit = bestFit(room);
     const old = aligns.get(room.id);
     if (fit) {
