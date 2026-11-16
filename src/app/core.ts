@@ -1164,6 +1164,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   type AlignRun = { room: Room; plan: CornerPlan; step: 0 | 1 | 2; touches: Vector3[]; error: string };
   let alignRun: AlignRun | null = null;
 
+  // A big room placed on its reference points in this session: the headset's own estimate of it (which drifts by centimetres as you walk,
+  // and whose walls are approximate in a big space) must not move it any more.
+  const pinned = (id: string) => refsDone.has(id) && aligns.has(id) && !!rooms.find((r) => r.id === id && hasRefs(r));
   const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS && isBigSpace(r.scan.planes);
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
   function alignableRoom(): Room | null {
@@ -1259,7 +1262,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   let cardPlaced = false; // the card stays where it was put, and only follows when you are far from it (like the menus)
-  function placeAlignCard(head: Head) {
+  let cardFollowing = false;
+  function placeAlignCard(head: Head, dt = 0.016) {
     if (!alignRun && !refRun) return;
     if (cardPlaced) {
       const m = alignCard.mesh.position;
@@ -1269,7 +1273,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const f = Math.hypot(head.fwd.x, head.fwd.z) || 1;
       const cos = (dx * head.fwd.x + dz * head.fwd.z) / (dist * f || 1);
       const lost = dist > 1.4 || cos < Math.cos((69 * Math.PI) / 180) || Math.abs(m.y - (head.pos.y - 0.34)) > 0.5;
-      if (!lost) return;
+      if (lost) cardFollowing = true;
+      if (!cardFollowing) return;
     }
     cardPlaced = true;
     // low in front of you, a little to the left: the corner stays in view above it
@@ -1277,8 +1282,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (f.length() < 0.2) f.set(0, 0, -1);
     f.normalize();
     const right = new Vector3(-f.z, 0, f.x);
-    alignCard.mesh.position.set(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
-    alignCard.mesh.rotation.set(0, Math.atan2(head.pos.x - alignCard.mesh.position.x, head.pos.z - alignCard.mesh.position.z), 0);
+    const target = new Vector3(head.pos.x + f.x * 0.8 - right.x * 0.2, head.pos.y - 0.34, head.pos.z + f.z * 0.8 - right.z * 0.2);
+    const pos = alignCard.mesh.position;
+    if (!cardFollowing) pos.copy(target); // first placement
+    else {
+      pos.lerp(target, Math.min(1, dt * 3)); // glides after you, like the menu
+      if (pos.distanceTo(target) < 0.1) cardFollowing = false;
+    }
+    alignCard.mesh.rotation.set(0, Math.atan2(head.pos.x - pos.x, head.pos.z - pos.z), 0);
   }
 
   function clearAlignMarks() {
@@ -1310,6 +1321,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     clearAlignMarks();
     alignRun = { room, plan, step: 0, touches: [], error: '' };
     cardPlaced = false;
+    cardFollowing = false;
     alignCard.mesh.visible = true;
     if (lastHead) placeAlignCard(lastHead);
     drawAlignCard();
@@ -1347,6 +1359,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check'], opts: { toRoom?: Matrix4; needFloor?: boolean } = {}): Promise<{ pts: Vector3[]; floor: number | null } | null> {
     return new Promise((resolve) => {
       cardPlaced = false;
+      cardFollowing = false;
       closeMenu();
       selectModel(null);
       selectStruct(null);
@@ -1832,6 +1845,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!ids.length) return;
     const nextId = ids[farIndex++ % ids.length]; // once: inside the callback it advanced for every room tried
     const room = rooms.find((r) => r.id === nextId)!;
+    if (pinned(room.id)) return;
     const fit = bestFit(room);
     const old = aligns.get(room.id);
     if (fit) {
@@ -1879,11 +1893,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function setRecognised(r: Recognised | null) {
+    if (r && pinned(r.room.id)) r = { ...r, alignment: aligns.get(r.room.id)! }; // the points win over the headset's estimate
     recognised = r;
     outline.clear();
     if (r) {
       layoutPlaced.delete(r.room.id); // the headset reports it: that placement wins
-      manual.delete(r.room.id);
+      if (!pinned(r.room.id)) manual.delete(r.room.id);
       gap = false; // found again: trust the session
       mark('stanza');
     }
@@ -1915,7 +1930,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       const wasGap = gap;
       gap = false;
       roomRoot.visible = true;
-      if (wasGap || moved(recognised!.alignment, found.alignment, found.room.id)) {
+      if (!pinned(found.room.id) && (wasGap || moved(recognised!.alignment, found.alignment, found.room.id))) {
         // The headset moved the room: follow it.
         recognised!.alignment = found.alignment;
         aligns.set(found.room.id, found.alignment);
@@ -4534,7 +4549,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       checkPending();
       followHead(head, dt);
-      placeAlignCard(head);
+      placeAlignCard(head, dt);
       updateGrab(dt);
       updatePartGrab(dt);
       updateStructGrab(dt);
@@ -4588,6 +4603,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         return logEvent(newOrigin ? 'reset: stanze spostate con l\'origine' : 'reset senza piani: stanze lasciate dove sono');
       }
       logEvent('reset del riferimento');
+      refsDone.clear(); // the points have to be touched again in the new frame
       aligns.clear();
       resetDepth();
       sessionId = String(Date.now());
