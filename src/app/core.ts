@@ -770,13 +770,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // ---- rooms and projects
   // Did a room's alignment really change? Compared where it puts the room's floor centre
   // and in yaw, so that noise of a centimetre or two does not make the room tremble.
-  function moved(a: Alignment, b: Alignment, roomId: string): boolean {
+  function moved(a: Alignment, b: Alignment, roomId: string, dist = 0.02, turn = 0.0087): boolean {
     const planes = rooms.find((r) => r.id === roomId)?.scan.planes ?? [];
     const [x, , z] = floorCentre(planes);
     const at = (m: Alignment) => [Math.cos(m.yaw) * x - Math.sin(m.yaw) * z + m.tx, Math.sin(m.yaw) * x + Math.cos(m.yaw) * z + m.tz];
     const [ax, az] = at(a);
     const [bx, bz] = at(b);
-    return Math.hypot(ax - bx, az - bz) > 0.02 || Math.abs(wrap(a.yaw - b.yaw)) > 0.0087;
+    return Math.hypot(ax - bx, az - bz) > dist || Math.abs(wrap(a.yaw - b.yaw)) > turn;
   }
 
   const alignMatrix = (a: Alignment) => new Matrix4().makeRotationY(-a.yaw).setPosition(a.tx, a.ty, a.tz);
@@ -1211,6 +1211,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // A big room placed on its reference points in this session: the headset's own estimate of it (which drifts by centimetres as you walk,
   // and whose walls are approximate in a big space) must not move it any more.
   const pinned = (id: string) => refsDone.has(id) && aligns.has(id) && !!rooms.find((r) => r.id === id && hasRefs(r));
+  // The room is recognised, its models are in and 10 s have passed: from here on it is left where it is (the headset's estimate moves by
+  // centimetres and every follow was a jump; looking for the room again every 2.5 s cost 5-15 ms each time).
+  const roomStable = (now: number) => !!recognised && !gap && modelsPending() === 0 && now - recognisedSince > 10000;
   const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS && isBigSpace(r.scan.planes);
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
   function alignableRoom(): Room | null {
@@ -2007,7 +2010,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       const wasGap = gap;
       gap = false;
       roomRoot.visible = true;
-      if (!pinned(found.room.id) && (wasGap || moved(recognised!.alignment, found.alignment, found.room.id))) {
+      // once stable only a big change is followed (10 cm, 3 degrees): the headset's small changes are noise
+      const big = roomStable(performance.now());
+      if (!pinned(found.room.id) && (wasGap || (big ? moved(recognised!.alignment, found.alignment, found.room.id, 0.1, 0.052) : moved(recognised!.alignment, found.alignment, found.room.id)))) {
         // The headset moved the room: follow it.
         recognised!.alignment = found.alignment;
         aligns.set(found.room.id, found.alignment);
@@ -2056,7 +2061,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
 
   function tryRecognise(now: number) {
-    if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < 2500) return;
+    if (!roomsLoaded || !lastHead || now < readyAt || now - lastTry < (roomStable(now) ? 15000 : 2500)) return;
     lastTry = now;
     // The session reports no planes at all (e.g. after a standby): that is a gap in the data, not you leaving the
     // room, so the recognised room and its alignment stay as they are until the planes come back.
