@@ -4740,6 +4740,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       // A project is open and all its rooms are placed, its models are in, and 10 s have passed: nothing more to find.
       // (a project without rooms has nothing to find: free space)
       if (current && current.roomIds.every((id) => aligns.has(id)) && modelsPending() === 0 && now - Math.max(recognisedSince, projectOpenedAt) > 10000) return 15000;
+      // A room of the project that the headset does not report (it forgot it): looked for often at first, then rarely (the manual alignment
+      // card is the way to place it).
+      if (current && !current.roomIds.every((id) => aligns.has(id)) && now - projectOpenedAt > 20000 && !alignRun && !refRun) return 5000;
       return recognised || (current && current.roomIds.every((id) => aligns.has(id))) ? 2000 : 500;
     },
     sessionRates(rates: number[], current: number, set: (r: number) => void) {
