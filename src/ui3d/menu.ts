@@ -87,6 +87,7 @@ export interface MenuView {
   fps: boolean; // fps readout in the headset
   autoReports: boolean; // serious errors are sent by themselves
   foveation: number; // 0 none, 0.5 medium, 1 high: the edges of the picture at lower resolution
+  planes: boolean; // automatic recognition of the room by the headset's planes (read when the session starts)
   refSpace: 'unbounded' | 'local-floor'; // the session's reference space (read when the session starts)
   rate: number; // display rate of the headset in Hz (0 = not known)
   depthFix: boolean; // the rooms are corrected with the depth (the choice is read when the session starts)
@@ -127,6 +128,7 @@ export interface MenuActions {
   changeRefs(): void;
   toggleRate(): void;
   toggleRefSpace(): void;
+  togglePlanes(): void;
   toggleFoveation(): void;
   notThisRoom(): void;
   scan(): void;
@@ -538,7 +540,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 19, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
-    out.push({ kind: 'card', icon: 'sliders', rect: at(1, 5), text: 'Frequenza immagini', size: 19, sub: v.rate ? 'Tocca per cambiarla' : 'Non disponibile', badge: v.rate ? `${v.rate} Hz` : '—', badgeOn: !!v.rate, disabled: !v.rate, onClick: a.toggleRate });
+    out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push({ kind: 'card', icon: 'sliders', rect: at(1, 6), text: 'Foveazione', size: 19, sub: 'Bordi a bassa risoluzione', badge: v.foveation === 0 ? 'No' : v.foveation === 1 ? 'Alta' : 'Media', badgeOn: v.foveation > 0, onClick: a.toggleFoveation });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));

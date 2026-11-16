@@ -63,6 +63,17 @@ const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
 // The volumes (furniture boxes) of a scan need `mesh-detection`, and that feature makes the models shake while you walk (found 16/11 by
 // starting the session without it). So it is asked for only in the session that saves a just-scanned room: a scan waiting for its name.
+// The planes (automatic recognition of the room) cost small hitches every 2-3 s while walking: the system keeps updating them. "Manual" (off)
+// starts the session without them: the project's room is then placed by hand (two corners, or the reference points). A scan waiting for its
+// name needs them (the room is saved from the live planes), so it forces them on.
+const PLANES_KEY = 'immersa.planes';
+export const planesPreferred = (): boolean => {
+  try {
+    return localStorage.getItem(PLANES_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
 export const meshesNeeded = (): boolean => {
   try {
     const raw = localStorage.getItem(PENDING_KEY);
@@ -365,6 +376,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     fps: fpsPreferred(),
     rate: 0,
     refSpace: refSpacePreferred(),
+    planes: planesPreferred(),
     foveation: foveationPreferred(),
     depthFix: depthFixPreferred(),
     autoReports: autoReportsPreferred(),
@@ -2958,6 +2970,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       logEvent(`foveazione: ${view.foveation}`);
       refreshView();
     },
+    togglePlanes() {
+      view.planes = !view.planes;
+      try {
+        localStorage.setItem(PLANES_KEY, view.planes ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      logEvent(`riconoscimento stanza: ${view.planes ? 'automatico' : 'manuale'} (dal prossimo avvio dell'app)`);
+      say(view.planes ? 'Riconoscimento automatico: riavvia l\'app per applicarlo' : 'Riconoscimento manuale: riavvia l\'app per applicarlo', 6000);
+      refreshView();
+    },
     toggleRefSpace() {
       view.refSpace = view.refSpace === 'unbounded' ? 'local-floor' : 'unbounded';
       try {
@@ -4691,6 +4714,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     // placed on its reference points, nor one that gave up; and rarely once the room is settled (just to notice if it is moved).
     depthWanted: () => !DEPTH_DISABLED && depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
     depthEvery: () => (settler.settled ? 4000 : 800),
+    // How often the live planes are read: often while the room is being found, rarely once it is recognised (each read costs the browser).
+    planesEvery: () => (recognised && !gap ? 2000 : 500),
     sessionRates(rates: number[], current: number, set: (r: number) => void) {
       rateCtl = { rates, set };
       view.rate = current;

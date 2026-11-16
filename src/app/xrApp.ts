@@ -197,6 +197,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
   // The depth of the headset, for the correction of the rooms (core.depthPoints): read about twice a second, only while it is wanted.
   const depthSampler = createDepthSampler(renderer);
   let depthReadAt = 0;
+  let planesAt = 0; // when the planes were last read
   let depthWarned = false;
 
   return {
@@ -224,7 +225,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         }
       }
 
-      if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) {
+      if (now - planesAt >= core.planesEvery()) {
+        planesAt = now;
         const planes = timed('piani', () => readPlanes(frame, ref));
         const boxes = timed('volumi', () => readBoxes(frame, ref));
         timed('riconosci', () => core.setLivePlanes(planes, boxes));

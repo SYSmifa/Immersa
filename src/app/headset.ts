@@ -5,7 +5,7 @@ import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
-import { depthFixPreferred, foveationPreferred, fpsPreferred, meshesNeeded, refSpacePreferred } from './core';
+import { depthFixPreferred, foveationPreferred, fpsPreferred, meshesNeeded, planesPreferred, refSpacePreferred } from './core';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
@@ -20,7 +20,8 @@ const FEATURES = [
   .filter(([, key]) => !OFF.includes(key))
   .map(([name]) => name)
   // `mesh-detection` (the furniture volumes of a scan) makes the models shake while you walk: asked for only to save a just-scanned room
-  .filter((name) => name !== 'mesh-detection' || meshesNeeded());
+  .filter((name) => name !== 'mesh-detection' || meshesNeeded())
+  .filter((name) => name !== 'plane-detection' || planesPreferred() || meshesNeeded());
 
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
 // recentred when you change room (the Guardian does not come back). If the browser refuses it we
