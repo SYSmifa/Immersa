@@ -172,6 +172,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     let awaySince = 0;
     session.addEventListener('visibilitychange', () => {
       core.logEvent(`sessione ${session.visibilityState}`);
+      planesAt = 0; // coming back from standby: read the planes at once
       const now = performance.now();
       if (session.visibilityState === 'hidden') {
         awaySince ||= now;
@@ -210,7 +211,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       if (ref !== watched) {
         watched = ref;
         // Fires when the headset moves the origin (e.g. after the boundary is set up again).
-        ref.addEventListener('reset', (ev) => core.referenceReset((ev as XRReferenceSpaceEvent).transform?.matrix));
+        ref.addEventListener('reset', (ev) => {
+          planesAt = 0; // the frame moved: read the planes now
+          core.referenceReset((ev as XRReferenceSpaceEvent).transform?.matrix);
+        });
       }
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
@@ -225,7 +229,7 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         }
       }
 
-      if (now - planesAt >= core.planesEvery()) {
+      if (now - planesAt >= core.planesEvery(now)) {
         planesAt = now;
         const planes = timed('piani', () => readPlanes(frame, ref));
         const boxes = timed('volumi', () => readBoxes(frame, ref));

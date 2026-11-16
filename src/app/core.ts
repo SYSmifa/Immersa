@@ -1976,7 +1976,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       .catch((e) => say(`Errore: ${errText(e)}`));
   }
 
+  let recognisedSince = 0;
   function setRecognised(r: Recognised | null) {
+    recognisedSince = performance.now();
     if (r && pinned(r.room.id)) r = { ...r, alignment: aligns.get(r.room.id)! }; // the points win over the headset's estimate
     recognised = r;
     outline.clear();
@@ -4715,7 +4717,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     depthWanted: () => !DEPTH_DISABLED && depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
     depthEvery: () => (settler.settled ? 4000 : 800),
     // How often the live planes are read: often while the room is being found, rarely once it is recognised (each read costs the browser).
-    planesEvery: () => (recognised && !gap ? 2000 : 500),
+    // Once the room has been recognised for 10 s and the models are in, they are read only every 15 s (the wake from standby and the headset moving its
+    // frame read them at once): reading them is not what is needed to keep the models where they are, and it may be what makes them shake.
+    planesEvery: (now: number) => (recognised && !gap ? (now - recognisedSince > 10000 && modelsPending() === 0 ? 15000 : 2000) : 500),
     sessionRates(rates: number[], current: number, set: (r: number) => void) {
       rateCtl = { rates, set };
       view.rate = current;
