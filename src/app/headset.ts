@@ -4,7 +4,7 @@ import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
 import { createLauncher } from './launcher';
-import { depthFixPreferred, fpsPreferred } from './core';
+import { depthFixPreferred, fpsPreferred, refSpacePreferred } from './core';
 import { createXrApp } from './xrApp';
 import { takeDepthProbeRequest } from '../xr/depthFlag';
 
@@ -13,7 +13,7 @@ const FEATURES = ['plane-detection', 'mesh-detection', 'hand-tracking', 'layers'
 // The "unbounded" reference space is meant for AR without a boundary, and the origin is not
 // recentred when you change room (the Guardian does not come back). If the browser refuses it we
 // fall back to local-floor (see createEnterAr). ?ref=local-floor forces the old behaviour.
-const UNBOUNDED = new URLSearchParams(location.search).get('ref') !== 'local-floor';
+const UNBOUNDED = new URLSearchParams(location.search).get('ref') !== 'local-floor' && refSpacePreferred() === 'unbounded';
 
 // Headset entry point: tries to start AR straight away (works when launched from the installed app; otherwise one "Entra in AR" button), then
 // the in-AR menu (sign-in, Load / Scan / Options / Account).

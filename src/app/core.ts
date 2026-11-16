@@ -103,6 +103,16 @@ const readLog = (): string[] => {
 };
 const FPS_KEY = 'immersa.fps';
 export const RATE_KEY = 'immersa.rate';
+// The reference space of the session: 'unbounded' (the default, no Guardian when the room changes) or 'local-floor'. Read when the session
+// starts. Chosen in Options to find out whether the unbounded space makes the virtual things shake while you walk.
+export const REF_KEY = 'immersa.ref';
+export const refSpacePreferred = (): 'unbounded' | 'local-floor' => {
+  try {
+    return localStorage.getItem(REF_KEY) === 'local-floor' ? 'local-floor' : 'unbounded';
+  } catch {
+    return 'unbounded';
+  }
+};
 export const fpsPreferred = () => {
   try {
     return localStorage.getItem(FPS_KEY) === '1';
@@ -331,6 +341,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     layers: layersPreferred(),
     fps: fpsPreferred(),
     rate: 0,
+    refSpace: refSpacePreferred(),
     depthFix: depthFixPreferred(),
     autoReports: autoReportsPreferred(),
     depthInfo: '',
@@ -2891,6 +2902,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     },
     // The display rate of the headset (72 / 90 / 120 Hz): the app draws at 80-90 fps, and a rate it cannot keep makes everything it draws
     // (models, hands) judder when you move, while the system's own layers (the menu) stay smooth. xrApp reports what the session offers.
+    toggleRefSpace() {
+      view.refSpace = view.refSpace === 'unbounded' ? 'local-floor' : 'unbounded';
+      try {
+        localStorage.setItem(REF_KEY, view.refSpace);
+      } catch {
+        /* storage can be unavailable */
+      }
+      logEvent(`spazio di riferimento: ${view.refSpace} (dal prossimo avvio dell'app)`);
+      refreshView();
+    },
     toggleRate() {
       if (!rateCtl || !rateCtl.rates.length) return;
       const list = [...rateCtl.rates].sort((a, b) => a - b);
