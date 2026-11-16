@@ -74,6 +74,8 @@ export const planesPreferred = (): boolean => {
     return true;
   }
 };
+// ?planesread=0 (browser test): after a project is open, the planes are not read at all, to see whether reading them causes the hitches.
+const NEVER_READ = new URLSearchParams(location.search).get('planesread') === '0';
 export const meshesNeeded = (): boolean => {
   try {
     const raw = localStorage.getItem(PENDING_KEY);
@@ -4736,6 +4738,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       return out.join('');
     },
     planesEvery: (now: number) => {
+      if (NEVER_READ && now - projectOpenedAt > 3000) return 1e9; // test: ?planesread=0 stops reading the planes 3 s after a project is opened
       if (gap) return 500;
       // A project is open and all its rooms are placed, its models are in, and 10 s have passed: nothing more to find.
       // (a project without rooms has nothing to find: free space)
