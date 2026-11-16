@@ -8,7 +8,7 @@ import { createHands } from '../xr/hands';
 import { timed } from '../ui/perf';
 import { palmNormal, pinchPoint } from '../xr/pinch';
 import { createDepthSampler } from '../xr/depthWorld';
-import { createAppCore, handPreferred, LAST_PROJECT_KEY, RATE_KEY, type Capture, type Head } from './core';
+import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -132,16 +132,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     core.logEvent(`frequenza immagini: ${s.frameRate ?? 'n/d'} Hz, disponibili ${rates.join('/') || 'n/d'}`);
     if (rates.length && typeof s.updateTargetFrameRate === 'function') {
       const set = (r: number) => void s.updateTargetFrameRate(r).catch((e: unknown) => core.logEvent(`frequenza immagini: ${e instanceof Error ? e.message : e}`));
-      let want = 0;
-      try {
-        want = Number(localStorage.getItem(RATE_KEY)) || 0;
-      } catch {
-        /* storage can be unavailable */
-      }
-      // 72 Hz unless another rate was chosen: at 120 Hz a frame lasts 8 ms and the system's own work (planes, hands) makes some of them late.
-      if (!want && rates.includes(72)) want = 72;
-      if (want && rates.includes(want)) set(want);
-      core.sessionRates(rates, want && rates.includes(want) ? want : Number(s.frameRate) || 0, set);
+      // 90 Hz (no choice in the menu any more): the rates the session offers are logged above.
+      const want = rates.includes(90) ? 90 : 0;
+      if (want) set(want);
+      core.sessionRates(rates, want || Number(s.frameRate) || 0, set);
     }
 
     session.addEventListener('selectstart', (ev) => {

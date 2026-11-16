@@ -10,7 +10,7 @@ import type { LabelLayer } from '../room/measureView';
 // rays (not drawn while its layer works); if anything goes wrong with a layer the mesh is drawn again.
 //
 // Layers are composed over the 3D scene without depth testing, so the laser's end circle is a small layer of its own.
-const KEY = 'immersa.layers';
+const KEY = 'immersa.layers2'; // new name: an old test value (off) is forgotten, the default is on
 export const layersPreferred = () => {
   try {
     return localStorage.getItem(KEY) !== '0';
