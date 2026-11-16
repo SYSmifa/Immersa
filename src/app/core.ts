@@ -742,7 +742,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let depthAt = 0;
   const settler = createSettler(); // holds the room once it is where the depth says
   let depthRoomId = '';
+  // Steps of correction applied to each room in this session: a room that does not settle after MAX_DEPTH_STEPS is left where it is
+  // (noisy readings in a big space made the models keep moving).
+  const depthSteps = new Map<string, number>();
+  const MAX_DEPTH_STEPS = 20;
   const resetDepth = () => {
+    depthSteps.clear();
     fixes.clear();
     depthBuf.length = 0;
     settler.reset();
@@ -776,6 +781,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   function depthCheck(now: number) {
     const r = recognised;
     if (!r || gap || visit || grab || partGrab || structGrab || annotGrab) return;
+    if (hasRefs(r.room)) return; // placed on its reference points: its saved walls are only approximate, the depth must not pull it onto them
+    if ((depthSteps.get(r.room.id) ?? 0) >= MAX_DEPTH_STEPS) return; // gave up: it does not settle
     const a = aligns.get(r.room.id) ?? r.alignment;
     const M = placeMatrix(r.room.id, a);
     const lines: WallLine[] = [];
@@ -825,6 +832,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (nf) {
       fixes.set(r.room.id, nf.fix);
       applyFixes();
+      const n = (depthSteps.get(r.room.id) ?? 0) + 1;
+      depthSteps.set(r.room.id, n);
+      if (n >= MAX_DEPTH_STEPS) {
+        logEvent(`profondità: non si assesta dopo ${n} correzioni, la lascio ferma (${(total(nf.fix) * 100).toFixed(1)} cm)`);
+        view.depthInfo = 'Ferma (non si assesta)';
+      }
     }
     const shown = total(nf?.fix ?? old);
     view.depthInfo = settler.settled ? `A posto (${(shown * 100).toFixed(1)} cm)` : `Correzione ${(shown * 100).toFixed(1)} cm`;
@@ -1245,8 +1258,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     ]);
   }
 
+  let cardPlaced = false; // the card stays where it was put, and only follows when you are far from it (like the menus)
   function placeAlignCard(head: Head) {
     if (!alignRun && !refRun) return;
+    if (cardPlaced) {
+      const m = alignCard.mesh.position;
+      const dx = m.x - head.pos.x;
+      const dz = m.z - head.pos.z;
+      const dist = Math.hypot(dx, dz);
+      const f = Math.hypot(head.fwd.x, head.fwd.z) || 1;
+      const cos = (dx * head.fwd.x + dz * head.fwd.z) / (dist * f || 1);
+      const lost = dist > 1.4 || cos < Math.cos((69 * Math.PI) / 180) || Math.abs(m.y - (head.pos.y - 0.34)) > 0.5;
+      if (!lost) return;
+    }
+    cardPlaced = true;
     // low in front of you, a little to the left: the corner stays in view above it
     const f = new Vector3(head.fwd.x, 0, head.fwd.z);
     if (f.length() < 0.2) f.set(0, 0, -1);
@@ -1284,6 +1309,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     selectStruct(null);
     clearAlignMarks();
     alignRun = { room, plan, step: 0, touches: [], error: '' };
+    cardPlaced = false;
     alignCard.mesh.visible = true;
     if (lastHead) placeAlignCard(lastHead);
     drawAlignCard();
@@ -1311,12 +1337,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     pts: Vector3[]; // the points touched so far (session frame)
     error: string;
     check?: (pts: Vector3[]) => string | null; // align: null = the points fit the saved ones
-    done: (r: Vector3[] | null) => void;
+    toRoom?: Matrix4; // the points are in the session frame but the plan is the room's: this brings them to the plan
+    needFloor: boolean; // after the points, one more touch on the real floor (at the end, so the points can be touched at any height)
+    floorStep: boolean;
+    done: (r: { pts: Vector3[]; floor: number | null } | null) => void;
   };
   let refRun: RefRun | null = null;
 
-  function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check']): Promise<Vector3[] | null> {
+  function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check'], opts: { toRoom?: Matrix4; needFloor?: boolean } = {}): Promise<{ pts: Vector3[]; floor: number | null } | null> {
     return new Promise((resolve) => {
+      cardPlaced = false;
       closeMenu();
       selectModel(null);
       selectStruct(null);
@@ -1329,6 +1359,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         pts: [],
         error: '',
         check,
+        toRoom: opts.toRoom,
+        needFloor: !!opts.needFloor,
+        floorStep: false,
         done: (r) => {
           refRun = null;
           alignCard.mesh.visible = false;
@@ -1374,9 +1407,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   function paintRefs(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, run: RefRun) {
-    const polys = floorPoints(run.planes);
-    const marks: [number, number][] = run.kind === 'align' ? run.saved.map((p) => [p[0], p[2]]) : run.pts.map((p) => [p.x, p.z]);
+    // The real outline: the walls (doors and windows too) of the scan; the floor's own polygon is often just a box.
+    const plan = suggestCorners(run.planes);
+    const polys = plan ? [] : floorPoints(run.planes);
+    const toPlan = (p: Vector3): [number, number] => {
+      const q = run.toRoom ? p.clone().applyMatrix4(run.toRoom) : p;
+      return [q.x, q.z];
+    };
+    const marks: [number, number][] = run.kind === 'align' ? run.saved.map((p) => [p[0], p[2]]) : run.pts.map(toPlan);
     const pts = [...polys.flat(), ...marks];
+    if (plan) for (const s of plan.segs) pts.push([s.x1, s.z1], [s.x2, s.z2]);
     c.save();
     c.fillStyle = 'rgba(255,255,255,0.08)';
     c.beginPath();
@@ -1391,6 +1431,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const k = Math.min((w - 2 * pad) / Math.max(0.5, maxX - minX), (h - 2 * pad) / Math.max(0.5, maxZ - minZ));
     const X = (v: number) => x + (w - k * (maxX - minX)) / 2 + k * (v - minX);
     const Z = (v: number) => y + (h - k * (maxZ - minZ)) / 2 + k * (v - minZ);
+    c.lineCap = 'round';
     c.strokeStyle = '#e8edf5';
     c.lineWidth = 6;
     for (const poly of polys) {
@@ -1398,6 +1439,19 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       poly.forEach((p, i) => (i ? c.lineTo(X(p[0]), Z(p[1])) : c.moveTo(X(p[0]), Z(p[1]))));
       c.closePath();
       c.stroke();
+    }
+    if (plan) {
+      const color = { wall: '#e8edf5', door: '#fbbf24', window: '#60a5fa' } as const;
+      for (const kind of ['wall', 'window', 'door'] as const) {
+        c.strokeStyle = color[kind];
+        c.lineWidth = kind === 'wall' ? 7 : 11;
+        for (const sg of plan.segs.filter((q) => q.kind === kind)) {
+          c.beginPath();
+          c.moveTo(X(sg.x1), Z(sg.z1));
+          c.lineTo(X(sg.x2), Z(sg.z2));
+          c.stroke();
+        }
+      }
     }
     marks.forEach((p, i) => {
       const done = run.kind === 'place' || run.pts.length > i;
@@ -1420,8 +1474,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     if (!run) return;
     const w = alignCard.pxW;
     const n = run.pts.length;
-    const text =
-      run.kind === 'place'
+    const text = run.floorStep
+      ? 'Ultimo passo: appoggia la mano sul pavimento e pizzica, così sistemo anche l\'altezza.'
+      : run.kind === 'place'
         ? `Punto ${Math.min(n + 1, MAX_REFS)} di ${MIN_REFS}-${MAX_REFS}: vai dove vuoi un riferimento fisso (un pilastro, un angolo, un segno a terra), appoggia la mano sul pavimento e pizzica. Almeno ${MIN_REF_GAP} m tra un punto e l'altro: la linea sulla mano dice la distanza.`
         : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo), appoggia la mano sul pavimento e pizzica. Le linee dicono se la distanza dagli altri punti torna.`;
     const rows: object[] = [
@@ -1432,8 +1487,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const H = alignCard.pxH;
     if (run.kind === 'place') {
       if (n) rows.push({ kind: 'pill', rect: { x: 36, y: H - 240, w: w - 72, h: 60 }, text: 'Togli l\'ultimo punto', size: 25, onClick: undoRef });
-      if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done(run.pts) });
+      if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done({ pts: run.pts, floor: null }) });
     }
+    if (run.floorStep) rows.push({ kind: 'pill', rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: 'Salta (altezza approssimata)', size: 25, onClick: () => run.done({ pts: run.pts, floor: null }) });
     rows.push({ kind: 'pill', rect: { x: 36, y: H - 96, w: w - 72, h: 60 }, text: 'Annulla', size: 27, color: '#f87171', onClick: () => run.done(null) });
     alignCard.set(rows as never);
   }
@@ -1466,11 +1522,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       }
       run.error = '';
       addRefDot(at);
-      if (run.pts.length >= MAX_REFS) run.done(run.pts);
+      if (run.pts.length >= MAX_REFS) run.done({ pts: run.pts, floor: null });
       else drawRefCard();
       return true;
     }
     run.error = '';
+    if (run.floorStep) return run.done({ pts: run.pts, floor: at.y - 0.01 }), true; // the hand on the real floor
     addRefDot(at);
     if (run.pts.length >= run.saved.length) {
       const why = run.check?.(run.pts) ?? null;
@@ -1478,14 +1535,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
         run.error = why;
         run.pts = [];
         clearAlignMarks();
-      } else return run.done(run.pts), true;
+      } else if (run.needFloor) run.floorStep = true;
+      else return run.done({ pts: run.pts, floor: null }), true;
     }
     drawRefCard();
     return true;
   }
-
-  // The floor of the session under the points just touched.
-  const floorOfTouches = (t: Vector3[]) => liveFloorGuess() ?? Math.min(...t.map((p) => p.y)) - 0.02;
 
   // Aligns a room on its saved points: you touch them in order, the room is placed so that they coincide.
   async function alignRoomOnRefs(room: Room): Promise<boolean> {
@@ -1494,12 +1549,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const saved = refs.map((r) => r.pos);
     let fit: ReturnType<typeof alignFromRefs> | null = null;
     const check = (pts: Vector3[]) => {
-      fit = alignFromRefs(saved, pts.map((p) => [p.x, p.y, p.z] as Vec3), floorOfTouches(pts));
+      fit = alignFromRefs(saved, pts.map((p) => [p.x, p.y, p.z] as Vec3), null);
       return fit.ok ? null : `Le distanze tra i punti non tornano (fino a ${Math.round(fit.worst * 100)} cm di differenza). Sono i punti giusti, nell'ordine giusto? Ricomincia dal punto 1.`;
     };
-    const touches = await runRefs('align', `Allinea: ${room.name}`, room.scan.planes, saved, [], check);
-    if (!touches || !fit) return false;
-    const r = (fit as ReturnType<typeof alignFromRefs>).alignment;
+    const res = await runRefs('align', `Allinea: ${room.name}`, room.scan.planes, saved, [], check, { needFloor: true });
+    if (!res || !fit) return false;
+    // the floor: the hand put on it, else the headset's estimate (the points may have been touched at any height)
+    const floorLive = res.floor ?? liveFloorGuess() ?? (lastHead ? lastHead.pos.y - 1.5 : 0);
+    const r = alignFromRefs(saved, res.pts.map((p) => [p.x, p.y, p.z] as Vec3), floorLive).alignment;
     aligns.set(room.id, r);
     manual.add(room.id);
     misses.delete(room.id);
@@ -1513,11 +1570,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   }
 
   // Marks the points of a room (the planes are in the session frame: right after a scan the room frame IS the session's).
-  async function placeRefsLive(planes: RoomPlane[], title: string, start: Vec3[] = []): Promise<Vec3[] | null> {
-    const pts = await runRefs('place', title, planes, [], start.map((p) => new Vector3(...p)));
-    if (!pts) return null;
+  async function placeRefsLive(planes: RoomPlane[], title: string, start: Vec3[] = [], toRoom?: Matrix4): Promise<Vec3[] | null> {
+    const res = await runRefs('place', title, planes, [], start.map((p) => new Vector3(...p)), undefined, { toRoom });
+    if (!res) return null;
     const y = floorHeight(planes);
-    return pts.map((p) => [p.x, y, p.z] as Vec3);
+    return res.pts.map((p) => [p.x, y, p.z] as Vec3);
   }
 
   // The button "Punti di riferimento" of a big room: first you touch the old points (the room is placed on them), then you
@@ -1534,7 +1591,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     const m = placeMatrix(room.id, aligns.get(room.id)!);
     const inv = m.clone().invert();
     const start = (room.scan.refs ?? []).map((r) => new Vector3(...r.pos).applyMatrix4(m));
-    const live = await placeRefsLive([], `Punti: ${room.name}`, start.map((v) => [v.x, v.y, v.z] as Vec3));
+    const live = await placeRefsLive(room.scan.planes, `Punti: ${room.name}`, start.map((v) => [v.x, v.y, v.z] as Vec3), inv);
     openMenu();
     if (!live) return;
     const floor = floorHeight(room.scan.planes);
