@@ -50,7 +50,15 @@ export interface RoomScan {
   savedAt: number;
   planes: RoomPlane[];
   boxes?: RoomBox[]; // absent in scans saved by older versions
+  refs?: RoomRef[]; // reference points of a big space (see room/refs.ts)
+  refsPrev?: RoomRef[]; // the set before the last change, kept as a backup
   links?: Record<string, RoomLink>; // where the other rooms of the same place are, by room id (see room/layout.ts)
+}
+
+// A reference point on the floor of a big space, in the room's frame.
+export interface RoomRef {
+  pos: Vec3;
+  name?: string;
 }
 
 // Where another room is, seen from this one: a point of the OTHER room's frame becomes a point of THIS room's frame through
