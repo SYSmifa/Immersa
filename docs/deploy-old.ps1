@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $prod = 'ccr-9d20ed4e-a2qxlt'
 $branch = (git branch --show-current).Trim()
 if ($branch -eq '') { throw 'not on a branch: go back to your branch first (git checkout <branch>)' }
-if ((git status --porcelain).Length -gt 0) { throw 'there are uncommitted changes: commit or stash them first' }
+if ((git status --porcelain --untracked-files=no).Length -gt 0) { throw 'there are uncommitted changes to tracked files: commit or stash them first (untracked files, like public\.well-known, are left alone and go into the build)' }
 git fetch origin
 Write-Host "Building $Commit (branch $branch stays untouched, you come back to it at the end)"
 git checkout --detach $Commit
