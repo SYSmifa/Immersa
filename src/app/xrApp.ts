@@ -138,6 +138,8 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       } catch {
         /* storage can be unavailable */
       }
+      // 72 Hz unless another rate was chosen: at 120 Hz a frame lasts 8 ms and the system's own work (planes, hands) makes some of them late.
+      if (!want && rates.includes(72)) want = 72;
       if (want && rates.includes(want)) set(want);
       core.sessionRates(rates, want && rates.includes(want) ? want : Number(s.frameRate) || 0, set);
     }

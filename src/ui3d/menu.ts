@@ -523,8 +523,8 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(text('Dopo averla messa, tieni il pinch sul punto per spostarla con la mano.', M + 24, top + 334, W - 48, 40, 20, T.dim, { wrap: true }));
   } else if (v.tab === 'options') {
     const half = (W - 14) / 2;
-    const STEP = 50; // seven rows of cards fit above the info line
-    const H = 44;
+    const STEP = 47; // eight rows of cards fit above the navigation bar
+    const H = 41;
     const at = (col: number, row: number) => ({ x: M + col * (half + 14), y: top + row * STEP, w: half, h: H });
     const toggle = (col: number, row: number, name: string, sub: string, on: boolean, onClick: () => void, icon: IconName): Widget => ({
       kind: 'card', icon, rect: at(col, row), text: name, size: 19, badge: on ? 'Sì' : 'No', badgeOn: on, onClick, sub,
@@ -543,9 +543,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push({ kind: 'card', icon: 'room', rect: at(1, 6), text: 'Spazio di riferimento', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.refSpace === 'unbounded' ? 'Libero' : 'Fisso', badgeOn: v.refSpace === 'unbounded', onClick: a.toggleRefSpace });
-    out.push(surface(M, top + 7 * STEP + 2, W, 34));
-    if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
-    v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));
+    out.push({ kind: 'card', icon: 'sliders', rect: at(0, 7), text: 'Frequenza immagini', size: 19, sub: v.rate ? 'Tocca per cambiarla' : 'Non disponibile', badge: v.rate ? `${v.rate} Hz` : '—', badgeOn: !!v.rate, disabled: !v.rate, onClick: a.toggleRate });
   } else if (v.showLog) {
     // The event log in big, readable lines: the headset has no copy and paste, so it is meant to be photographed.
     out.push(surface(M, top, W, 392));
