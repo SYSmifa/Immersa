@@ -1,4 +1,5 @@
 import { autoRestartAge, autoRestartOn, nextRelaunchMode, noteAutoRestart, relaunchMode, setAutoRestart } from './relaunch';
+import { timed } from '../ui/perf';
 import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
@@ -4548,10 +4549,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       lastHead = head;
       if (now - lastHere > 1000) {
         lastHere = now;
-        recompute(); // you may have walked into another room
+        timed('recompute', () => recompute()); // you may have walked into another room
       }
-      tryRecognise(now);
-      alignFar(now);
+      timed('tryRecognise', () => tryRecognise(now));
+      timed('alignFar', () => alignFar(now));
       if (view.tool && (rig.visible || !current)) cancelTool(); // the menu opened (or the project went): the tool is put away
       if (awaitingModels !== null && current) {
         const total = current.models.length;
@@ -4650,7 +4651,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       updateStructGrab(dt);
       updateAnnotGrab(dt);
       placeObjectButton(head);
-      updateMeasures(head);
+      timed('misure', () => updateMeasures(head));
       syncOutline();
       host.update();
     },

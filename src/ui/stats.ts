@@ -17,12 +17,12 @@ export function createStats(camera: PerspectiveCamera) {
 
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 192;
+  canvas.height = 288;
   const ctx = canvas.getContext('2d')!;
   const texture = new CanvasTexture(canvas);
   const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false });
   const panel = new Mesh(
-    new PlaneGeometry(0.4, 0.15),
+    new PlaneGeometry(0.4, 0.225),
     material,
   );
   panel.renderOrder = 999;
@@ -37,17 +37,34 @@ export function createStats(camera: PerspectiveCamera) {
   let worst = 0; // the longest gap between two frames in this window (ms)
   let late = 0; // frames that took more than 1.5 times the usual
   const gaps: number[] = [];
+  const sections: Record<string, number> = {}; // the longest time of each part of the frame in this window (ms)
 
-  function draw(text: string) {
+  // The first two lines big, the longest times of the parts of the frame small (two to a line), the last line the info.
+  function draw(lines: string[], small: string[], info: string) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#0f0';
+    let y = 50;
     ctx.font = '40px monospace';
-    text.split('\n').forEach((line, i) => ctx.fillText(line, 16, 56 + i * 52));
+    for (const l of lines) {
+      ctx.fillText(l, 16, y);
+      y += 46;
+    }
+    ctx.font = '26px monospace';
+    for (const l of small) {
+      ctx.fillText(l, 16, y);
+      y += 30;
+    }
+    ctx.font = '34px monospace';
+    ctx.fillText(info, 16, y + 8);
     texture.needsUpdate = true;
   }
 
   return {
+    // How long a part of the frame took (our code, the drawing): the longest in each window is shown.
+    section(name: string, ms: number) {
+      sections[name] = Math.max(sections[name] ?? 0, ms);
+    },
     setInfo(text: string) {
       info = text;
     },
@@ -71,13 +88,21 @@ export function createStats(camera: PerspectiveCamera) {
       const sorted = [...gaps].sort((a, b) => a - b);
       const mid = sorted[Math.floor(sorted.length / 2)] || 1;
       late = gaps.filter((g) => g > mid * 1.5).length;
-      const text = `${((frames * 1000) / dt).toFixed(0)} fps  ${(dt / frames).toFixed(1)} ms\nmax ${worst.toFixed(0)} ms  lenti ${late}/${gaps.length}\n${info}`;
+      const top = Object.entries(sections)
+        .sort((p, q) => q[1] - p[1])
+        .slice(0, 6)
+        .map(([k, v]) => `${k} ${v.toFixed(1)}`);
+      const small: string[] = [];
+      for (let i = 0; i < top.length; i += 2) small.push(top.slice(i, i + 2).join('  '));
+      const big = [`${((frames * 1000) / dt).toFixed(0)} fps  ${(dt / frames).toFixed(1)} ms`, `max ${worst.toFixed(0)} ms  lenti ${late}/${gaps.length}`];
+      const text = [...big, ...small, info].join('\n');
+      for (const k of Object.keys(sections)) sections[k] = 0;
       frames = 0;
       worst = 0;
       gaps.length = 0;
       last = now;
       dom.textContent = text;
-      draw(text);
+      draw(big, small, info);
     },
   };
 }

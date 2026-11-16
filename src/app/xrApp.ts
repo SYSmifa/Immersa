@@ -5,6 +5,7 @@ import { readBoxes, readPlanes } from '../room/capture';
 import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
 import { createHands } from '../xr/hands';
+import { timed } from '../ui/perf';
 import { palmNormal, pinchPoint } from '../xr/pinch';
 import { createDepthSampler } from '../xr/depthWorld';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, RATE_KEY, type Capture, type Head } from './core';
@@ -224,9 +225,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       }
 
       if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) {
-        const planes = readPlanes(frame, ref);
-        const boxes = readBoxes(frame, ref);
-        core.setLivePlanes(planes, boxes);
+        const planes = timed('piani', () => readPlanes(frame, ref));
+        const boxes = timed('volumi', () => readBoxes(frame, ref));
+        timed('riconosci', () => core.setLivePlanes(planes, boxes));
         if (wakeStart && wakeChecks.length && now - wakeStart > wakeChecks[0] * 1000) {
           core.logEvent(`${wakeChecks.shift()} s dopo il risveglio: piani ${planes.length}, ${planeFeed(frame, ref)}`);
           if (!wakeChecks.length) wakeStart = 0;

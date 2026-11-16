@@ -1,5 +1,6 @@
 import { createSupabaseBackend } from '../cloud/repo';
 import { createStats } from '../ui/stats';
+import { perf } from '../ui/perf';
 import { createStage } from '../scene/stage';
 import { createEnterAr, isInstalledApp } from './enterAr';
 import { relaunchApp, relaunchMode, takeRelaunchMark, whenAllowed } from './relaunch';
@@ -39,7 +40,8 @@ export async function runHeadsetApp() {
     renderer.xr.getDepthSensingMesh = () => null;
     renderer.xr.hasDepthSensing = () => false;
   }
-  const stats = createStats(camera); // fps readout, shown only when Options → "Pannello fps" is on
+  const stats = createStats(camera);
+  perf.sink = (name, ms) => stats.section(name, ms); // fps readout, shown only when Options → "Pannello fps" is on
   stats.setEnabled(fpsPreferred());
   const enter = createEnterAr(renderer, features, depth ? { depthSensing: { usagePreference: ['cpu-optimized', 'gpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32'] } } : {});
   // Meta allows one room scan per XR session: for the next one the session is ended and the installed app opens itself again
@@ -80,8 +82,12 @@ export async function runHeadsetApp() {
   renderer.setAnimationLoop((_t, frame) => {
     // First what moves with the frame's poses (hands, laser, cards, menu), then the drawing: the other way round everything the app
     // moves was drawn one frame late, which with the head moving shows as shaking (hands most of all).
+    const t0 = performance.now();
     app.tick(frame);
+    const t1 = performance.now();
     renderer.render(scene, camera);
+    stats.section('app', t1 - t0);
+    stats.section('disegno', performance.now() - t1);
     stats.setInfo(`${(renderer.info.render.triangles / 1000).toFixed(0)}k tris`);
     stats.tick(renderer.xr.isPresenting);
   });
