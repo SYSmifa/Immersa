@@ -111,7 +111,10 @@ export const fpsPreferred = () => {
 };
 // The correction of the rooms with the depth (Options): on unless switched off; read when the XR session starts (the depth is asked for then).
 const DEPTH_KEY = 'immersa.depthfix';
+// TEMPORARY: the depth is not asked for nor read at all, to find out whether it causes the stutter of models and hands while walking.
+export const DEPTH_DISABLED = true;
 export const depthFixPreferred = () => {
+  if (DEPTH_DISABLED) return false;
   try {
     return localStorage.getItem(DEPTH_KEY) !== '0';
   } catch {
@@ -2867,6 +2870,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       refreshView();
     },
     toggleDepthFix() {
+      if (DEPTH_DISABLED) return say('Correzione con la profondità: disattivata per un test');
       view.depthFix = !view.depthFix;
       try {
         localStorage.setItem(DEPTH_KEY, view.depthFix ? '1' : '0');
@@ -4589,7 +4593,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // The depth correction: the xr layer asks whether to read the depth, and hands the points over (see depthCheck).
     // Reading the depth stalls the GPU for a moment (a synchronous read-back): only while it can still change something. Not for a room
     // placed on its reference points, nor one that gave up; and rarely once the room is settled (just to notice if it is moved).
-    depthWanted: () => depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
+    depthWanted: () => !DEPTH_DISABLED && depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
     depthEvery: () => (settler.settled ? 4000 : 800),
     depthPoints(points: World3[], now: number) {
       for (const p of points) depthBuf.push({ p, t: now });
