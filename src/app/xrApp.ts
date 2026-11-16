@@ -7,7 +7,7 @@ import { createPanelLayers } from '../ui3d/layers';
 import { createHands } from '../xr/hands';
 import { palmNormal, pinchPoint } from '../xr/pinch';
 import { createDepthSampler } from '../xr/depthWorld';
-import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
+import { createAppCore, handPreferred, LAST_PROJECT_KEY, RATE_KEY, type Capture, type Head } from './core';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -125,6 +125,20 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
     core.logEvent(`app: ${['standalone', 'fullscreen', 'browser'].find((m) => matchMedia(`(display-mode: ${m})`).matches)} ${document.referrer.slice(0, 40)}`);
     core.logEvent(`funzioni: ${((s.enabledFeatures ?? []) as string[]).join(' ') || 'n/d'}`);
     probeAt = performance.now() + 4000;
+    // The display rate: log what the session offers and apply the one chosen in Options (the system picks one by itself otherwise).
+    const rates = Array.from((s.supportedFrameRates as ArrayLike<number> | undefined) ?? []);
+    core.logEvent(`frequenza immagini: ${s.frameRate ?? 'n/d'} Hz, disponibili ${rates.join('/') || 'n/d'}`);
+    if (rates.length && typeof s.updateTargetFrameRate === 'function') {
+      const set = (r: number) => void s.updateTargetFrameRate(r).catch((e: unknown) => core.logEvent(`frequenza immagini: ${e instanceof Error ? e.message : e}`));
+      let want = 0;
+      try {
+        want = Number(localStorage.getItem(RATE_KEY)) || 0;
+      } catch {
+        /* storage can be unavailable */
+      }
+      if (want && rates.includes(want)) set(want);
+      core.sessionRates(rates, want && rates.includes(want) ? want : Number(s.frameRate) || 0, set);
+    }
 
     session.addEventListener('selectstart', (ev) => {
       const e = ev as XRInputSourceEvent;

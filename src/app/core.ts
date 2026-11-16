@@ -102,6 +102,7 @@ const readLog = (): string[] => {
   }
 };
 const FPS_KEY = 'immersa.fps';
+export const RATE_KEY = 'immersa.rate';
 export const fpsPreferred = () => {
   try {
     return localStorage.getItem(FPS_KEY) === '1';
@@ -329,6 +330,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
+    rate: 0,
     depthFix: depthFixPreferred(),
     autoReports: autoReportsPreferred(),
     depthInfo: '',
@@ -350,6 +352,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
   let current: Project | null = null;
   const aligns = new Map<string, Alignment>(); // rooms aligned in this session (stays valid while the session lasts)
   let depthOn = depthFixPreferred();
+  let rateCtl: { rates: number[]; set: (r: number) => void } | null = null;
   let reportBusy = false;
   // Serious errors are sent by themselves (Account -> "Segnalazioni automatiche"): a JS error, a failed scan or save, a layer that
   // broke. Not more than 5 per session, not the same one twice in ten minutes, not two within twenty seconds.
@@ -2886,6 +2889,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
       logEvent(`correzione con la profondità: ${depthOn ? 'accesa (si applica al prossimo avvio dell\'app se la sessione non ha la profondità)' : 'spenta'}`);
       refreshView();
     },
+    // The display rate of the headset (72 / 90 / 120 Hz): the app draws at 80-90 fps, and a rate it cannot keep makes everything it draws
+    // (models, hands) judder when you move, while the system's own layers (the menu) stay smooth. xrApp reports what the session offers.
+    toggleRate() {
+      if (!rateCtl || !rateCtl.rates.length) return;
+      const list = [...rateCtl.rates].sort((a, b) => a - b);
+      const next = list[(list.indexOf(view.rate) + 1) % list.length];
+      view.rate = next;
+      try {
+        localStorage.setItem(RATE_KEY, String(next));
+      } catch {
+        /* storage can be unavailable */
+      }
+      rateCtl.set(next);
+      logEvent(`frequenza immagini: ${next} Hz`);
+      refreshView();
+    },
     toggleFps() {
       view.fps = !view.fps;
       try {
@@ -4595,6 +4614,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onHand
     // placed on its reference points, nor one that gave up; and rarely once the room is settled (just to notice if it is moved).
     depthWanted: () => !DEPTH_DISABLED && depthOn && !!recognised && !gap && !hasRefs(recognised.room) && (depthSteps.get(recognised.room.id) ?? 0) < MAX_DEPTH_STEPS,
     depthEvery: () => (settler.settled ? 4000 : 800),
+    sessionRates(rates: number[], current: number, set: (r: number) => void) {
+      rateCtl = { rates, set };
+      view.rate = current;
+      refreshView();
+    },
+
     depthPoints(points: World3[], now: number) {
       for (const p of points) depthBuf.push({ p, t: now });
       // trim once (shifting one by one over thousands of points made a hitch at every reading)
