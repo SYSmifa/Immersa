@@ -1,6 +1,6 @@
 import { autoRestartAge, autoRestartOn, nextRelaunchMode, noteAutoRestart, relaunchMode, setAutoRestart } from './relaunch';
 import { timed } from '../ui/perf';
-import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
+import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, Quaternion, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
@@ -61,6 +61,16 @@ const STALE_RESID = 0.03; // m: a recognised room whose planes fit worse than th
 const NEAR_MATCH = 0.35; // a saved room with at least this share of its planes found again is probably the same room, changed
 const MIN_PLANES = 4; // fewer than this is not a usable room scan
 const PENDING_KEY = 'immersa.pendingScanName';
+// The volumes (furniture boxes) of a scan need `mesh-detection`, and that feature makes the models shake while you walk (found 16/11 by
+// starting the session without it). So it is asked for only in the session that saves a just-scanned room: a scan waiting for its name.
+export const meshesNeeded = (): boolean => {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    return !!raw && Date.now() - Number(raw.split('|')[1]) <= 600000;
+  } catch {
+    return false;
+  }
+};
 const RESUME_KEY = 'immersa.resumeProject'; // set when the session is restarted after standby
 // The model paths of the project open now: after a standby restart their download starts at once (see sessionStarted).
 export const LAST_PROJECT_KEY = 'immersa.lastProject';
@@ -2157,10 +2167,19 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // The saved scan no longer matches what the headset reports (the room was scanned again, or the
   // headset's copy moved): the live planes are the truth, so store them as the room's scan (same id and
   // name; the old scan is kept as a backup) and move the models so they stay put relative to the room.
+  function boxesInto(boxes: RoomBox[], a: Alignment): RoomBox[] {
+    const m = alignMatrix(a);
+    const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -a.yaw);
+    return boxes.map((b) => {
+      const p = new Vector3(...b.pos).applyMatrix4(m);
+      return { ...b, pos: [p.x, p.y, p.z], quat: turn.clone().multiply(new Quaternion(...b.quat)).toArray() as RoomBox['quat'] };
+    });
+  }
   async function refreshRoomScan(r: Recognised): Promise<boolean> {
     const { room, alignment: a } = r;
     const planes = live;
-    const boxes = liveBoxes;
+    // Without `mesh-detection` (not asked for outside a scan) there are no live volumes: the saved ones are kept, moved to the new frame.
+    const boxes = liveBoxes.length || !room.scan.boxes?.length ? liveBoxes : boxesInto(room.scan.boxes, a);
     if (planes.length < MIN_PLANES) return false;
     refreshed.add(room.id);
     const m = alignMatrix(a);
