@@ -16,17 +16,17 @@ export function createStats(camera: PerspectiveCamera) {
   document.body.appendChild(dom);
 
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
+  canvas.width = 800;
   canvas.height = 288;
   const ctx = canvas.getContext('2d')!;
   const texture = new CanvasTexture(canvas);
   const material = new MeshBasicMaterial({ map: texture, transparent: true, depthTest: false });
   const panel = new Mesh(
-    new PlaneGeometry(0.4, 0.225),
+    new PlaneGeometry(0.625, 0.225),
     material,
   );
   panel.renderOrder = 999;
-  panel.position.set(-0.3, -0.2, -0.9);
+  panel.position.set(-0.42, -0.2, -0.9);
   camera.add(panel);
 
   let enabled = true;
@@ -55,7 +55,7 @@ export function createStats(camera: PerspectiveCamera) {
       ctx.fillText(l, 16, y);
       y += 30;
     }
-    ctx.font = '34px monospace';
+    ctx.font = '32px monospace';
     ctx.fillText(info, 16, y + 8);
     texture.needsUpdate = true;
   }
