@@ -4721,6 +4721,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     // How often the live planes are read: often while the room is being found, rarely once it is recognised (each read costs the browser).
     // Once the room has been recognised for 10 s and the models are in, they are read only every 15 s (the wake from standby and the headset moving its
     // frame read them at once): reading them is not what is needed to keep the models where they are, and it may be what makes them shake.
+    // Why the planes are read as often as they are (shown in the fps panel): g = a gap (planes lost), n = no project, m = models still loading,
+    // r = a room of the project is not placed, t = the project was opened less than 10 s ago.
+    planesWhy: (now: number) => {
+      const out: string[] = [];
+      if (gap) out.push('g');
+      if (!current) out.push('n');
+      else {
+        const left = modelsPending();
+        if (left > 0) out.push(`m${left}`);
+        if (!current.roomIds.every((id) => aligns.has(id))) out.push('r');
+        if (now - Math.max(recognisedSince, projectOpenedAt) <= 10000) out.push('t');
+      }
+      return out.join('');
+    },
     planesEvery: (now: number) => {
       if (gap) return 500;
       // A project is open and all its rooms are placed, its models are in, and 10 s have passed: nothing more to find.
