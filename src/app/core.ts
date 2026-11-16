@@ -1890,6 +1890,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // can move its frame (new boundary, relocalisation), so every alignment is re-checked: updated
   // when the room is found elsewhere, dropped (room hidden) when it cannot be found at all.
   const farCheckedAt = new Map<string, number>();
+  const farMisses = new Map<string, number>();
   const FAR_RECHECK_MS = 8000;
   function alignFar(now: number) {
     if (!current || now - lastFar < 1200 || rawLive.length < MIN_PLANES) return;
@@ -1901,10 +1902,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (pinned(room.id)) return;
     // Looking for a room costs 5-15 ms (the fit of its planes): once every 1.2 s it was a late frame that made everything shake. A room that
     // is already placed is only looked at again every 8 s; one that is not placed yet keeps being tried often.
-    if (aligns.has(room.id) && now - (farCheckedAt.get(room.id) ?? 0) < FAR_RECHECK_MS) return;
+    // A room not found keeps costing the same each time it is tried: after each miss the wait doubles (1.2, 2.4, 4.8 ... 10 s).
+    const wait = aligns.has(room.id) ? FAR_RECHECK_MS : Math.min(10000, 1200 * 2 ** (farMisses.get(room.id) ?? 0));
+    if (now - (farCheckedAt.get(room.id) ?? 0) < wait) return;
     farCheckedAt.set(room.id, now);
     const fit = bestFit(room);
     const old = aligns.get(room.id);
+    if (fit) farMisses.delete(room.id);
+    else farMisses.set(room.id, (farMisses.get(room.id) ?? 0) + 1);
     if (fit) {
       misses.delete(room.id);
       if (!old || moved(old, fit, room.id)) {
