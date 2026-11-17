@@ -54,3 +54,33 @@ export function palmNormal(frame: XRFrame, src: XRInputSource, ref: XRReferenceS
   if (src.handedness === 'left') normal.negate(); // mirrored hand
   return { normal, wrist };
 }
+
+// The pointing pose of a tracked hand: index finger out, the other three curled, thumb away from the index (not a pinch).
+// A finger is "out" when its tip is much farther from the wrist than its first knuckle is. Returns the index fingertip, else null.
+export function pointingTip(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): Vector3 | null {
+  const hand = (src as any).hand;
+  if (!hand) return null;
+  const at = (name: string) => {
+    const joint = hand.get(name);
+    const pose = joint && frame.getJointPose?.(joint, ref);
+    return pose ? new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z) : null;
+  };
+  const wrist = at('wrist');
+  const tip = at('index-finger-tip');
+  const thumb = at('thumb-tip');
+  if (!wrist || !tip || !thumb) return null;
+  const ratio = (finger: string) => {
+    const t = at(`${finger}-finger-tip`);
+    const k = at(`${finger}-finger-phalanx-proximal`);
+    return t && k ? t.distanceTo(wrist) / Math.max(0.01, k.distanceTo(wrist)) : null;
+  };
+  const index = ratio('index');
+  if (index === null || index < 1.75) return null;
+  if (thumb.distanceTo(tip) < 0.05) return null;
+  let curled = 0;
+  for (const f of ['middle', 'ring', 'pinky']) {
+    const r = ratio(f);
+    if (r !== null && r < 1.5) curled++;
+  }
+  return curled >= 2 ? tip : null;
+}

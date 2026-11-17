@@ -139,6 +139,15 @@ const FOV_KEY = 'immersa.fov';
 export const foveationPreferred = (): number => 1;
 // Fixed to 'unbounded' (no card any more; ?ref=local-floor still works for a test).
 export const refSpacePreferred = (): 'unbounded' | 'local-floor' => 'unbounded';
+// How reference points are taken: with a pinch, or by holding the index finger still until a ring fills ("dwell").
+const POINT_KEY = 'immersa.pointmode';
+export const dwellPreferred = () => {
+  try {
+    return localStorage.getItem(POINT_KEY) === 'dwell';
+  } catch {
+    return false;
+  }
+};
 export const fpsPreferred = () => {
   try {
     return localStorage.getItem(FPS_KEY) === '1';
@@ -366,6 +375,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     snap: readSnap(),
     layers: layersPreferred(),
     fps: fpsPreferred(),
+    dwell: dwellPreferred(),
     rate: 0,
     refSpace: refSpacePreferred(),
     planes: planesPreferred(),
@@ -1642,6 +1652,49 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     drawRefCard();
   }
 
+  // Index finger held still: a ring fills around the fingertip (DWELL_MS) and the point is taken where it is.
+  const DWELL_MS = 1000;
+  const DWELL_STILL = 0.015; // m the fingertip may drift
+  const DWELL_COOLDOWN = 1500; // ms after a point before the next one can start
+  let pointTip: Vector3 | null = null; // the main hand's fingertip while it makes the pointing pose, else null
+  let dwell: { at: Vector3; since: number } | null = null;
+  const ringBack = new Mesh(new RingGeometry(0.014, 0.02, 40), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthTest: false, side: DoubleSide }));
+  const ringFill = new Mesh(new RingGeometry(0.014, 0.02, 40, 1, 0, 0.01), new MeshBasicMaterial({ color: 0x2dd4bf, transparent: true, depthTest: false, side: DoubleSide }));
+  for (const r of [ringBack, ringFill]) {
+    r.renderOrder = 999;
+    r.visible = false;
+    scene.add(r);
+  }
+  let ringShown = -1;
+  function dwellTick(now: number, head: Head) {
+    const run = refRun;
+    if (!view.dwell || !run || run.grab || nameRun || !pointTip) {
+      dwell = null;
+      ringBack.visible = ringFill.visible = false;
+      return;
+    }
+    if (!dwell || dwell.at.distanceTo(pointTip) > DWELL_STILL) dwell = { at: pointTip.clone(), since: now };
+    const cooling = now - run.lastAt < DWELL_COOLDOWN;
+    const f = cooling ? 0 : Math.min(1, (now - dwell.since) / DWELL_MS);
+    ringBack.position.copy(pointTip);
+    ringBack.lookAt(head.pos);
+    ringFill.position.copy(pointTip);
+    ringFill.quaternion.copy(ringBack.quaternion);
+    ringBack.visible = true;
+    ringFill.visible = f > 0;
+    if (Math.abs(f - ringShown) > 0.02) {
+      ringShown = f;
+      ringFill.geometry.dispose();
+      ringFill.geometry = new RingGeometry(0.014, 0.02, 40, 1, Math.PI / 2, -Math.max(0.01, f * Math.PI * 2));
+    }
+    if (f >= 1) {
+      pinchR = pointTip.clone();
+      dwell = null;
+      ringShown = -1;
+      refTouch('dwell');
+    }
+  }
+
   const REF_GRAB = 0.2; // m: a pinch this close to a placed point grabs it
 
   // The grabbed point follows the hand (every frame); the map is redrawn a few times a second.
@@ -1658,6 +1711,17 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     }
   }
 
+  function closeLoop(run: RefRun) {
+    run.closed = true;
+    run.selected = null;
+    run.lastAt = performance.now();
+    paintRefDots();
+    if (run.needFloor) {
+      run.floorStep = true;
+      drawRefCard();
+    } else run.done({ pts: run.pts, floor: null });
+  }
+
   // Set down: too close to another point (less than MIN_REF_GAP) and it goes back where it was, with the reason.
   function refGrabEnd() {
     const run = refRun;
@@ -1666,14 +1730,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     run.grab = null;
     // A quick tap on the first point of a perimeter (not a drag) closes the loop, as Fatto does.
     if (run.contour && g.i === 0 && run.pts.length >= run.min && performance.now() - g.t0 < 600 && run.pts[0].distanceTo(g.from) < 0.05) {
-      run.closed = true;
       run.pts[0].copy(g.from);
-      run.selected = null;
-      paintRefDots();
-      if (run.needFloor) {
-        run.floorStep = true;
-        drawRefCard();
-      } else run.done({ pts: run.pts, floor: null });
+      closeLoop(run);
       return;
     }
     const others = run.pts.filter((_, i) => i !== g.i).map((p) => [p.x, p.y, p.z] as Vec3);
@@ -1688,7 +1746,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     drawRefCard();
   }
 
-  function refTouch(): boolean {
+  function refTouch(how: 'pinch' | 'dwell' | 'test' = 'test'): boolean {
     const run = refRun;
     if (!run) return false;
     if (!pinchR) {
@@ -1697,6 +1755,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       return true;
     }
     if (nameRun) return true; // the name card is up
+    const ignorePinch = how === 'pinch' && view.dwell; // points are taken with the index finger: a pinch only grabs a placed point
     const at = pinchR.clone();
     const now = performance.now();
     if (run.kind === 'place' && !run.floorStep) {
@@ -1712,6 +1771,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
           near = i;
         }
       });
+      if (near >= 0 && how === 'dwell') {
+        // the index finger held on the first point of a perimeter closes the loop; on another point it does nothing
+        if (run.contour && near === 0) closeLoop(run);
+        return true;
+      }
       if (near >= 0) {
         run.grab = { i: near, from: run.pts[near].clone(), drawn: now, t0: now };
         run.selected = near;
@@ -1720,6 +1784,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         drawRefCard();
         return true;
       }
+      if (ignorePinch) return true;
       if (now - run.lastAt < 800) return true; // a second pinch by mistake
       const why = refProblem([at.x, at.y, at.z], run.contour ? run.pts.slice(-1).map((p) => [p.x, p.y, p.z] as Vec3) : run.pts.map((p) => [p.x, p.y, p.z] as Vec3), run.gap);
       if (why) {
@@ -1734,6 +1799,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       else drawRefCard();
       return true;
     }
+    if (ignorePinch) return true;
     const last = run.pts[run.pts.length - 1];
     if (now - run.lastAt < 1200 || (last && !run.floorStep && Math.hypot(at.x - last.x, at.z - last.z) < 0.15)) {
       return true; // the same pinch twice (or two in a row by mistake): not a new point
@@ -3187,6 +3253,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       logEvent(`frequenza immagini: ${next} Hz`);
       refreshView();
     },
+    toggleDwell() {
+      view.dwell = !view.dwell;
+      try {
+        localStorage.setItem(POINT_KEY, view.dwell ? 'dwell' : 'pinch');
+      } catch {
+        /* storage can be unavailable */
+      }
+      refreshView();
+    },
     toggleFps() {
       view.fps = !view.fps;
       try {
@@ -4365,7 +4440,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // main hand is already pinching: then it is the second hand of the turn / scale gesture.
   let mainHeld = false;
   function pinchDown(hand: 'left' | 'right', id: string, consumedByUi: boolean) {
-    if (refRun && hand === 'right' && !consumedByUi && refTouch()) {
+    if (refRun && hand === 'right' && !consumedByUi && refTouch('pinch')) {
       mainHeld = true;
       return;
     }
@@ -4785,6 +4860,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         const goal = head.pos.y - 0.04;
         card.mesh.position.y += (goal - card.mesh.position.y) * Math.min(1, dt * 4);
       }
+      dwellTick(now, head);
       if (now - lastHere > 1000) {
         lastHere = now;
         timed('recompute', () => recompute()); // you may have walked into another room
@@ -5006,8 +5082,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     pinchUp,
     setPinchPoints(left: Vector3 | null, right: Vector3 | null) {
       pinchL = left;
-      pinchR = right;
+      pinchR = view.dwell && refRun && pointTip ? pointTip : right; // the lines of the points follow the fingertip
     },
+    setPointing(tip: Vector3 | null) {
+      pointTip = tip;
+    },
+    setDwell: (on: boolean) => {
+      view.dwell = on;
+    }, // test hook
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
     selectedPart: () => selectedPart,

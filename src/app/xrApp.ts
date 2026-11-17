@@ -6,7 +6,7 @@ import { createLaser } from '../ui3d/laser';
 import { createPanelLayers } from '../ui3d/layers';
 import { createHands } from '../xr/hands';
 import { timed } from '../ui/perf';
-import { palmNormal, pinchPoint } from '../xr/pinch';
+import { palmNormal, pinchPoint, pointingTip } from '../xr/pinch';
 import { createDepthSampler } from '../xr/depthWorld';
 import { createAppCore, handPreferred, LAST_PROJECT_KEY, type Capture, type Head } from './core';
 
@@ -292,6 +292,10 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
         if (src.handedness === dominant) pr = pinchPoint(frame, src, ref);
         else pl = pinchPoint(frame, src, ref);
       }
+      // The main hand pointing (index out, the other fingers curled, no pinch): its fingertip takes reference points by holding still.
+      let tip: Vector3 | null = null;
+      for (const src of frame.session.inputSources) if (src.handedness === dominant) tip = pointingTip(frame, src, ref);
+      core.setPointing(tip);
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
       // The index fingertips, to type on the keyboard by touching the keys.
       const tips: { id: string; pos: Vector3 | null }[] = [];
