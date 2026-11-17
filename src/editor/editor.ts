@@ -982,7 +982,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const minX = Math.min(...all.map((v) => v[0])), maxX = Math.max(...all.map((v) => v[0]));
       const minZ = Math.min(...all.map((v) => v[1])), maxZ = Math.max(...all.map((v) => v[1]));
       const step = Math.max(0.5, Math.sqrt(((maxX - minX) * (maxZ - minZ)) / 30));
-      for (let x = minX + step / 2; x < maxX; x += step) for (let z = minZ + step / 2; z < maxZ; z += step) if (inside(x, z)) fadeSamples.push(new Vector3(x, floorY + 1, z));
+      for (let x = minX + step / 2; x < maxX; x += step) for (let z = minZ + step / 2; z < maxZ; z += step) if (inside(x, z)) for (const h of [0.5, 1.6]) fadeSamples.push(new Vector3(x, floorY + h, z));
     }
     if (!fadeSamples.length) {
       // no usable floor: the middle of the walls
@@ -1042,7 +1042,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   function updateFade() {
     for (const f of fades) {
-      const hide = wallsFade && (entering(f) >= 0.35 || coverage(f) >= 0.25);
+      const hide = wallsFade && (entering(f) >= 0.15 || coverage(f) >= 0.02); // any wall in the way of any of the lines counts, narrow or not
       f.a += ((hide ? 0 : 1) - f.a) * 0.18;
       if (f.fill) {
         (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
