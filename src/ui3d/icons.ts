@@ -1,7 +1,7 @@
 // Small line icons drawn on a canvas (no font or image needed). Each is drawn in a -1..1 box scaled to `size` px.
 export type IconName =
   | 'folder' | 'scan' | 'sliders' | 'user' | 'close' | 'back' | 'chevron' | 'rotate' | 'scale' | 'palette'
-  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search' | 'google' | 'ruler' | 'pin';
+  | 'room' | 'room_iso' | 'room_plan' | 'room_scan' | 'room_house' | 'trash' | 'check' | 'cube' | 'menu' | 'plus' | 'left' | 'right' | 'search' | 'google' | 'ruler' | 'pin' | 'pencil';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -134,6 +134,11 @@ const DRAW: Record<IconName, (c: Ctx, color: string) => void> = {
     poly(c, [-0.85, -0.5, 0.85, -0.5]);
     poly(c, [-0.3, -0.5, -0.3, -0.85, 0.3, -0.85, 0.3, -0.5]);
     poly(c, [-0.6, -0.5, -0.5, 0.9, 0.5, 0.9, 0.6, -0.5]);
+  },
+  pencil: (c) => {
+    poly(c, [-0.8, 0.8, -0.7, 0.4, 0.5, -0.8, 0.8, -0.5, -0.4, 0.7]);
+    c.closePath();
+    poly(c, [0.3, -0.6, 0.6, -0.3]);
   },
   check: (c) => poly(c, [-0.8, 0.05, -0.25, 0.6, 0.85, -0.55]),
   cube: (c) => {
