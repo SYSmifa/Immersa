@@ -942,6 +942,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   let fades: Fade[] = [];
   let fadeSamples: Vector3[] = []; // points inside the room, to look at
+  let fadeInside: (x: number, z: number) => boolean = () => false; // is this (x, z) over the room's floor
   let wallsFade = (() => {
     try {
       return localStorage.getItem('immersa.edfade') !== '0';
@@ -974,6 +975,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         }
         return c;
       });
+    fadeInside = inside;
     fadeSamples = [];
     const all = polys.flat();
     if (all.length) {
@@ -1018,9 +1020,29 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return hit / fadeSamples.length;
   }
   const fadeQ = new Quaternion();
+  // The share of this wall where the line of sight from the camera goes from outside the room to inside it: the wall is in the way.
+  // Local (a quarter of a metre either side of the wall), so a narrow wall counts as much as a wide one, and no normal is needed.
+  function entering(f: Fade): number {
+    if (!fadeSamples.length) return 0;
+    const cam = camera.position;
+    const N = 7;
+    let hit = 0;
+    for (let i = 0; i < N; i++) {
+      const x = f.box[0] + ((f.box[1] - f.box[0]) * (i + 0.5)) / N;
+      const w = fadeTmp.set(x, 0, (f.box[2] + f.box[3]) / 2).applyQuaternion(f.q).add(f.p);
+      let dx = w.x - cam.x;
+      let dz = w.z - cam.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.3) continue; // looking straight down: no horizontal direction
+      dx /= len;
+      dz /= len;
+      if (!fadeInside(w.x - dx * 0.25, w.z - dz * 0.25) && fadeInside(w.x + dx * 0.25, w.z + dz * 0.25)) hit++;
+    }
+    return hit / N;
+  }
   function updateFade() {
     for (const f of fades) {
-      const hide = wallsFade && coverage(f) >= 0.25;
+      const hide = wallsFade && (entering(f) >= 0.35 || coverage(f) >= 0.25);
       f.a += ((hide ? 0 : 1) - f.a) * 0.18;
       if (f.fill) {
         (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
