@@ -1497,6 +1497,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   function refMeasures(): Measure[] {
     const run = refRun;
     if (!run || !pinchR) return [];
+    if (run.contour && (run.closed || run.floorStep)) return []; // the loop is closed: the thread goes
     const out: Measure[] = [];
     run.pts.forEach((p, i) => {
       if (run.grab) {
@@ -1614,13 +1615,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const H = alignCard.pxH;
     if (run.kind === 'place' && !run.floorStep) {
       // One card per point: tap = light it up (scene and map), pencil = rename, bin = delete (the others are renumbered).
-      const first = Math.max(0, n - 4); // a perimeter has many points: the cards are those of the last four
+      const first = run.contour ? Math.max(0, n - 1) : Math.max(0, n - 4); // a perimeter has many points: only the last one has a card (bin: the one before comes back)
       run.pts.forEach((_, i) => {
         if (i < first) return;
         const y = 490 + (i - first) * 66;
         const sel = run.selected === i;
-        rows.push({ kind: 'card', rect: { x: 36, y, w: w - 72, h: 58 }, text: refName({ pos: [0, 0, 0], name: run.names[i] }, i), icon: 'pin', active: sel, reserve: 130, size: 26, onClick: () => { run.selected = sel ? null : i; paintRefDots(); drawRefCard(); } });
-        rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 3, w: 52, h: 52 }, icon: 'pencil', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => void renameRef(i) });
+        rows.push({ kind: 'card', rect: { x: 36, y, w: w - 72, h: 58 }, text: refName({ pos: [0, 0, 0], name: run.names[i] }, i), icon: 'pin', active: sel, reserve: run.contour ? 70 : 130, size: 26, onClick: () => { run.selected = sel ? null : i; paintRefDots(); drawRefCard(); } });
+        if (!run.contour) rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 3, w: 52, h: 52 }, icon: 'pencil', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => void renameRef(i) });
         rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 62, y: y + 3, w: 52, h: 52 }, icon: 'trash', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => removeRef(i) });
       });
       if (n >= run.min) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => (run.contour && (run.closed = true), run.needFloor ? ((run.floorStep = true), drawRefCard()) : run.done({ pts: run.pts, floor: null})) });
@@ -1701,10 +1702,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (run.kind === 'place' && !run.floorStep) {
       // A pinch held close to a placed point takes it: it follows the hand and is set down where the pinch ends.
       let near = -1;
+      // a perimeter has points close together (down to 1 cm apart): only a very near one is grabbed, and the first one closes the loop
       let best = REF_GRAB;
       run.pts.forEach((p, i) => {
         const d = p.distanceTo(at);
-        if (d < best) {
+        const reach = run.contour ? (i === 0 && run.pts.length >= run.min ? 0.15 : 0.05) : REF_GRAB;
+        if (d < Math.min(best, reach)) {
           best = d;
           near = i;
         }

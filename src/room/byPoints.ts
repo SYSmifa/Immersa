@@ -6,7 +6,7 @@ import type { RoomPlane, RoomRef, RoomScan, Vec3 } from './types';
 // session's at the time of creation (like a fresh scan).
 export const WALL_HEIGHT = 3; // m, default
 export const MIN_CONTOUR = 3;
-export const MIN_CONTOUR_GAP = 0.3; // m between two consecutive points
+export const MIN_CONTOUR_GAP = 0.01; // m between two consecutive points
 
 // The two points farthest apart: "opposite", so that touching just them again fixes the room's position and turn.
 export function oppositePair(pts: Vec3[]): [number, number] {

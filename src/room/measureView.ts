@@ -9,8 +9,8 @@ import { SELECT_COLOR } from './selection';
 // same apparent size at any distance. Measures come in world coordinates. Drawn over everything (no depth test), so a line
 // behind an object is still seen.
 const MAX_LABELS = 28;
-const LINE_DIM = 0.004; // m
-const LINE_GAP = 0.005;
+const LINE_DIM = 0.0075; // m (about half the room outline's thickness)
+const LINE_GAP = 0.0075;
 const ASPECT = 4; // label width / height
 const LINE_H = 50; // px of one line in a note with several lines
 const LINE_PX = 34; // its font size
@@ -75,7 +75,7 @@ export function createMeasureView() {
   const dimMat = mat(0xffffff, LINE_DIM);
   const gapMat = mat(0x2dd4bf, LINE_GAP);
   const annotMats = new Map<string, LineMaterial>(); // annotations: a line material per colour
-  const haloMat = mat(SELECT_COLOR, LINE_GAP * 3.2);
+  const haloMat = mat(SELECT_COLOR, LINE_GAP * 2.4);
   haloMat.depthTest = false;
   let haloLines: LineSegments2 | null = null;
   let annotLines: LineSegments2[] = [];
