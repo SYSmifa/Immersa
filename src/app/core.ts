@@ -1,6 +1,6 @@
 import { autoRestartAge, autoRestartOn, nextRelaunchMode, noteAutoRestart, relaunchMode, setAutoRestart } from './relaunch';
 import { timed } from '../ui/perf';
-import { BackSide, Box3, CircleGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, Quaternion, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
+import { BackSide, Box3, CircleGeometry, CylinderGeometry, Color, DoubleSide, Group, Matrix4, Mesh, MeshBasicMaterial, Plane, Quaternion, RingGeometry, Raycaster, Scene, ShaderMaterial, SphereGeometry, Vector3, type Object3D } from 'three';
 import type { Backend } from '../cloud/backend';
 import { alignPlanes, describeMisses, planeNormal, type Alignment } from '../room/align';
 import { drawBoxes, drawPlanes } from '../room/draw';
@@ -1643,7 +1643,6 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
 
   // Index finger held still: a ring fills around the fingertip (DWELL_MS) and the point is taken where it is.
-  const POINT_DEEPER = 0.02; // m along the line of sight
   const DWELL_MS = 1000;
   const DWELL_STILL = 0.015; // m the fingertip may drift
   const DWELL_COOLDOWN = 1500; // ms after a point before the next one can start
@@ -1657,13 +1656,36 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     scene.add(r);
   }
   let ringShown = -1;
+  // The marker: a small cross at the point and a thin line down to the floor, so you watch it (not your finger) and move the hand until it sits where you want.
+  const markMat = new MeshBasicMaterial({ color: 0x2dd4bf, depthTest: false, transparent: true });
+  const markBar = (len: number, r: number) => {
+    const m = new Mesh(new CylinderGeometry(r, r, len, 8), markMat);
+    m.renderOrder = 999;
+    return m;
+  };
+  const marker = new Group();
+  const markDrop = markBar(1, 0.002);
+  const markX = markBar(0.04, 0.0015);
+  markX.rotation.z = Math.PI / 2;
+  const markZ = markBar(0.04, 0.0015);
+  markZ.rotation.x = Math.PI / 2;
+  const markY = markBar(0.04, 0.0015);
+  marker.add(markDrop, markX, markY, markZ);
+  marker.visible = false;
+  scene.add(marker);
   function dwellTick(now: number, head: Head) {
     const run = refRun;
     if (!run || run.grab || nameRun || !pointTip) {
       dwell = null;
-      ringBack.visible = ringFill.visible = false;
+      ringBack.visible = ringFill.visible = marker.visible = false;
       return;
     }
+    marker.position.copy(pointTip);
+    const floorY = Math.min(liveFloorGuess() ?? head.pos.y - 1.5, pointTip.y - 0.02);
+    const drop = pointTip.y - floorY;
+    markDrop.scale.y = drop;
+    markDrop.position.y = -drop / 2;
+    marker.visible = true;
     if (!dwell || dwell.at.distanceTo(pointTip) > DWELL_STILL) dwell = { at: pointTip.clone(), since: now };
     const cooling = now - run.lastAt < DWELL_COOLDOWN;
     const f = cooling ? 0 : Math.min(1, (now - dwell.since) / DWELL_MS);
@@ -5067,8 +5089,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       pinchR = refRun && pointTip ? pointTip : right; // the lines of the points follow the fingertip
     },
     setPointing(tip: Vector3 | null) {
-      // 2 cm further from your eyes, along the line of sight, on top of the 2 cm along the finger (see xr/pinch.ts)
-      pointTip = tip && lastHead ? tip.clone().add(tip.clone().sub(lastHead.pos).normalize().multiplyScalar(POINT_DEEPER)) : tip;
+      pointTip = tip; // exactly the fingertip: the marker (cross + line down to the floor) shows where the point will go
     },
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
