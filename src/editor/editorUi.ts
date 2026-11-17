@@ -1462,10 +1462,13 @@ export function createEditorUi(h: EditorHandlers) {
     showRefs(opts: { roomName: string; planes: RoomPlane[]; refs: RoomRef[] }) {
       return new Promise<RoomRef[] | null>((resolve) => {
         type P = { pos: Vec3; name?: string; orig?: Vec3 };
+        const proposed = !opts.refs.length;
         const pts: P[] = opts.refs.map((r) => ({ pos: [...r.pos] as Vec3, name: r.name, orig: [...r.pos] as Vec3 }));
         const floor = floorHeight(opts.planes);
         const plan = suggestCorners(opts.planes);
         const polys = plan ? [] : outlinePoints(opts.planes);
+        // A room without points starts with the two corners the headset's manual alignment would ask for.
+        if (proposed && plan) for (const c of [plan.a, plan.b]) pts.push({ pos: [c[0], floor, c[2]] });
         let moving = false; // top-down view with draggable points
         let adding = false; // the next click on the plan puts a new point
         let drag: P | null = null;
@@ -1489,13 +1492,19 @@ export function createEditorUi(h: EditorHandlers) {
         window.addEventListener('keydown', key, true);
         const lines = (): [number, number, number, number][] => (plan ? plan.segs.map((q) => [q.x1, q.z1, q.x2, q.z2] as [number, number, number, number]) : []);
         // plan <-> pixels
-        const view = () => {
+        // The plan never moves or rescales while points are dragged: its bounds are fixed once (the room, a metre around it) and the
+        // points cannot leave them.
+        const bounds = (() => {
           const xs: number[] = [], zs: number[] = [];
           for (const q of lines()) xs.push(q[0], q[2]), zs.push(q[1], q[3]);
           for (const poly of polys) for (const p of poly) xs.push(p[0]), zs.push(p[1]);
           for (const p of pts) xs.push(p.pos[0]), zs.push(p.pos[2]);
           if (!xs.length) xs.push(-5, 5), zs.push(-5, 5);
-          const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+          const m = 1;
+          return { minX: Math.min(...xs) - m, maxX: Math.max(...xs) + m, minZ: Math.min(...zs) - m, maxZ: Math.max(...zs) + m };
+        })();
+        const view = () => {
+          const { minX, maxX, minZ, maxZ } = bounds;
           const w = canvas.clientWidth || 720, h = canvas.clientHeight || 380, pad = 34;
           const k = Math.min((w - 2 * pad) / Math.max(1, maxX - minX), (h - 2 * pad) / Math.max(1, maxZ - minZ));
           const ox = (w - k * (maxX - minX)) / 2 - k * minX;
@@ -1585,7 +1594,8 @@ export function createEditorUi(h: EditorHandlers) {
               if (d < bd) { bd = d; best = [px, pz]; }
             }
           }
-          return best ?? [Math.round(x / 0.05) * 0.05, Math.round(z / 0.05) * 0.05];
+          const [sx, sz] = best ?? [Math.round(x / 0.05) * 0.05, Math.round(z / 0.05) * 0.05];
+          return [Math.min(bounds.maxX, Math.max(bounds.minX, sx)), Math.min(bounds.maxZ, Math.max(bounds.minZ, sz))];
         };
         const at = (e: PointerEvent) => {
           const r = canvas.getBoundingClientRect();
@@ -1642,8 +1652,8 @@ export function createEditorUi(h: EditorHandlers) {
           err.textContent = [bad, warn, moved].filter(Boolean).join('\n');
           err.style.whiteSpace = 'pre-line';
           hint.textContent = moving
-            ? adding ? 'Clicca sulla pianta dove vuoi il nuovo punto (gli angoli attirano).' : 'Trascina i punti: le linee dicono la distanza (verde = almeno 3 m, rosso = troppo vicini).'
-            : `Da ${MIN_REFS} a ${MAX_REFS} punti a una distanza di almeno ${MIN_REF_GAP} m l'uno dall'altro, scelti su cose fisse (pilastri, angoli, segni a terra).`;
+            ? adding ? 'Clicca sulla pianta dove vuoi il nuovo punto (gli angoli attirano).' : 'Trascina i punti: le linee dicono la distanza (verde = almeno ' + MIN_REF_GAP + ' m, rosso = troppo vicini).'
+            : (proposed && plan && pts.length ? 'Ti propongo i due angoli dell\'allineamento manuale: salvali per usarli, o cambiali. ' : '') + `Da ${MIN_REFS} a ${MAX_REFS} punti a una distanza di almeno ${MIN_REF_GAP} m l'uno dall'altro, scelti su cose fisse (pilastri, angoli, segni a terra).`;
           canvas.style.cursor = adding ? 'crosshair' : moving ? 'grab' : 'default';
           list.style.display = moving ? 'none' : '';
           const save = pill('Salva', () => {

@@ -14,7 +14,7 @@ assert.ok(BIG_AREA <= 40);
 
 const have: Vec3[] = [[0, 0, 0]];
 assert.ok(refProblem([1, 0, 1], have), 'too close');
-assert.equal(refProblem([3, 0, 0], have), null, 'exactly 3 m is fine');
+assert.equal(refProblem([2, 0, 0], have), null, 'exactly the gap is fine');
 
 const saved: Vec3[] = [[0, 0, 0], [6, 0, 0], [6, 0, 4], [0, 0, 4]];
 const yaw = 0.7;

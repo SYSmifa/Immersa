@@ -3,9 +3,9 @@ import type { RoomRef, Vec3 } from './types';
 
 // Reference points of a big space: 3-4 spots the user marks on the floor (room frame, the scan's). Every session the user touches
 // them again and the room is aligned on them, so a hangar whose Meta walls are only approximate still lands right.
-export const MIN_REFS = 3;
+export const MIN_REFS = 2; // two points are enough for a small room (the two corners of the manual alignment); big ones use 3-4
 export const MAX_REFS = 4;
-export const MIN_REF_GAP = 3; // m between two points: closer ones make the rotation unstable
+export const MIN_REF_GAP = 2; // m between two points: closer ones make the rotation unstable
 export const REF_TOLERANCE = 0.15; // m (or 6%): how far a touched distance may differ from the saved one
 
 export const refName = (r: RoomRef, i: number) => r.name?.trim() || `Punto ${i + 1}`;
