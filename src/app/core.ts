@@ -1386,9 +1386,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     min: number; // fewest points to finish / most / smallest gap between two (a room made from points: many points, close ones allowed)
     max: number;
     gap: number;
+    closed: boolean; // a perimeter: the loop was closed by pinching the first point again (else it is closed at the end all the same)
     contour: boolean; // the points are the perimeter of a new room (drawn joined on the map)
     selected: number | null; // the point lit up in the scene and on the map
-    grab: { i: number; from: Vector3; drawn: number } | null; // a placed point held with the pinch (place mode)
+    grab: { i: number; from: Vector3; drawn: number; t0: number } | null; // a placed point held with the pinch (place mode)
     error: string;
     check?: (pts: Vector3[]) => string | null; // align: null = the points fit the saved ones
     toRoom?: Matrix4; // the points are in the session frame but the plan is the room's: this brings them to the plan
@@ -1418,6 +1419,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         max: opts.contour ? 40 : MAX_REFS,
         gap: opts.contour ? MIN_CONTOUR_GAP : MIN_REF_GAP,
         contour: !!opts.contour,
+        closed: false,
         selected: null,
         grab: null,
         error: '',
@@ -1572,7 +1574,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       c.lineWidth = 5;
       c.beginPath();
       marks.forEach((p, i) => (i ? c.lineTo(X(p[0]), Z(p[1])) : c.moveTo(X(p[0]), Z(p[1]))));
-      if (marks.length > 2) c.closePath();
+      if (run.closed && marks.length > 2) c.closePath();
       c.stroke();
     }
     marks.forEach((p, i) => {
@@ -1600,10 +1602,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const text = run.floorStep
       ? 'Ultimo passo: appoggia la mano sul pavimento e pizzica, così sistemo anche l\'altezza.'
       : run.contour
-        ? `Cammina lungo il perimetro: in ogni angolo (o dove il muro cambia) appoggia la mano sul pavimento e pizzica. Punti messi: ${n}. Quando hai chiuso il giro premi Fatto: unisco l'ultimo al primo.`
+        ? `Cammina lungo il perimetro: in ogni angolo (o dove il muro cambia) pizzica, a qualsiasi altezza. Punti messi: ${n}. Finito il giro, pizzica di nuovo il primo punto per chiudere (o premi Fatto: chiudo io).`
         : run.kind === 'place'
-        ? `Punto ${Math.min(n + 1, MAX_REFS)} di ${MIN_REFS}-${MAX_REFS}: vai dove vuoi un riferimento fisso (un pilastro, un angolo, un segno a terra), appoggia la mano sul pavimento e pizzica. Almeno ${MIN_REF_GAP} m tra un punto e l'altro: la linea sulla mano dice la distanza.`
-        : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo), appoggia la mano sul pavimento e pizzica. Le linee dicono se la distanza dagli altri punti torna.`;
+        ? `Punto ${Math.min(n + 1, MAX_REFS)} di ${MIN_REFS}-${MAX_REFS}: vai dove vuoi un riferimento fisso (un pilastro, un angolo, un segno a terra) e pizzica, a qualsiasi altezza. Almeno ${MIN_REF_GAP} m tra un punto e l'altro: la linea sulla mano dice la distanza.`
+        : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo) e pizzica, a qualsiasi altezza. Le linee dicono se la distanza dagli altri punti torna.`;
     const rows: object[] = [
       { kind: 'label', rect: { x: 36, y: 22, w: w - 72, h: 46 }, text: run.title, size: 34, bold: true, color: '#ffffff' },
       { kind: 'canvas', rect: { x: 36, y: 82, w: w - 72, h: run.kind === 'place' ? 270 : 300 }, text: '', paint: (c: CanvasRenderingContext2D, x: number, y: number, ww: number, hh: number) => paintRefs(c, x, y, ww, hh, run) },
@@ -1621,7 +1623,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 3, w: 52, h: 52 }, icon: 'pencil', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => void renameRef(i) });
         rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 62, y: y + 3, w: 52, h: 52 }, icon: 'trash', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => removeRef(i) });
       });
-      if (n >= run.min) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => (run.needFloor ? ((run.floorStep = true), drawRefCard()) : run.done({ pts: run.pts, floor: null })) });
+      if (n >= run.min) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => (run.contour && (run.closed = true), run.needFloor ? ((run.floorStep = true), drawRefCard()) : run.done({ pts: run.pts, floor: null})) });
     }
     if (run.floorStep) rows.push({ kind: 'pill', rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: 'Salta (altezza approssimata)', size: 25, onClick: () => run.done({ pts: run.pts, floor: null }) });
     if (run.kind === 'align' && n) rows.push({ kind: 'pill', rect: { x: 36, y: H - (run.floorStep ? 240 : 168), w: w - 72, h: 60 }, text: 'Ricomincia dal punto 1', size: 25, onClick: restartRefs });
@@ -1661,6 +1663,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (!run?.grab) return;
     const g = run.grab;
     run.grab = null;
+    // A quick tap on the first point of a perimeter (not a drag) closes the loop, as Fatto does.
+    if (run.contour && g.i === 0 && run.pts.length >= run.min && performance.now() - g.t0 < 600 && run.pts[0].distanceTo(g.from) < 0.05) {
+      run.closed = true;
+      run.pts[0].copy(g.from);
+      run.selected = null;
+      paintRefDots();
+      if (run.needFloor) {
+        run.floorStep = true;
+        drawRefCard();
+      } else run.done({ pts: run.pts, floor: null });
+      return;
+    }
     const others = run.pts.filter((_, i) => i !== g.i).map((p) => [p.x, p.y, p.z] as Vec3);
     const p = run.pts[g.i];
     const why = refProblem([p.x, p.y, p.z], run.contour ? [] : others, run.gap);
@@ -1696,7 +1710,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         }
       });
       if (near >= 0) {
-        run.grab = { i: near, from: run.pts[near].clone(), drawn: now };
+        run.grab = { i: near, from: run.pts[near].clone(), drawn: now, t0: now };
         run.selected = near;
         run.error = '';
         paintRefDots();
@@ -1828,6 +1842,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const res = await runRefs('place', 'Crea stanza: il perimetro', [], [], [], undefined, { contour: true, needFloor: true });
     if (!res) return openMenu();
     const floor = res.floor ?? liveFloorGuess() ?? (lastHead ? lastHead.pos.y - 1.5 : Math.min(...res.pts.map((p) => p.y)));
+    let height = 0;
+    let hint = 'Quanti metri sono alti i muri? (per esempio 4 oppure 6,5)';
+    while (!height) {
+      const v = await askNameCard('Altezza dei muri', hint, String(WALL_HEIGHT).replace('.', ','), undefined, true);
+      if (!v) return openMenu();
+      const m = Number(v.replace(',', '.').replace(/[^0-9.]/g, ''));
+      if (m >= 1 && m <= 50) height = m;
+      else hint = 'Scrivi un numero di metri tra 1 e 50 (per esempio 4 oppure 6,5).';
+    }
     const name = await askNameCard('Nome della stanza', 'Come vuoi chiamare questa stanza?');
     if (!name) return openMenu();
     const place = await pickPlace();
@@ -1836,7 +1859,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     say('Salvo la stanza...');
     try {
       const points = res.pts.map((p, i) => ({ pos: [p.x, floor, p.z] as Vec3, name: res.names[i] }));
-      const scan = scanFromPoints(points, floor, WALL_HEIGHT);
+      const scan = scanFromPoints(points, floor, height);
       const room = await backend.createRoom(name, scan, place || undefined);
       rooms.unshift(room);
       createdThisSession.add(room.id);
@@ -4753,6 +4776,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       keyboard.follow(head, dt);
       keyboard.carry(pinchR); // the keyboard's grip bar pinched: it goes with the hand
       lastHead = head;
+      // The question cards stay at your eye level: after touching the floor you stand up and they come up with you.
+      for (const card of [nameCard, choiceCard]) {
+        if (!card.mesh.visible) continue;
+        const goal = head.pos.y - 0.04;
+        card.mesh.position.y += (goal - card.mesh.position.y) * Math.min(1, dt * 4);
+      }
       if (now - lastHere > 1000) {
         lastHere = now;
         timed('recompute', () => recompute()); // you may have walked into another room
