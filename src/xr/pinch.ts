@@ -55,8 +55,6 @@ export function palmNormal(frame: XRFrame, src: XRInputSource, ref: XRReferenceS
   return { normal, wrist };
 }
 
-const POINT_AHEAD = 0.02; // m
-
 // The pointing pose of a tracked hand: index finger out, the other three curled, thumb away from the index (not a pinch).
 // A finger is "out" when its tip is much farther from the wrist than its first knuckle is. Returns the index fingertip, else null;
 // `info.text` says what was measured (shown on the card while the gesture is being tuned).
@@ -91,8 +89,5 @@ export function pointingTip(frame: XRFrame, src: XRInputSource, ref: XRReference
   const curled = r.slice(1).filter((v) => v !== null && v < 1.25).length; // the others are folded
   if (info) info.text = `indice ${f(r[0])} (≥1,4) · altre ${f(r[1])} ${f(r[2])} ${f(r[3])} (<1,25) · pollice ${(gap * 100).toFixed(0)} cm (≥4) → ${out && apart && curled >= 2 ? 'OK' : !out ? 'indice non teso' : !apart ? 'pollice vicino' : 'altre dita aperte'}`;
   if (!(out && apart && curled >= 2)) return null;
-  // The point is 2 cm ahead of the fingertip along the finger (what you aim at is a little beyond the tip).
-  const knuckle = at('index-finger-phalanx-proximal');
-  if (!knuckle) return tip;
-  return tip.clone().add(tip.clone().sub(knuckle).normalize().multiplyScalar(POINT_AHEAD));
+  return tip;
 }
