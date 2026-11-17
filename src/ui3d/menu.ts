@@ -85,7 +85,6 @@ export interface MenuView {
   tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
-  dwell: boolean; // reference points are taken with the index finger held still (else with a pinch)
   autoReports: boolean; // serious errors are sent by themselves
   foveation: number; // 0 none, 0.5 medium, 1 high: the edges of the picture at lower resolution
   planes: boolean; // automatic recognition of the room by the headset's planes (read when the session starts)
@@ -147,7 +146,6 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
-  toggleDwell(): void;
   toggleDepthFix(): void;
   toggleAutoReports(): void;
   toggleHand(): void;
@@ -547,7 +545,6 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
-    out.push({ kind: 'card', icon: 'pin', rect: at(1, 6), text: 'Segna i punti con', size: 19, sub: 'Pinch o indice fermo', badge: v.dwell ? 'Indice' : 'Pinch', badgeOn: v.dwell, onClick: a.toggleDwell });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));
