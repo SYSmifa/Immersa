@@ -1,5 +1,7 @@
 import {
   Box3,
+  BufferGeometry,
+  LineBasicMaterial,
   BoxGeometry,
   Camera,
   Color,
@@ -766,7 +768,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   const annotStepText = () => (annotMode === 'note' ? 'Nota: clic su un punto di un modello, di una parete o del pavimento' : annotMode === 'ruler' ? (annotFirst ? 'Metro: clic sul secondo punto' : 'Metro: clic sul primo punto') : '');
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, fade: wallsFade, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
   }
 
   // How a room stands with the others of its place: "Cucina ✓, Sala (da confermare)" (a link only seen once is a guess).
@@ -925,19 +927,32 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     refreshToolbar();
   }
 
-  // The wall between the camera and the inside of the room fades out, so you can look into the room from any side.
-  // Each shell plane gets its own materials (they are shared otherwise) and its normal + a point to tell the sides apart.
+  // The walls between the camera and the inside of the room fade out, so you can look into the room from any side. A wall is hidden when
+  // the lines from the camera to the inside of the room cross it (its own side or normal do not matter); its outline stays as a faint
+  // ghost, so you can tell the wall is there and only hidden. The toolbar button turns this on and off.
   interface Fade {
-    obj: Object3D & { material: MeshBasicMaterial | MeshBasicMaterial[] };
-    inward: Vector3; // the side of this plane that faces the inside of the room
+    fill: boolean; // the translucent surface (fades away); else the outline (stays as a ghost)
+    obj: Object3D & { material: MeshBasicMaterial | LineBasicMaterial };
     p: Vector3;
+    q: Quaternion; // the plane's orientation
+    n: Vector3; // its normal (any sign)
+    box: [number, number, number, number]; // extents in the plane's own x / z: minX, maxX, minZ, maxZ
     base: number;
-    a: number;
+    a: number; // 1 shown, 0 hidden
   }
   let fades: Fade[] = [];
-  function prepareFade(shell: Group, centre: [number, number, number], planes: Room['scan']['planes']) {
-    // The floor polygons (x, z) tell which side of a wall is the inside, also for odd shaped rooms where "towards the centre" is wrong.
-    const floors: [number, number][][] = [];
+  let fadeSamples: Vector3[] = []; // points inside the room, to look at
+  let wallsFade = (() => {
+    try {
+      return localStorage.getItem('immersa.edfade') !== '0';
+    } catch {
+      return true;
+    }
+  })();
+  function prepareFade(shell: Group, planes: Room['scan']['planes']) {
+    // Points inside the room: a grid over the floor polygons (the plane's own x / z), at about a metre above the floor.
+    const polys: [number, number][][] = [];
+    let floorY = 0;
     for (const f of planes) {
       if (f.label !== 'floor' || !f.poly || !f.quat) continue;
       const q = new Quaternion(...f.quat);
@@ -946,10 +961,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         const v = new Vector3(f.poly[i], 0, f.poly[i + 1]).applyQuaternion(q);
         poly.push([f.pos[0] + v.x, f.pos[2] + v.z]);
       }
-      floors.push(poly);
+      polys.push(poly);
+      floorY = f.pos[1];
     }
     const inside = (x: number, z: number) =>
-      floors.some((poly) => {
+      polys.some((poly) => {
         let c = false;
         for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
           const [xi, zi] = poly[i];
@@ -958,36 +974,58 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         }
         return c;
       });
-    const mid = new Vector3(...centre);
+    fadeSamples = [];
+    const all = polys.flat();
+    if (all.length) {
+      const minX = Math.min(...all.map((v) => v[0])), maxX = Math.max(...all.map((v) => v[0]));
+      const minZ = Math.min(...all.map((v) => v[1])), maxZ = Math.max(...all.map((v) => v[1]));
+      const step = Math.max(0.5, Math.sqrt(((maxX - minX) * (maxZ - minZ)) / 30));
+      for (let x = minX + step / 2; x < maxX; x += step) for (let z = minZ + step / 2; z < maxZ; z += step) if (inside(x, z)) fadeSamples.push(new Vector3(x, floorY + 1, z));
+    }
+    if (!fadeSamples.length) {
+      // no usable floor: the middle of the walls
+      const ws = planes.filter((w) => w.label === 'wall');
+      if (ws.length) fadeSamples.push(new Vector3(ws.reduce((t, w) => t + w.pos[0], 0) / ws.length, ws.reduce((t, w) => t + w.pos[1], 0) / ws.length, ws.reduce((t, w) => t + w.pos[2], 0) / ws.length));
+    }
     fades = [];
-    for (const o of shell.children as (Object3D & { material?: MeshBasicMaterial })[]) {
-      if (!o.material) continue;
+    for (const o of shell.children as (Object3D & { material?: MeshBasicMaterial | LineBasicMaterial; geometry?: BufferGeometry })[]) {
+      if (!o.material || !o.geometry) continue;
       const q = new Quaternion();
       const p = new Vector3();
       o.matrix.decompose(p, q, new Vector3());
-      const n = new Vector3(0, 1, 0).applyQuaternion(q);
-      const h = new Vector3(n.x, 0, n.z);
-      let inward = n.clone();
-      if (h.length() > 0.3) {
-        h.normalize();
-        // Is there floor just in front of the plane, or just behind it?
-        const hits = (sign: number) => [0.3, 0.6, 1].some((d) => inside(p.x + sign * h.x * d, p.z + sign * h.z * d));
-        const front = hits(1);
-        const back = hits(-1);
-        if (front !== back) inward = h.multiplyScalar(front ? 1 : -1);
-        else if (n.dot(mid.clone().sub(p)) < 0) inward.negate(); // no floor to tell: towards the room's centre
-      } else if (n.dot(mid.clone().sub(p)) < 0) inward.negate();
+      o.geometry.computeBoundingBox();
+      const bb = o.geometry.boundingBox!;
       o.material = o.material.clone();
       o.material.transparent = true;
-      fades.push({ obj: o as Fade['obj'], inward, p, base: o.material.opacity, a: 1 });
+      fades.push({ fill: o instanceof Mesh, obj: o as Fade['obj'], p, q, n: new Vector3(0, 1, 0).applyQuaternion(q), box: [bb.min.x, bb.max.x, bb.min.z, bb.max.z], base: o.material.opacity, a: 1 });
     }
   }
+  const fadeTmp = new Vector3();
+  const fadeLocal = new Vector3();
+  // The share of the room's inside points that the camera sees through this wall.
+  function coverage(f: Fade): number {
+    if (!fadeSamples.length) return 0;
+    const cam = camera.position;
+    const d0 = f.n.dot(fadeTmp.copy(cam).sub(f.p));
+    let hit = 0;
+    for (const s of fadeSamples) {
+      const d1 = f.n.dot(fadeTmp.copy(s).sub(f.p));
+      if (d0 * d1 >= 0) continue; // both on one side: the segment does not cross the plane
+      const t = d0 / (d0 - d1);
+      fadeLocal.copy(cam).lerp(s, t).sub(f.p).applyQuaternion(fadeQ.copy(f.q).invert());
+      if (fadeLocal.x >= f.box[0] - 0.1 && fadeLocal.x <= f.box[1] + 0.1 && fadeLocal.z >= f.box[2] - 0.1 && fadeLocal.z <= f.box[3] + 0.1) hit++;
+    }
+    return hit / fadeSamples.length;
+  }
+  const fadeQ = new Quaternion();
   function updateFade() {
     for (const f of fades) {
-      const outside = f.inward.dot(camera.position.clone().sub(f.p)) < 0; // the camera is on the outer side of this plane
-      f.a += ((outside ? 0 : 1) - f.a) * 0.2;
-      (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
-      f.obj.visible = f.a > 0.02;
+      const hide = wallsFade && coverage(f) >= 0.25;
+      f.a += ((hide ? 0 : 1) - f.a) * 0.18;
+      if (f.fill) {
+        (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
+        f.obj.visible = f.a > 0.02;
+      } else (f.obj.material as LineBasicMaterial).opacity = f.base * (0.3 + 0.7 * f.a); // the outline stays, faint
     }
   }
 
@@ -1195,7 +1233,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     planesGroup.visible = !hiddenRooms.has(r.id);
     const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false, 0, true);
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true, 0, true);
-    prepareFade(plan.shell, floorCentre(r.scan.planes), r.scan.planes);
+    prepareFade(plan.shell, r.scan.planes);
     const spot = floorCentre(r.scan.planes);
     gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
@@ -1946,6 +1984,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       measureMode = mode;
       refreshToolbar();
       ui.setStatus(mode === 'off' ? 'Misure spente.' : 'Misure: dimensioni dell\'oggetto selezionato.');
+    },
+    onWallsFade(on) {
+      wallsFade = on;
+      try {
+        localStorage.setItem('immersa.edfade', on ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      refreshToolbar();
+      ui.setStatus(on ? 'Pareti davanti nascoste: se ne vede il solo contorno.' : 'Tutte le pareti visibili.');
     },
     onGaps(on) {
       gapsOn = on;

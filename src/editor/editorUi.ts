@@ -91,6 +91,7 @@ export interface EditorHandlers {
   onAnnotText(text: string, commit: boolean): void;
   onAnnotColor(color: string): void;
   onGaps(on: boolean): void;
+  onWallsFade(on: boolean): void;
   onUndo(): void;
   onRedo(): void;
   // outline + details
@@ -172,6 +173,7 @@ export interface ToolbarState {
   annot: 'note' | 'ruler' | null; // the annotation tool in use
   annotStep: string; // what to do next with it ('' when none)
   measures: MeasureMode;
+  fade: boolean; // the walls between the camera and the inside of the room are hidden
   gaps: boolean; // distances from the selected object to the nearest things
   canUndo: boolean;
   canRedo: boolean;
@@ -337,6 +339,7 @@ const ICON = {
   // a square with a dot on each corner: snap to vertices
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
+  walls: svg('<path d="M3 8l9-4 9 4v9l-9 4-9-4z" stroke-dasharray="2 2.5"/><path d="M12 4v17M3 8l9 4 9-4"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
   note: svg('<path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>'),
   tape: svg('<circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/><path d="M7.2 12h9.6M5 8.5V6M19 8.5V6"/>'),
@@ -804,7 +807,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, fade: true, canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -816,13 +819,14 @@ export function createEditorUi(h: EditorHandlers) {
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
   const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto selezionato (acceso / spento)', () => h.onMeasures(state.measures === 'off' ? 'sel' : 'off'));
   const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
+  const bFade = ib(ICON.walls, 'Pareti davanti alla camera: nascoste (resta il contorno) / sempre visibili', () => h.onWallsFade(!state.fade));
   const bNote = ib(ICON.note, 'Nota: clic su un punto per lasciare un commento', () => h.onAnnot(state.annot === 'note' ? null : 'note'));
   const bTape = ib(ICON.tape, 'Metro: clic su due punti per misurare e lasciare la misura', () => h.onAnnot(state.annot === 'ruler' ? null : 'ruler'));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
   save.onclick = h.onSave;
-  tools.append(bOrtho, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, sep(), bNote, bTape, sep(), bUndo, bRedo, save);
+  tools.append(bOrtho, bFade, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, sep(), bNote, bTape, sep(), bUndo, bRedo, save);
   const hint = el('div', '', 'ed-hint');
   top.append(tools, hint);
 
@@ -1969,6 +1973,7 @@ export function createEditorUi(h: EditorHandlers) {
       bLocal.innerHTML = s.local ? ICON.local : ICON.world;
       on(bMeasure, s.measures !== 'off');
       on(bGaps, s.gaps);
+      on(bFade, s.fade);
       on(bNote, s.annot === 'note');
       on(bTape, s.annot === 'ruler');
       bMeasure.title = `Misure dell'oggetto selezionato: ${s.measures === 'off' ? 'spente' : 'accese'} (clic per cambiare)`;
