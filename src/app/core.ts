@@ -1643,6 +1643,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
 
   // Index finger held still: a ring fills around the fingertip (DWELL_MS) and the point is taken where it is.
+  const POINT_DEEPER = 0.02; // m along the line of sight
   const DWELL_MS = 1000;
   const DWELL_STILL = 0.015; // m the fingertip may drift
   const DWELL_COOLDOWN = 1500; // ms after a point before the next one can start
@@ -5066,7 +5067,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       pinchR = refRun && pointTip ? pointTip : right; // the lines of the points follow the fingertip
     },
     setPointing(tip: Vector3 | null) {
-      pointTip = tip;
+      // 2 cm further from your eyes, along the line of sight, on top of the 2 cm along the finger (see xr/pinch.ts)
+      pointTip = tip && lastHead ? tip.clone().add(tip.clone().sub(lastHead.pos).normalize().multiplyScalar(POINT_DEEPER)) : tip;
     },
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
