@@ -9,6 +9,10 @@ import { MODEL_ACCEPT, type Unit } from './importer';
 import { AURA } from '../ui3d/theme';
 import { PLAN_UNIT_M, plausibleSize, type PlanInfo, type PlanOptions, type PlanUnit } from './dxfImport';
 import { HEAVY_TRIANGLES } from './simplify';
+import { floorHeight, suggestCorners } from '../room/anchors';
+import { floorPoints as outlinePoints } from '../room/bigSpace';
+import { MAX_REFS, MIN_REFS, MIN_REF_GAP, refName, refProblem, refsCollinear } from '../room/refs';
+import type { RoomPlane, RoomRef, Vec3 } from '../room/types';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -62,6 +66,7 @@ export interface EditorHandlers {
   onImportPlan(file: File): void;
   onRenameRoom(id: string): void;
   onRoomPlace(id: string): void;
+  onRoomRefs(id: string): void;
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
@@ -290,6 +295,7 @@ const CSS = `
 .ed-modal{position:fixed;inset:0;z-index:40;background:#05070bb0;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
 .ed-modal .ed-panel{width:380px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .ed-modal h3{margin:0;font-size:18px}
+.ed-refs{width:780px!important;max-width:96vw}.ed-refs canvas{width:100%;height:380px;border-radius:14px;background:#ffffff10;touch-action:none}.ed-refs input{padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:14px;flex:1;min-width:0}.ed-refbtns{display:flex;gap:8px;flex-wrap:wrap}.ed-refbtns .ed-pill{flex:none;white-space:nowrap}.ed-refrow{display:flex;gap:8px;align-items:center}.ed-refrow b{width:26px;height:26px;border-radius:50%;background:#2dd4bf;color:#04211d;display:flex;align-items:center;justify-content:center;flex:none}
 .ed-modal .ed-card{gap:10px}
 .ed-warn{color:#b45309;font-size:12px;font-weight:500}
 .ed-modal .ed-login{width:420px;padding:30px 28px 24px;gap:14px}
@@ -531,7 +537,7 @@ export function createEditorUi(h: EditorHandlers) {
         el('div', r.place ? `Luogo: ${r.place}` : 'Senza luogo: assegnalo per poterla usare con altre stanze', 'ed-meta'),
         ...(r.links ? [el('div', `Posizione relativa: ${r.links}`, 'ed-meta')] : []),
         el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'),
-        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
+        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Punti di riferimento', () => h.onRoomRefs(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
       );
     };
     // Grouped by place (in the order the rooms come: the most recently used place first), the rooms without one at the end.
@@ -1449,6 +1455,221 @@ export function createEditorUi(h: EditorHandlers) {
         root.append(overlay);
         input.focus();
         input.select();
+      });
+    },
+    // The reference points of a room, on the PC: rename, add (up to 4), delete (the others are renumbered) and move on the top-down
+    // plan (drag; corners and a 5 cm grid attract). Resolves with the new set (empty = none), or null if cancelled.
+    showRefs(opts: { roomName: string; planes: RoomPlane[]; refs: RoomRef[] }) {
+      return new Promise<RoomRef[] | null>((resolve) => {
+        type P = { pos: Vec3; name?: string; orig?: Vec3 };
+        const pts: P[] = opts.refs.map((r) => ({ pos: [...r.pos] as Vec3, name: r.name, orig: [...r.pos] as Vec3 }));
+        const floor = floorHeight(opts.planes);
+        const plan = suggestCorners(opts.planes);
+        const polys = plan ? [] : outlinePoints(opts.planes);
+        let moving = false; // top-down view with draggable points
+        let adding = false; // the next click on the plan puts a new point
+        let drag: P | null = null;
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel ed-refs');
+        const canvas = document.createElement('canvas');
+        const hint = el('div', '', 'ed-sub');
+        hint.style.textAlign = 'left';
+        const list = el('div', '', 'ed-waiting');
+        const err = el('div', '', 'ed-warn');
+        const buttons = el('div', '', 'ed-refbtns');
+        const done = (v: RoomRef[] | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') (moving ? (moving = adding = false, render()) : done(null));
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const lines = (): [number, number, number, number][] => (plan ? plan.segs.map((q) => [q.x1, q.z1, q.x2, q.z2] as [number, number, number, number]) : []);
+        // plan <-> pixels
+        const view = () => {
+          const xs: number[] = [], zs: number[] = [];
+          for (const q of lines()) xs.push(q[0], q[2]), zs.push(q[1], q[3]);
+          for (const poly of polys) for (const p of poly) xs.push(p[0]), zs.push(p[1]);
+          for (const p of pts) xs.push(p.pos[0]), zs.push(p.pos[2]);
+          if (!xs.length) xs.push(-5, 5), zs.push(-5, 5);
+          const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+          const w = canvas.clientWidth || 720, h = canvas.clientHeight || 380, pad = 34;
+          const k = Math.min((w - 2 * pad) / Math.max(1, maxX - minX), (h - 2 * pad) / Math.max(1, maxZ - minZ));
+          const ox = (w - k * (maxX - minX)) / 2 - k * minX;
+          const oz = (h - k * (maxZ - minZ)) / 2 - k * minZ;
+          return { k, X: (x: number) => ox + k * x, Z: (z: number) => oz + k * z, x: (px: number) => (px - ox) / k, z: (pz: number) => (pz - oz) / k, w, h };
+        };
+        let frame = view();
+        const problem = () => {
+          if (pts.length && pts.length < MIN_REFS) return `Servono almeno ${MIN_REFS} punti (oppure nessuno).`;
+          for (let i = 0; i < pts.length; i++) {
+            const why = refProblem(pts[i].pos, pts.filter((_, j) => j < i).map((p) => p.pos));
+            if (why) return `${refName(pts[i], i)}: ${why.toLowerCase()}.`;
+          }
+          return '';
+        };
+        const changed = () => {
+          const old = opts.refs;
+          if (old.length !== pts.length) return old.length > 0;
+          return pts.some((p, i) => !p.orig || Math.hypot(p.pos[0] - old[i].pos[0], p.pos[2] - old[i].pos[2]) > 0.01);
+        };
+        const draw = () => {
+          const dpr = window.devicePixelRatio || 1;
+          const w = canvas.clientWidth || 720, h = canvas.clientHeight || 380;
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+          const c = canvas.getContext('2d')!;
+          c.scale(dpr, dpr);
+          frame = view();
+          const { X, Z } = frame;
+          c.lineCap = 'round';
+          c.strokeStyle = '#e8edf5';
+          c.lineWidth = 3;
+          for (const poly of polys) {
+            c.beginPath();
+            poly.forEach((p, i) => (i ? c.lineTo(X(p[0]), Z(p[1])) : c.moveTo(X(p[0]), Z(p[1]))));
+            c.closePath();
+            c.stroke();
+          }
+          if (plan) {
+            const col = { wall: '#e8edf5', door: '#fbbf24', window: '#60a5fa' } as const;
+            for (const sg of plan.segs) {
+              c.strokeStyle = col[sg.kind as keyof typeof col] ?? '#e8edf5';
+              c.lineWidth = sg.kind === 'wall' ? 3 : 5;
+              c.beginPath();
+              c.moveTo(X(sg.x1), Z(sg.z1));
+              c.lineTo(X(sg.x2), Z(sg.z2));
+              c.stroke();
+            }
+          }
+          c.font = '600 12px sans-serif';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          if (moving) {
+            for (let i = 0; i < pts.length; i++) {
+              for (let j = i + 1; j < pts.length; j++) {
+                const a = pts[i].pos, b = pts[j].pos;
+                const d = Math.hypot(a[0] - b[0], a[2] - b[2]);
+                c.strokeStyle = d < MIN_REF_GAP ? '#f87171' : '#4ade80';
+                c.lineWidth = 1.5;
+                c.setLineDash([5, 4]);
+                c.beginPath();
+                c.moveTo(X(a[0]), Z(a[2]));
+                c.lineTo(X(b[0]), Z(b[2]));
+                c.stroke();
+                c.setLineDash([]);
+                c.fillStyle = c.strokeStyle;
+                c.fillText(`${d.toFixed(2)} m`, X((a[0] + b[0]) / 2), Z((a[2] + b[2]) / 2) - 9);
+              }
+            }
+          }
+          c.font = '700 14px sans-serif';
+          pts.forEach((p, i) => {
+            c.fillStyle = drag === p ? '#ffffff' : '#2dd4bf';
+            c.beginPath();
+            c.arc(X(p.pos[0]), Z(p.pos[2]), 14, 0, Math.PI * 2);
+            c.fill();
+            c.fillStyle = '#04211d';
+            c.fillText(String(i + 1), X(p.pos[0]), Z(p.pos[2]) + 1);
+          });
+        };
+        const snap = (x: number, z: number): [number, number] => {
+          let best: [number, number] | null = null;
+          let bd = 14 / frame.k; // 14 px
+          for (const q of lines()) {
+            for (const [px, pz] of [[q[0], q[1]], [q[2], q[3]]] as [number, number][]) {
+              const d = Math.hypot(px - x, pz - z);
+              if (d < bd) { bd = d; best = [px, pz]; }
+            }
+          }
+          return best ?? [Math.round(x / 0.05) * 0.05, Math.round(z / 0.05) * 0.05];
+        };
+        const at = (e: PointerEvent) => {
+          const r = canvas.getBoundingClientRect();
+          return [e.clientX - r.left, e.clientY - r.top] as const;
+        };
+        canvas.onpointerdown = (e) => {
+          if (!moving) return;
+          const [px, pz] = at(e);
+          if (adding) {
+            if (pts.length >= MAX_REFS) return;
+            const [x, z] = snap(frame.x(px), frame.z(pz));
+            pts.push({ pos: [x, floor, z] });
+            adding = false;
+            render();
+            return;
+          }
+          const hit = pts.find((p) => Math.hypot(frame.X(p.pos[0]) - px, frame.Z(p.pos[2]) - pz) < 20);
+          if (!hit) return;
+          drag = hit;
+          canvas.setPointerCapture(e.pointerId);
+          draw();
+        };
+        canvas.onpointermove = (e) => {
+          if (!drag) return;
+          const [px, pz] = at(e);
+          const [x, z] = snap(frame.x(px), frame.z(pz));
+          drag.pos = [x, drag.pos[1], z];
+          draw();
+        };
+        canvas.onpointerup = () => {
+          if (!drag) return;
+          drag = null;
+          render();
+        };
+        const render = () => {
+          const rows: HTMLElement[] = pts.map((p, i) => {
+            const r = el('div', '', 'ed-refrow');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = p.name ?? '';
+            input.placeholder = `Punto ${i + 1}`;
+            input.oninput = () => (p.name = input.value.trim() || undefined);
+            const x = pill('Elimina', () => {
+              pts.splice(i, 1);
+              render();
+            }, 'bad');
+            r.append(el('b', String(i + 1)), input, el('span', `${p.pos[0].toFixed(2)} ; ${p.pos[2].toFixed(2)} m`, 'ed-meta'), x);
+            return r;
+          });
+          list.replaceChildren(...(rows.length ? rows : [el('div', 'Nessun punto: nel visore la stanza si trova con la scansione di Meta.', 'ed-meta')]));
+          const bad = problem();
+          const warn = bad ? '' : refsCollinear(pts.map((p) => p.pos)) ?? '';
+          const moved = changed() && opts.refs.length ? 'Hai cambiato punti già salvati: nel visore, aprendo i progetti di questa stanza, dovrai toccare le posizioni nuove.' : '';
+          err.textContent = [bad, warn, moved].filter(Boolean).join('\n');
+          err.style.whiteSpace = 'pre-line';
+          hint.textContent = moving
+            ? adding ? 'Clicca sulla pianta dove vuoi il nuovo punto (gli angoli attirano).' : 'Trascina i punti: le linee dicono la distanza (verde = almeno 3 m, rosso = troppo vicini).'
+            : `Da ${MIN_REFS} a ${MAX_REFS} punti a una distanza di almeno ${MIN_REF_GAP} m l'uno dall'altro, scelti su cose fisse (pilastri, angoli, segni a terra).`;
+          canvas.style.cursor = adding ? 'crosshair' : moving ? 'grab' : 'default';
+          list.style.display = moving ? 'none' : '';
+          const save = pill('Salva', () => {
+            if (problem()) return;
+            done(pts.map((p) => ({ pos: p.pos, ...(p.name ? { name: p.name } : {}) })));
+          }, 'acc');
+          if (problem() || !changed()) save.style.opacity = '0.45';
+          const add = pill('Aggiungi punto', () => {
+            if (pts.length >= MAX_REFS) return;
+            moving = true;
+            adding = true;
+            render();
+          });
+          if (pts.length >= MAX_REFS) add.style.opacity = '0.45';
+          buttons.replaceChildren(
+            ...(moving
+              ? [pill('Fine spostamento', () => { moving = adding = false; render(); }, 'acc'), add]
+              : [pill('Sposta i punti', () => { moving = true; render(); }), add, save, pill('Annulla', () => done(null))]),
+          );
+          draw();
+        };
+        panel.append(el('h3', `Punti di riferimento · ${opts.roomName}`), canvas, hint, list, err, buttons);
+        overlay.append(panel);
+        root.append(overlay);
+        render();
+        requestAnimationFrame(draw);
       });
     },
     // The reports of the account (sent from the headset or written here): a list, to add the details with a keyboard, and a way

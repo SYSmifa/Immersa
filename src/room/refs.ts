@@ -65,3 +65,25 @@ export function alignFromRefs(saved: Vec3[], touched: Vec3[], floorLive: number 
     ok: worst <= Math.max(REF_TOLERANCE, 0.06 * longest),
   };
 }
+
+// Points nearly on one line give an unstable rotation: null = fine, else a warning. Judged by the narrowest "height" of the
+// set (every point against the line through the two farthest ones).
+export const MIN_REF_SPREAD = 1.5; // m
+export function refsCollinear(pts: Vec3[]): string | null {
+  if (pts.length < 3) return null;
+  let a = 0, b = 1, far = 0;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][2] - pts[j][2]);
+      if (d > far) { far = d; a = i; b = j; }
+    }
+  }
+  if (far < 1e-6) return null;
+  let spread = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (i === a || i === b) continue;
+    const cross = (pts[b][0] - pts[a][0]) * (pts[i][2] - pts[a][2]) - (pts[b][2] - pts[a][2]) * (pts[i][0] - pts[a][0]);
+    spread = Math.max(spread, Math.abs(cross) / far);
+  }
+  return spread < MIN_REF_SPREAD ? `I punti sono quasi in fila (${spread.toFixed(1)} m di scostamento): l'allineamento sarebbe poco preciso. Mettine uno più di lato.` : null;
+}

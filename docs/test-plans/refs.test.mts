@@ -2,7 +2,7 @@
 // on 3-4 touched points (gives the pose back, tolerates noise, catches a wrong point).
 import assert from 'node:assert/strict';
 import { BIG_AREA, isBigSpace, spaceSize } from '../../src/room/bigSpace';
-import { alignFromRefs, refProblem } from '../../src/room/refs';
+import { alignFromRefs, refProblem, refsCollinear } from '../../src/room/refs';
 import type { RoomPlane, Vec3 } from '../../src/room/types';
 
 const floor = (w: number, d: number): RoomPlane => ({ label: 'floor', pos: [0, 0, 0], quat: [0, 0, 0, 1], poly: [-w / 2, -d / 2, w / 2, -d / 2, w / 2, d / 2, -w / 2, d / 2] });
@@ -30,4 +30,6 @@ assert.ok(f.ok && Math.abs(f.alignment.yaw - yaw) < 0.02, 'noise of 2 cm');
 const wrong = saved.map((p) => put(p));
 wrong[2] = put([6, 0, 5.5]); // touched 1.5 m away from where it should be
 assert.ok(!alignFromRefs(saved, wrong, null).ok, 'a wrong point is caught');
+assert.ok(refsCollinear([[0, 0, 0], [5, 0, 0.2], [10, 0, 0]]), 'nearly a line is warned');
+assert.equal(refsCollinear([[0, 0, 0], [6, 0, 0], [3, 0, 5]]), null, 'a triangle is fine');
 console.log('refs ok');

@@ -1796,6 +1796,19 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         r.place = spelled || undefined;
         refreshLists();
       }),
+    onRoomRefs: (id) =>
+      run(async () => {
+        const r = rooms.find((x) => x.id === id);
+        if (!r) return;
+        const old = r.scan.refs ?? [];
+        const refs = await ui.showRefs({ roomName: r.name, planes: r.scan.planes, refs: old });
+        if (!refs) return;
+        const scan = { ...r.scan, refsPrev: old.length ? old : r.scan.refsPrev, refs };
+        await backend.saveRoomData(id, scan);
+        r.scan = scan;
+        refreshLists();
+        ui.setStatus(refs.length ? `Punti di riferimento salvati (${refs.length})` : 'Punti di riferimento tolti');
+      }),
     listVisors: async () => (await backend.pendingDeviceLinks?.()) ?? [],
     onLinkVisor: (code) =>
       run(async () => {
