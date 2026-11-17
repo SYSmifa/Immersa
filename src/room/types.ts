@@ -52,6 +52,8 @@ export interface RoomScan {
   boxes?: RoomBox[]; // absent in scans saved by older versions
   refs?: RoomRef[]; // reference points of a big space (see room/refs.ts)
   refsPrev?: RoomRef[]; // the set before the last change, kept as a backup
+  contour?: RoomRef[]; // a room made from points touched along its perimeter (room/byPoints.ts): the points, in order; no headset scan behind it
+  height?: number; // its walls' height
   links?: Record<string, RoomLink>; // where the other rooms of the same place are, by room id (see room/layout.ts)
 }
 

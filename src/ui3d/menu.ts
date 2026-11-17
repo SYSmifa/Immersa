@@ -126,6 +126,7 @@ export interface MenuActions {
   confirmCandidate(): void;
   updateChanged(): void;
   changeRefs(): void;
+  createByPoints(): void;
   toggleRate(): void;
   toggleRefSpace(): void;
   togglePlanes(): void;
@@ -507,11 +508,13 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       y = top + 84;
       add('Scansiona la stanza', a.scan, { primary: true, icon: 'scan' });
       add('Rileggi', a.reread);
+      add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
       manual();
     } else {
       out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 20, iw, 130, 23, T.text2, { wrap: true }));
       y = top + 156;
       add('Rileggi', a.reread, { primary: true });
+      add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
       manual();
     }
   } else if (v.tab === 'tools') {

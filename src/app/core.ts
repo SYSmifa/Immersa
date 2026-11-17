@@ -21,6 +21,7 @@ import { apply as applyFix, createSettler, nextFix, NO_FIX, readWalls, solveMove
 import type { World3 } from '../xr/depthWorld';
 import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { floorPoints } from '../room/bigSpace';
+import { MIN_CONTOUR, MIN_CONTOUR_GAP, WALL_HEIGHT, scanFromPoints } from '../room/byPoints';
 import { MAX_REFS, MIN_REFS, MIN_REF_GAP, REF_TOLERANCE, alignFromRefs, refName, refProblem } from '../room/refs';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
 import { compose, invert, isConfirmed, learnedLinks, linkBetween, placeByLinks } from '../room/layout';
@@ -1382,6 +1383,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     saved: Vec3[]; // align: the room's points (room frame), in order
     pts: Vector3[]; // the points touched so far (session frame)
     names: (string | undefined)[]; // parallel to pts: the name of each point (place mode)
+    min: number; // fewest points to finish / most / smallest gap between two (a room made from points: many points, close ones allowed)
+    max: number;
+    gap: number;
+    contour: boolean; // the points are the perimeter of a new room (drawn joined on the map)
     selected: number | null; // the point lit up in the scene and on the map
     grab: { i: number; from: Vector3; drawn: number } | null; // a placed point held with the pinch (place mode)
     error: string;
@@ -1394,7 +1399,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   };
   let refRun: RefRun | null = null;
 
-  function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check'], opts: { toRoom?: Matrix4; needFloor?: boolean; names?: (string | undefined)[] } = {}): Promise<{ pts: Vector3[]; floor: number | null; names: (string | undefined)[] } | null> {
+  function runRefs(kind: RefRun['kind'], title: string, planes: RoomPlane[], saved: Vec3[], start: Vector3[] = [], check?: RefRun['check'], opts: { toRoom?: Matrix4; needFloor?: boolean; names?: (string | undefined)[]; contour?: boolean } = {}): Promise<{ pts: Vector3[]; floor: number | null; names: (string | undefined)[] } | null> {
     return new Promise((resolve) => {
       cardPlaced = false;
       closeMenu();
@@ -1409,6 +1414,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         saved,
         pts: [],
         names,
+        min: opts.contour ? MIN_CONTOUR : MIN_REFS,
+        max: opts.contour ? 40 : MAX_REFS,
+        gap: opts.contour ? MIN_CONTOUR_GAP : MIN_REF_GAP,
+        contour: !!opts.contour,
         selected: null,
         grab: null,
         error: '',
@@ -1492,14 +1501,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         if (i === run.grab.i) return;
         const q = run.pts[run.grab.i];
         const dg = Math.hypot(q.x - p.x, q.z - p.z);
-        out.push({ kind: 'ruler', a: [p.x, p.y, p.z], b: [q.x, p.y, q.z], text: formatLength(dg), owner: 'ref', color: dg < MIN_REF_GAP ? '#f87171' : '#4ade80' });
+        out.push({ kind: 'ruler', a: [p.x, p.y, p.z], b: [q.x, p.y, q.z], text: formatLength(dg), owner: 'ref', color: dg < run.gap ? '#f87171' : '#4ade80' });
         return;
       }
       const d = Math.hypot(pinchR!.x - p.x, pinchR!.z - p.z);
       const a: Vec3 = [p.x, p.y, p.z];
       const b: Vec3 = [pinchR!.x, p.y, pinchR!.z];
       if (run.kind === 'place') {
-        out.push({ kind: 'ruler', a, b, text: formatLength(d), owner: 'ref', color: d < MIN_REF_GAP ? '#f87171' : '#4ade80' });
+        if (run.contour && i < run.pts.length - 1) return; // a perimeter: only the line from the last point
+        out.push({ kind: 'ruler', a, b, text: formatLength(d), owner: 'ref', color: d < run.gap ? '#f87171' : '#4ade80' });
       } else if (run.pts.length < run.saved.length) {
         const k = run.pts.length;
         const e = Math.hypot(run.saved[k][0] - run.saved[i][0], run.saved[k][2] - run.saved[i][2]);
@@ -1557,6 +1567,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         }
       }
     }
+    if (run.contour && marks.length > 1) {
+      c.strokeStyle = '#2dd4bf';
+      c.lineWidth = 5;
+      c.beginPath();
+      marks.forEach((p, i) => (i ? c.lineTo(X(p[0]), Z(p[1])) : c.moveTo(X(p[0]), Z(p[1]))));
+      if (marks.length > 2) c.closePath();
+      c.stroke();
+    }
     marks.forEach((p, i) => {
       const done = run.kind === 'place' || run.pts.length > i;
       const lit = run.kind === 'place' && run.selected === i;
@@ -1581,7 +1599,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const n = run.pts.length;
     const text = run.floorStep
       ? 'Ultimo passo: appoggia la mano sul pavimento e pizzica, così sistemo anche l\'altezza.'
-      : run.kind === 'place'
+      : run.contour
+        ? `Cammina lungo il perimetro: in ogni angolo (o dove il muro cambia) appoggia la mano sul pavimento e pizzica. Punti messi: ${n}. Quando hai chiuso il giro premi Fatto: unisco l'ultimo al primo.`
+        : run.kind === 'place'
         ? `Punto ${Math.min(n + 1, MAX_REFS)} di ${MIN_REFS}-${MAX_REFS}: vai dove vuoi un riferimento fisso (un pilastro, un angolo, un segno a terra), appoggia la mano sul pavimento e pizzica. Almeno ${MIN_REF_GAP} m tra un punto e l'altro: la linea sulla mano dice la distanza.`
         : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo), appoggia la mano sul pavimento e pizzica. Le linee dicono se la distanza dagli altri punti torna.`;
     const rows: object[] = [
@@ -1590,16 +1610,18 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       { kind: 'label', rect: { x: 36, y: run.kind === 'place' ? 362 : 392, w: w - 72, h: run.kind === 'place' ? 150 : 196 }, text: run.error || text, size: run.kind === 'place' ? 24 : 26, color: run.error ? '#f87171' : '#ffffff', wrap: true },
     ];
     const H = alignCard.pxH;
-    if (run.kind === 'place') {
+    if (run.kind === 'place' && !run.floorStep) {
       // One card per point: tap = light it up (scene and map), pencil = rename, bin = delete (the others are renumbered).
+      const first = Math.max(0, n - 4); // a perimeter has many points: the cards are those of the last four
       run.pts.forEach((_, i) => {
-        const y = 490 + i * 66;
+        if (i < first) return;
+        const y = 490 + (i - first) * 66;
         const sel = run.selected === i;
         rows.push({ kind: 'card', rect: { x: 36, y, w: w - 72, h: 58 }, text: refName({ pos: [0, 0, 0], name: run.names[i] }, i), icon: 'pin', active: sel, reserve: 130, size: 26, onClick: () => { run.selected = sel ? null : i; paintRefDots(); drawRefCard(); } });
         rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 3, w: 52, h: 52 }, icon: 'pencil', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => void renameRef(i) });
         rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 62, y: y + 3, w: 52, h: 52 }, icon: 'trash', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => removeRef(i) });
       });
-      if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done({ pts: run.pts, floor: null }) });
+      if (n >= run.min) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => (run.needFloor ? ((run.floorStep = true), drawRefCard()) : run.done({ pts: run.pts, floor: null })) });
     }
     if (run.floorStep) rows.push({ kind: 'pill', rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: 'Salta (altezza approssimata)', size: 25, onClick: () => run.done({ pts: run.pts, floor: null }) });
     if (run.kind === 'align' && n) rows.push({ kind: 'pill', rect: { x: 36, y: H - (run.floorStep ? 240 : 168), w: w - 72, h: 60 }, text: 'Ricomincia dal punto 1', size: 25, onClick: restartRefs });
@@ -1641,7 +1663,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     run.grab = null;
     const others = run.pts.filter((_, i) => i !== g.i).map((p) => [p.x, p.y, p.z] as Vec3);
     const p = run.pts[g.i];
-    const why = refProblem([p.x, p.y, p.z], others);
+    const why = refProblem([p.x, p.y, p.z], run.contour ? [] : others, run.gap);
     if (why) {
       p.copy(g.from);
       alignMarks.children[g.i]?.position.copy(g.from);
@@ -1662,7 +1684,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (nameRun) return true; // the name card is up
     const at = pinchR.clone();
     const now = performance.now();
-    if (run.kind === 'place') {
+    if (run.kind === 'place' && !run.floorStep) {
       // A pinch held close to a placed point takes it: it follows the hand and is set down where the pinch ends.
       let near = -1;
       let best = REF_GRAB;
@@ -1682,7 +1704,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         return true;
       }
       if (now - run.lastAt < 800) return true; // a second pinch by mistake
-      const why = refProblem([at.x, at.y, at.z], run.pts.map((p) => [p.x, p.y, p.z] as Vec3));
+      const why = refProblem([at.x, at.y, at.z], run.contour ? run.pts.slice(-1).map((p) => [p.x, p.y, p.z] as Vec3) : run.pts.map((p) => [p.x, p.y, p.z] as Vec3), run.gap);
       if (why) {
         run.error = why;
         drawRefCard();
@@ -1691,7 +1713,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       run.error = '';
       run.lastAt = now;
       addRefDot(at);
-      if (run.pts.length >= MAX_REFS) run.done({ pts: run.pts, floor: null });
+      if (run.pts.length >= run.max) run.done({ pts: run.pts, floor: null });
       else drawRefCard();
       return true;
     }
@@ -1797,6 +1819,36 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       say(`Errore: ${errText(e)}`);
     }
     refreshView();
+  }
+
+  // "Crea stanza con punti": no scan (a hangar the headset cannot map): you walk the perimeter touching its corners, the room is made
+  // from them (floor and walls, saved like a scanned one) and the two farthest points are kept to place it again when a project opens.
+  async function createRoomByPoints() {
+    if (refRun || alignRun || scanning) return;
+    const res = await runRefs('place', 'Crea stanza: il perimetro', [], [], [], undefined, { contour: true, needFloor: true });
+    if (!res) return openMenu();
+    const floor = res.floor ?? liveFloorGuess() ?? (lastHead ? lastHead.pos.y - 1.5 : Math.min(...res.pts.map((p) => p.y)));
+    const name = await askNameCard('Nome della stanza', 'Come vuoi chiamare questa stanza?');
+    if (!name) return openMenu();
+    const place = await pickPlace();
+    if (place === undefined) return openMenu();
+    openMenu();
+    say('Salvo la stanza...');
+    try {
+      const points = res.pts.map((p, i) => ({ pos: [p.x, floor, p.z] as Vec3, name: res.names[i] }));
+      const scan = scanFromPoints(points, floor, WALL_HEIGHT);
+      const room = await backend.createRoom(name, scan, place || undefined);
+      rooms.unshift(room);
+      createdThisSession.add(room.id);
+      refsDone.add(room.id); // placed on its points already: it does not follow the headset's estimate
+      setRecognised({ room, alignment: identity(scan.planes.length) });
+      fits.set(room.id, { resid: 0, matched: scan.planes.length, total: scan.planes.length, good: true });
+      logEvent(`stanza da punti: ${name}, ${points.length} punti`);
+      say(`Stanza "${name}" salvata`);
+    } catch (e) {
+      logEvent(`salvataggio stanza da punti fallito: ${errText(e)}`);
+      say(`Salvataggio fallito: ${errText(e)}`);
+    }
   }
 
   // A project with big rooms opens: each one is aligned on its points before the models show.
@@ -1997,7 +2049,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
 
   // Where the headset reports this room now, if anywhere. Each reported room is tried on its
   // own, so another room's planes cannot confuse the fit.
+  const byPoints = (r: Room) => !!r.scan.contour; // made from points: the headset knows nothing about it
   function bestFit(room: Room): Alignment | null {
+    if (byPoints(room)) return null;
     let fit: Alignment | null = null;
     let any: Alignment | null = null;
     for (const group of roomClusters(rawLive)) {
@@ -2150,7 +2204,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (!r) {
       let best = -1; // no near room: report the best fit anyway
       for (const room of rooms) {
-        if (ignored.has(room.id)) continue;
+        if (ignored.has(room.id) || byPoints(room)) continue;
         const a = alignPlanes(room.scan.planes, live);
         if (a && a.matched / a.total > best) {
           best = a.matched / a.total;
@@ -2180,7 +2234,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     let nearScore = -Infinity;
     const found =
       live.length >= MIN_PLANES
-        ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id)), (room, a) => {
+        ? recognizeRoom(live, rooms.filter((x) => !ignored.has(x.id) && !byPoints(x)), (room, a) => {
             if (!a) return;
             const good: boolean = isGoodFit(a);
             fits.set(room.id, { resid: a.resid, matched: a.matched, total: a.total, good });
@@ -2771,6 +2825,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     },
     changeRefs() {
       void changeRefs();
+    },
+    createByPoints() {
+      void createRoomByPoints();
     },
     updateChanged() {
       if (!changed) return;
@@ -4927,6 +4984,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     startAlign: () => startAlign(), // test hook
     choiceOptions: () => choiceRun?.options ?? null, // test hooks
     pickChoice: (i: number | null) => finishChoice(i),
+    createByPoints: () => createRoomByPoints(), // test hooks
+    refsFatto: () => {
+      if (refRun) {
+        refRun.floorStep = true;
+        drawRefCard();
+      }
+    },
+    answerName: (v: string | null) => nameRun?.finish(v),
     refsPlace: () => placeRefsLive(live, 'Spazio grande: punti di riferimento'), // test hook
     refsState: () => (refRun ? { n: refRun.pts.length, error: refRun.error, shown: alignCard.mesh.visible } : null), // test hook
     refTouchAt: (x: number, y: number, z: number) => {

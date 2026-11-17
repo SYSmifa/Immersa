@@ -11,10 +11,10 @@ export const REF_TOLERANCE = 0.15; // m (or 6%): how far a touched distance may 
 export const refName = (r: RoomRef, i: number) => r.name?.trim() || `Punto ${i + 1}`;
 
 // Can a point at `p` be added to `have`? The nearest point decides; null = fine, else the message to show.
-export function refProblem(p: Vec3, have: Vec3[]): string | null {
+export function refProblem(p: Vec3, have: Vec3[], gap = MIN_REF_GAP): string | null {
   let near = Infinity;
   for (const h of have) near = Math.min(near, Math.hypot(p[0] - h[0], p[2] - h[2]));
-  if (near < MIN_REF_GAP) return `Troppo vicino a un altro punto (${near.toFixed(1)} m): servono almeno ${MIN_REF_GAP} m`;
+  if (near < gap) return `Troppo vicino a un altro punto (${near.toFixed(1)} m): servono almeno ${gap} m`;
   return null;
 }
 
