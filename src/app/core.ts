@@ -1420,6 +1420,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         done: (r) => {
           refRun = null;
           alignCard.mesh.visible = false;
+          roomRoot.visible = !!recognised && !gap; // the wireframe comes back
           clearAlignMarks();
           resolve(r && { ...r, names: names.slice() });
         },
@@ -1427,6 +1428,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       for (const p of start) addRefDot(p);
       if (opts.names) names.splice(0, names.length, ...start.map((_, i) => opts.names![i]));
       alignCard.mesh.visible = true;
+      roomRoot.visible = false; // no wireframe while the points are handled
       if (lastHead) placeAlignCard(lastHead);
       drawRefCard();
     });
@@ -1745,6 +1747,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     misses.delete(room.id);
     foreignMode = false;
     refsDone.add(room.id);
+    if (recognised?.room.id === room.id) {
+      // the wireframe follows the new placement (it used to keep the headset's estimate)
+      recognised.alignment = r;
+      roomRoot.matrix.copy(placeMatrix(room.id, r));
+      roomRoot.matrixWorldNeedsUpdate = true;
+    }
     logEvent(`punti di riferimento: ${room.name} allineata (scarto ${Math.round(r.resid * 100)} cm)`);
     syncHouses();
     learnLinks(true);
@@ -1756,8 +1764,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   async function placeRefsLive(planes: RoomPlane[], title: string, start: Vec3[] = [], toRoom?: Matrix4, names?: (string | undefined)[]): Promise<{ pos: Vec3; name?: string }[] | null> {
     const res = await runRefs('place', title, planes, [], start.map((p) => new Vector3(...p)), undefined, { toRoom, names });
     if (!res) return null;
-    const y = floorHeight(planes);
-    return res.pts.map((p, i) => ({ pos: [p.x, y, p.z] as Vec3, name: res.names[i] }));
+    return res.pts.map((p, i) => ({ pos: [p.x, p.y, p.z] as Vec3, name: res.names[i] }));
   }
 
   // The button "Punti di riferimento" of a big room: first you touch the old points (the room is placed on them), then you
@@ -1777,10 +1784,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const live = await placeRefsLive(room.scan.planes, `Punti: ${room.name}`, start.map((v) => [v.x, v.y, v.z] as Vec3), inv, (room.scan.refs ?? []).map((r) => r.name));
     openMenu();
     if (!live) return;
-    const floor = floorHeight(room.scan.planes);
     const refs = live.map((r) => {
       const v = new Vector3(...r.pos).applyMatrix4(inv);
-      return { pos: [v.x, floor, v.z] as Vec3, name: r.name };
+      return { pos: [v.x, v.y, v.z] as Vec3, name: r.name };
     });
     room.scan = { ...room.scan, refsPrev: old.length ? old : room.scan.refsPrev, refs };
     refsDone.add(room.id);
@@ -4696,6 +4702,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       }
       timed('tryRecognise', () => tryRecognise(now));
       timed('alignFar', () => alignFar(now));
+      if (refRun) roomRoot.visible = false;
       if (view.tool && (rig.visible || !current)) cancelTool(); // the menu opened (or the project went): the tool is put away
       if (awaitingModels !== null && current) {
         const total = current.models.length;
