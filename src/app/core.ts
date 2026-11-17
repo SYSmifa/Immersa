@@ -19,7 +19,7 @@ import { roomAround, roomClusters } from '../room/around';
 import { askDepthProbe } from '../xr/depthFlag';
 import { apply as applyFix, createSettler, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
 import type { World3 } from '../xr/depthWorld';
-import { alignFromTouches, floorHeight, suggestCorners, type CornerPlan } from '../room/anchors';
+import { alignFromTouches, suggestCorners, type CornerPlan } from '../room/anchors';
 import { floorPoints } from '../room/bigSpace';
 import { MAX_REFS, MIN_REFS, MIN_REF_GAP, REF_TOLERANCE, alignFromRefs, refName, refProblem } from '../room/refs';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
