@@ -294,8 +294,9 @@ export function createXrApp(renderer: WebGLRenderer, scene: Scene, _camera: Pers
       }
       // The main hand pointing (index out, the other fingers curled, no pinch): its fingertip takes reference points by holding still.
       let tip: Vector3 | null = null;
-      for (const src of frame.session.inputSources) if (src.handedness === dominant) tip = pointingTip(frame, src, ref);
-      core.setPointing(tip);
+      const info = { text: 'mano non vista' };
+      for (const src of frame.session.inputSources) if (src.handedness === dominant) tip = pointingTip(frame, src, ref, info);
+      core.setPointing(tip, info.text);
       core.setPinchPoints(pl, pr); // for the two-hand turn / scale
       // The index fingertips, to type on the keyboard by touching the keys.
       const tips: { id: string; pos: Vector3 | null }[] = [];

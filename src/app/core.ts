@@ -1619,6 +1619,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         : `Punto ${Math.min(n + 1, run.saved.length)} di ${run.saved.length}: vai al punto ${n + 1} (quello che avevi messo) e pizzica, a qualsiasi altezza. Le linee dicono se la distanza dagli altri punti torna.`;
     const rows: object[] = [
       { kind: 'label', rect: { x: 36, y: 22, w: w - 72, h: 46 }, text: run.title, size: 34, bold: true, color: '#ffffff' },
+      ...(view.dwell && pointWhy ? [{ kind: 'label', rect: { x: 36, y: 66, w: w - 72, h: 22 }, text: `Indice: ${pointWhy}`, size: 15, color: pointWhy.endsWith('OK') ? '#4ade80' : '#fbbf24' }] : []),
       { kind: 'canvas', rect: { x: 36, y: 82, w: w - 72, h: run.kind === 'place' ? 270 : 300 }, text: '', paint: (c: CanvasRenderingContext2D, x: number, y: number, ww: number, hh: number) => paintRefs(c, x, y, ww, hh, run) },
       { kind: 'label', rect: { x: 36, y: run.kind === 'place' ? 362 : 392, w: w - 72, h: run.kind === 'place' ? 150 : 196 }, text: run.error || text, size: run.kind === 'place' ? 24 : 26, color: run.error ? '#f87171' : '#ffffff', wrap: true },
     ];
@@ -1666,6 +1667,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     scene.add(r);
   }
   let ringShown = -1;
+  let pointWhy = '';
+  let pointWhyAt = 0;
   function dwellTick(now: number, head: Head) {
     const run = refRun;
     if (!view.dwell || !run || run.grab || nameRun || !pointTip) {
@@ -5084,8 +5087,14 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       pinchL = left;
       pinchR = view.dwell && refRun && pointTip ? pointTip : right; // the lines of the points follow the fingertip
     },
-    setPointing(tip: Vector3 | null) {
+    setPointing(tip: Vector3 | null, why = '') {
       pointTip = tip;
+      // while the points are taken with the finger, the card says what the hand is doing (and why it is not recognised)
+      if (view.dwell && refRun && why && why !== pointWhy && performance.now() - pointWhyAt > 250) {
+        pointWhy = why;
+        pointWhyAt = performance.now();
+        drawRefCard();
+      }
     },
     setDwell: (on: boolean) => {
       view.dwell = on;

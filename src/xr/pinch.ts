@@ -56,10 +56,14 @@ export function palmNormal(frame: XRFrame, src: XRInputSource, ref: XRReferenceS
 }
 
 // The pointing pose of a tracked hand: index finger out, the other three curled, thumb away from the index (not a pinch).
-// A finger is "out" when its tip is much farther from the wrist than its first knuckle is. Returns the index fingertip, else null.
-export function pointingTip(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace): Vector3 | null {
+// A finger is "out" when its tip is much farther from the wrist than its first knuckle is. Returns the index fingertip, else null;
+// `info.text` says what was measured (shown on the card while the gesture is being tuned).
+export function pointingTip(frame: XRFrame, src: XRInputSource, ref: XRReferenceSpace, info?: { text: string }): Vector3 | null {
   const hand = (src as any).hand;
-  if (!hand) return null;
+  if (!hand) {
+    if (info) info.text = 'nessuna mano (controller?)';
+    return null;
+  }
   const at = (name: string) => {
     const joint = hand.get(name);
     const pose = joint && frame.getJointPose?.(joint, ref);
@@ -68,19 +72,21 @@ export function pointingTip(frame: XRFrame, src: XRInputSource, ref: XRReference
   const wrist = at('wrist');
   const tip = at('index-finger-tip');
   const thumb = at('thumb-tip');
-  if (!wrist || !tip || !thumb) return null;
+  if (!wrist || !tip || !thumb) {
+    if (info) info.text = 'mano non vista';
+    return null;
+  }
   const ratio = (finger: string) => {
     const t = at(`${finger}-finger-tip`);
     const k = at(`${finger}-finger-phalanx-proximal`);
     return t && k ? t.distanceTo(wrist) / Math.max(0.01, k.distanceTo(wrist)) : null;
   };
-  const index = ratio('index');
-  if (index === null || index < 1.75) return null;
-  if (thumb.distanceTo(tip) < 0.05) return null;
-  let curled = 0;
-  for (const f of ['middle', 'ring', 'pinky']) {
-    const r = ratio(f);
-    if (r !== null && r < 1.5) curled++;
-  }
-  return curled >= 2 ? tip : null;
+  const r = ['index', 'middle', 'ring', 'pinky'].map(ratio);
+  const gap = thumb.distanceTo(tip);
+  const f = (v: number | null) => (v === null ? '?' : v.toFixed(1));
+  const out = r[0] !== null && r[0] >= 1.4; // the index is out
+  const apart = gap >= 0.04;
+  const curled = r.slice(1).filter((v) => v !== null && v < 1.25).length; // the others are folded
+  if (info) info.text = `indice ${f(r[0])} (≥1,4) · altre ${f(r[1])} ${f(r[2])} ${f(r[3])} (<1,25) · pollice ${(gap * 100).toFixed(0)} cm (≥4) → ${out && apart && curled >= 2 ? 'OK' : !out ? 'indice non teso' : !apart ? 'pollice vicino' : 'altre dita aperte'}`;
+  return out && apart && curled >= 2 ? tip : null;
 }
