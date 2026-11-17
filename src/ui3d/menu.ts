@@ -460,20 +460,20 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       }
     }
   } else if (v.tab === 'scan') {
-    out.push(surface(M, top, W, v.roomName && v.refsInfo ? 446 : 380));
+    out.push(surface(M, top, W, v.roomName && v.refsInfo ? 396 : 340));
     const inner = M + 28;
     const iw = W - 56;
     // The buttons stack from `y`; the last one is always "Allineamento manuale" (place the room by touching two corners).
     let y = top;
     const add = (label: string, onClick: () => void, o: Partial<Widget> = {}) => {
-      out.push({ kind: 'pill', rect: { x: inner, y, w: iw, h: 56 }, text: label, size: 24, onClick, ...o });
-      y += 66;
+      out.push({ kind: 'pill', rect: { x: inner, y, w: iw, h: 50 }, text: label, size: 23, onClick, ...o });
+      y += 58;
     };
     const manual = () => add('Allineamento manuale', a.alignRoom, { disabled: !v.alignRoom, icon: 'room' });
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
-      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\n${v.roomPlace ? `Luogo: ${v.roomPlace}` : 'Senza luogo: assegnalo dal PC (Le mie stanze).'}`, inner, top + 20, iw, 80, 25, T.text2, { wrap: true }));
-      y = top + 104;
+      out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\n${v.roomPlace ? `Luogo: ${v.roomPlace}` : 'Senza luogo: assegnalo dal PC (Le mie stanze).'}`, inner, top + 14, iw, 70, 24, T.text2, { wrap: true }));
+      y = top + 92;
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);
       if (v.refsInfo) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);

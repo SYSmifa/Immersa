@@ -1199,7 +1199,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   const manual = new Set<string>(); // rooms placed by hand in this session: the headset's planes do not take them back
   let modelsHeld = false; // the project's models wait: its room is being placed by hand first (they load once it is placed or cancelled)
   const layoutPlaced = new Set<string>(); // rooms placed through their links to another room (see room/layout.ts): the headset does not report them
-  const alignCard = new Panel(0.62, 0.7, 1200, 'ink');
+  const alignCard = new Panel(0.62, 0.8, 1200, 'ink');
   alignCard.mesh.visible = false;
   host.root.add(alignCard.mesh);
   host.add(alignCard);
@@ -1591,11 +1591,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (run.kind === 'place') {
       // One card per point: tap = light it up (scene and map), pencil = rename, bin = delete (the others are renumbered).
       run.pts.forEach((_, i) => {
-        const y = 522 + i * 68;
+        const y = 490 + i * 66;
         const sel = run.selected === i;
-        rows.push({ kind: 'card', rect: { x: 36, y, w: w - 72, h: 60 }, text: refName({ pos: [0, 0, 0], name: run.names[i] }, i), icon: 'pin', active: sel, reserve: 130, size: 26, onClick: () => { run.selected = sel ? null : i; paintRefDots(); drawRefCard(); } });
-        rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 4, w: 52, h: 52 }, icon: 'pencil', onClick: () => void renameRef(i) });
-        rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 62, y: y + 4, w: 52, h: 52 }, icon: 'trash', onClick: () => removeRef(i) });
+        rows.push({ kind: 'card', rect: { x: 36, y, w: w - 72, h: 58 }, text: refName({ pos: [0, 0, 0], name: run.names[i] }, i), icon: 'pin', active: sel, reserve: 130, size: 26, onClick: () => { run.selected = sel ? null : i; paintRefDots(); drawRefCard(); } });
+        rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 124, y: y + 3, w: 52, h: 52 }, icon: 'pencil', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => void renameRef(i) });
+        rows.push({ kind: 'iconbtn', rect: { x: w - 36 - 62, y: y + 3, w: 52, h: 52 }, icon: 'trash', fill: 'rgba(15,23,42,0.12)', color: sel ? '#ffffff' : '#0f172a', onClick: () => removeRef(i) });
       });
       if (n >= MIN_REFS) rows.push({ kind: 'pill', primary: true, rect: { x: 36, y: H - 168, w: w - 72, h: 60 }, text: `Fatto (${n} punti)`, size: 26, onClick: () => run.done({ pts: run.pts, floor: null }) });
     }
