@@ -3647,7 +3647,25 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   function pressModel(id: string) {
     if (warnOpen) return; // the warning must be answered first
     if (view.tool) return placeTool(id);
-    const target = hovered.get(id) ?? null;
+    let target = hovered.get(id) ?? null;
+    // A pinch made right at a note's (or ruler's) point: the laser may miss it, the hand is on it.
+    if (!target?.startsWith('a:') && pinchR && current?.annotations.length && view.annotations) {
+      let near: { id: string; pt: 'a' | 'b'; d: number } | null = null;
+      for (const an of current.annotations) {
+        const house = houses.get(an.roomId);
+        if (!house?.root.visible) continue;
+        for (const pt of ['a', 'b'] as const) {
+          const q = an[pt];
+          if (!q) continue;
+          const d = new Vector3(...q).applyMatrix4(house.root.matrix).distanceTo(pinchR);
+          if (d < ANNOT_NEAR && (!near || d < near.d)) near = { id: an.id, pt, d };
+        }
+      }
+      if (near) {
+        target = `a:${near.id}`;
+        hoverAnnotPt.set(id, near.pt);
+      }
+    }
     if (!target?.startsWith('a:') && selectedAnnotId) selectAnnot(null); // pinched something else, or nothing
     if (visit) {
       // In the visit the floor and the open ground are for walking: a pinch there deselects when something is selected and
@@ -3684,7 +3702,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       const q = an?.[pt] ?? an?.a;
       if (an && house && q && pinchR) {
         const w = new Vector3(...q).applyMatrix4(house.root.matrix);
-        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), sc: null, mode: 0, axis: null, dir0: startDir(an, pt, house.root.matrix) };
+        annotGrab = { pointer: id, id: an.id, pt, phase: 'pending', seen: true, now: w.clone(), sc: null, mode: 0, axis: null, dir0: startDir(an, pt, house.root.matrix), t0: performance.now() };
         logEvent(`nota: presa (${pt})`);
       } else logEvent(`nota: non presa (${an ? '' : 'annotazione?'}${house ? '' : ' stanza?'}${q ? '' : ' punto?'}${pinchR ? '' : ' mano non tracciata'})`);
       return;
@@ -4013,7 +4031,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     mode: number; // ruler only: 0 free, 1 along its old line, 2 same height as the other end, 3 vertical (the other hand's taps go round)
     axis: Vector3 | null; // mode 1: the line (unit, world)
     dir0: Vector3 | null; // ruler only: its direction before the pinch moved anything (from the other end to this one, unit, world)
+    t0: number; // when it was pinched: a quick pinch only selects, the point flies to the hand only when the pinch is held
   }
+  const ANNOT_HOLD_MS = 350;
+  const ANNOT_NEAR = 0.12; // m: a pinch this close to a note's point takes it even if the laser does not hit it
   let annotGrab: AnnotGrab | null = null;
   const SNAP_RELEASE = 0.05; // m
   const MODE_NAMES = ['Libero', "Sull'asse del metro", 'Stessa altezza', 'Verticale'];
@@ -4103,6 +4124,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       return;
     }
     g.sc = null;
+    if (g.phase === 'pending' && performance.now() - g.t0 < ANNOT_HOLD_MS) return; // a quick pinch only selects
     if (g.phase === 'pending') {
       g.phase = 'move';
       logEvent('nota: vola sulla mano');
