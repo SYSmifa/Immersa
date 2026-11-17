@@ -937,6 +937,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     q: Quaternion; // the plane's orientation
     n: Vector3; // its normal (any sign)
     box: [number, number, number, number]; // extents in the plane's own x / z: minX, maxX, minZ, maxZ
+    h: Vector3; // the plane's horizontal normal (unit); zero if the plane is not vertical
+    inward: number; // +1 / -1: the room's floor lies on the +h / -h side of this wall (clearly); 0 = unknown or both sides
     base: number;
     a: number; // 1 shown, 0 hidden
   }
@@ -999,7 +1001,26 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const bb = o.geometry.boundingBox!;
       o.material = o.material.clone();
       o.material.transparent = true;
-      fades.push({ fill: o instanceof Mesh, obj: o as Fade['obj'], p, q, n: new Vector3(0, 1, 0).applyQuaternion(q), box: [bb.min.x, bb.max.x, bb.min.z, bb.max.z], base: o.material.opacity, a: 1 });
+      const n = new Vector3(0, 1, 0).applyQuaternion(q);
+      const h = new Vector3(n.x, 0, n.z);
+      let inward = 0;
+      if (h.length() > 0.5) {
+        h.normalize();
+        // Which side has the room's floor: probes along the wall, 0.3 and 0.8 m to each side. Used only to keep a wall visible
+        // when the camera is clearly on the room side of it (it is a back wall then, whatever the direction of its normal).
+        let plus = 0;
+        let minus = 0;
+        for (let i = 0; i < 7; i++) {
+          const w = new Vector3(bb.min.x + ((bb.max.x - bb.min.x) * (i + 0.5)) / 7, 0, (bb.min.z + bb.max.z) / 2).applyQuaternion(q).add(p);
+          for (const d of [0.3, 0.8]) {
+            if (inside(w.x + h.x * d, w.z + h.z * d)) plus++;
+            if (inside(w.x - h.x * d, w.z - h.z * d)) minus++;
+          }
+        }
+        if (plus >= 2 * minus + 3) inward = 1;
+        else if (minus >= 2 * plus + 3) inward = -1;
+      } else h.set(0, 0, 0);
+      fades.push({ fill: o instanceof Mesh, obj: o as Fade['obj'], p, q, n, h, inward, box: [bb.min.x, bb.max.x, bb.min.z, bb.max.z], base: o.material.opacity, a: 1 });
     }
   }
   const fadeTmp = new Vector3();
@@ -1042,7 +1063,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   function updateFade() {
     for (const f of fades) {
-      const hide = wallsFade && (entering(f) >= 0.15 || coverage(f) >= 0.02); // any wall in the way of any of the lines counts, narrow or not
+      // a wall the camera is clearly on the room side of (looking at its inner face, e.g. the back wall) is never in the way
+      const roomSide = f.inward !== 0 && f.inward * f.h.dot(fadeTmp.copy(camera.position).sub(f.p)) > 0;
+      const hide = wallsFade && !roomSide && (entering(f) >= 0.15 || coverage(f) >= 0.02); // any wall in the way of any of the lines counts, narrow or not
       f.a += ((hide ? 0 : 1) - f.a) * 0.18;
       if (f.fill) {
         (f.obj.material as MeshBasicMaterial).opacity = f.base * f.a;
