@@ -20,7 +20,7 @@ import { askDepthProbe } from '../xr/depthFlag';
 import { apply as applyFix, createSettler, nextFix, NO_FIX, readWalls, solveMove, type Fix, type WallLine } from '../xr/depthFit';
 import type { World3 } from '../xr/depthWorld';
 import { alignFromTouches, floorHeight, suggestCorners, type CornerPlan } from '../room/anchors';
-import { floorPoints, isBigSpace } from '../room/bigSpace';
+import { floorPoints } from '../room/bigSpace';
 import { MAX_REFS, MIN_REFS, MIN_REF_GAP, REF_TOLERANCE, alignFromRefs, refProblem } from '../room/refs';
 import { knownPlaces, normPlace, placeOfRooms, samePlace } from '../room/places';
 import { compose, invert, isConfirmed, learnedLinks, linkBetween, placeByLinks } from '../room/layout';
@@ -521,7 +521,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     view.roomPlace = recognised?.room.place ?? null;
     view.candidate = candidate?.room.name ?? null;
     view.changedRoom = changed?.room.name ?? null;
-    view.refsInfo = recognised && isBigSpace(recognised.room.scan.planes) ? (recognised.room.scan.refs?.length ? `${recognised.room.scan.refs.length} punti` : 'da mettere') : null;
+    view.refsInfo = recognised ? (recognised.room.scan.refs?.length ? `${recognised.room.scan.refs.length} punti` : 'aggiungi') : null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
@@ -1214,7 +1214,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // The room is recognised, its models are in and 10 s have passed: from here on it is left where it is (the headset's estimate moves by
   // centimetres and every follow was a jump; looking for the room again every 2.5 s cost 5-15 ms each time).
   const roomStable = (now: number) => !!recognised && !gap && modelsPending() === 0 && now - recognisedSince > 10000;
-  const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS && isBigSpace(r.scan.planes);
+  const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS; // optional: the user decides to use reference points (any room)
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
   function alignableRoom(): Room | null {
     if (!current) return null;
@@ -2120,21 +2120,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     if (!name) return;
     const place = await pickPlace();
     if (place === undefined) return;
-    // A big space (hangar, workshop): the reference points are mandatory, there is no way round them from the headset.
-    let refs: { pos: Vec3 }[] | undefined;
-    if (isBigSpace(planes)) {
-      const pts = await placeRefsLive(planes, 'Spazio grande: punti di riferimento');
-      if (!pts) {
-        openMenu();
-        return say('Stanza non salvata: in uno spazio grande servono i punti di riferimento');
-      }
-      refs = pts.map((pos) => ({ pos }));
-    }
+    // Reference points are the user's choice (Stanza → Punti di riferimento), never asked after a scan.
     openMenu();
     say('Salvo la stanza...');
     try {
-      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes, ...(refs ? { refs } : {}) }, place || undefined);
-      if (refs) refsDone.add(room.id); // saved in this session's frame: nothing to touch again now
+      const room = await backend.createRoom(name, { version: 1, savedAt: Date.now(), planes, boxes }, place || undefined);
       rooms.unshift(room);
       createdThisSession.add(room.id);
       setRecognised({ room, alignment: identity(planes.length) });
