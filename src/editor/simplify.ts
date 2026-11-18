@@ -20,7 +20,9 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0)); // lets the loadi
 const trianglesOf = (g: BufferGeometry) => Math.floor((g.index ? g.index.count : (g.getAttribute('position')?.count ?? 0)) / 3);
 
 async function readGlb(file: File): Promise<Object3D> {
-  return (await createGltfLoader().parseAsync(await file.arrayBuffer(), '')).scene;
+  const gltf = await createGltfLoader().parseAsync(await file.arrayBuffer(), '');
+  gltf.scene.animations = gltf.animations ?? []; // kept: the simplified file must still move
+  return gltf.scene;
 }
 
 function meshes(root: Object3D): Mesh[] {
@@ -317,7 +319,7 @@ async function simplifyAll(file: File, budget: number, onStep: (text: string) =>
     swap(creased);
     const out = new Scene();
     for (const c of top) out.add(c); // the top nodes go straight into the scene: no extra level in the tree
-    return (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
+    return (await new GLTFExporter().parseAsync(out, { binary: true, maxTextureSize: MAX_TEXTURE, animations: scene.animations })) as ArrayBuffer;
   };
   let buffer = await write();
   let goal = budget;
