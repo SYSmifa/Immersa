@@ -3405,6 +3405,19 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       syncHouses();
       refreshView();
     },
+    objStructMode() {
+      const st = selectedStruct();
+      if (!st) return;
+      st.mode = st.mode === 'real' ? 'virtual' : 'real';
+      markUnsaved();
+      syncHouses();
+      if (st.mode === 'real' && !realShown()) {
+        selectStruct(null); // it is hidden now: nothing to hold on to
+        objectOpen = false;
+        notify('Parete reale: nel visore non si vede, nasconde ciò che ha dietro (Opzioni → Pareti reali per mostrarla)', 3500);
+      }
+      refreshView();
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);

@@ -151,6 +151,7 @@ export interface MenuActions {
   toggleLayers(): void;
   toggleFps(): void;
   cycleReal(): void;
+  objStructMode(): void;
   toggleDepthFix(): void;
   toggleAutoReports(): void;
   toggleHand(): void;
@@ -313,7 +314,9 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
       const bw = (W - 14) / 2;
       out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: bw, h: 64 }, text: "Riposiziona", size: 24, disabled: !st.moved, onClick: a.objReset });
       out.push({ kind: 'pill', icon: 'trash', rect: { x: M + bw + 14, y: 404, w: bw, h: 64 }, text: `Elimina`, size: 24, color: theme().bad, onClick: a.objDelete });
-      out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 480, w: W, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 26, onClick: a.objMeasures });
+      const hw = (W - 14) / 2;
+      out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 480, w: hw, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 24, onClick: a.objMeasures });
+      out.push({ kind: 'pill', icon: 'room_plan', rect: { x: M + hw + 14, y: 480, w: hw, h: 64 }, text: st.real ? 'Tipo: reale' : 'Tipo: virtuale', size: 24, onClick: a.objStructMode });
     }
     return out;
   }
