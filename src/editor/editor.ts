@@ -346,7 +346,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   composer.addPass(new OutputPass());
   composer.addPass(new SMAAPass());
   window.addEventListener('resize', () => composer.setSize(window.innerWidth, window.innerHeight));
+  let lastFrame = performance.now();
   renderer.setAnimationLoop(() => {
+    const nowMs = performance.now();
+    layer.update(Math.min(0.1, (nowMs - lastFrame) / 1000)); // the models' own animations
+    lastFrame = nowMs;
     if (ortho) {
       const d = camera.position.distanceTo(controls.target);
       persp.near = Math.max(0.05, d * 0.4);
@@ -869,6 +873,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         missing: broken.has(m.id) ? libOptions : undefined,
         color: m.color ?? null,
         finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
+        animation: animationInfo(m),
         scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, tiltDeg: [((m.tilt?.[0] ?? 0) * 180) / Math.PI, ((m.tilt?.[1] ?? 0) * 180) / Math.PI], size: holder ? modelSize(holder, m.scale) : null, materials };
     }
     const s = selStructs()[0];
@@ -887,6 +892,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       finish: { roughness: s.finish?.roughness ?? (s.texture ? 1 : 0.9), metalness: s.finish?.metalness ?? 0 },
       measure: group.length > 1 ? (s.kind === 'wall' ? `Lunghezza totale ${total.toFixed(2)} m` : `Superficie totale ${total.toFixed(2)} m²`) : structMeasure(s),
     };
+  }
+
+  // What the details show about a model's own animations (none for most files).
+  function animationInfo(m: RoomModel): Details extends infer D ? (D extends { kind: 'model'; animation?: infer A } ? A : never) : never {
+    const clips = layer.clips(m.id);
+    if (!clips.length) return undefined as never;
+    return { clips, clip: m.anim?.clip ?? null, speed: m.anim?.speed ?? 1, loop: m.anim?.loop ?? true, auto: !!m.anim?.auto, playing: layer.isPlaying(m.id) } as never;
   }
 
   function refreshAll() {
@@ -1957,6 +1969,30 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       m.scale = value;
       refreshPivot();
       changed(doCommit);
+    },
+    onModelAnim(patch, doCommit) {
+      const m = selModels()[0];
+      if (!m) return;
+      const next: NonNullable<RoomModel['anim']> = { ...m.anim, ...patch, clip: patch.clip === undefined ? m.anim?.clip : (patch.clip ?? undefined) };
+      if (!next.clip) delete next.clip;
+      m.anim = Object.keys(next).length ? next : undefined;
+      layer.sync(models());
+      changed(doCommit);
+      refreshAll();
+    },
+    onModelAnimPlay(on) {
+      const m = selModels()[0];
+      if (!m) return;
+      if (on && !m.anim?.clip) {
+        const first = layer.clips(m.id)[0];
+        if (first) {
+          m.anim = { ...m.anim, clip: first.name };
+          layer.sync(models());
+          changed(true);
+        }
+      }
+      layer.setPlaying(m.id, on);
+      refreshAll();
     },
     onModelYaw(deg, doCommit) {
       const m = selModels()[0];

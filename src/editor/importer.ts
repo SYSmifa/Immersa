@@ -1,4 +1,5 @@
 import {
+  AnimationClip,
   Box3,
   BufferAttribute,
   BufferGeometry,
@@ -49,6 +50,7 @@ export interface Parsed {
   guessUnit: Unit;
   guessZUp: boolean;
   fixedUnit: boolean; // the file knows its unit (STEP / IGES, converted to metres while reading), nothing to ask
+  animations: AnimationClip[]; // the file's own animations (kept in the GLB)
 }
 export interface ImportOptions {
   unit: Unit;
@@ -190,14 +192,16 @@ async function readFile(files: File[], main: File): Promise<Object3D> {
       const dae = new ColladaLoader(side.manager).parse(await main.text(), '');
       if (!dae) throw new Error('Il file DAE non si legge');
       await side.idle();
+      dae.scene.animations = (dae as unknown as { animations?: AnimationClip[] }).animations ?? [];
       return dae.scene;
     }
     if (kind === '3mf') return new ThreeMFLoader(side.manager).parse(await main.arrayBuffer());
     if (kind === 'gltf' || kind === 'glb') {
       const loader = new GLTFLoader(side.manager);
       const data = kind === 'glb' ? await main.arrayBuffer() : await main.text();
-      const gltf = await new Promise<{ scene: Object3D }>((resolve, reject) => loader.parse(data, '', resolve, reject));
+      const gltf = await new Promise<{ scene: Object3D; animations: AnimationClip[] }>((resolve, reject) => loader.parse(data, '', resolve, reject));
       await side.idle();
+      gltf.scene.animations = gltf.animations ?? [];
       return gltf.scene;
     }
     throw new Error(`Formato non gestito: .${kind}`);
@@ -357,6 +361,7 @@ export async function parseModel(chosen: File[]): Promise<Parsed> {
     guessUnit: cadWithUnit || kind === 'gltf' || kind === 'glb' ? 'm' : kind === 'stl' || kind === '3mf' || kind === 'brep' ? 'mm' : guessUnit(size), // meshes from CAD tools are in millimetres
     guessZUp: cad || kind === 'stl' || kind === '3mf',
     fixedUnit: cadWithUnit || kind === 'gltf' || kind === 'glb',
+    animations: root.animations ?? [],
   };
 }
 
@@ -381,7 +386,7 @@ export async function exportGlb(p: Parsed, o: ImportOptions): Promise<File> {
     scene.add(c);
   }
   await tick();
-  const buffer = (await new GLTFExporter().parseAsync(scene, { binary: true, maxTextureSize: MAX_TEXTURE })) as ArrayBuffer;
+  const buffer = (await new GLTFExporter().parseAsync(scene, { binary: true, maxTextureSize: MAX_TEXTURE, animations: p.animations })) as ArrayBuffer;
   return new File([buffer], `${p.name}.glb`, { type: 'model/gltf-binary' });
 }
 

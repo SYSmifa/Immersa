@@ -1,4 +1,5 @@
-import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
+import { AnimationAction, AnimationClip, AnimationMixer, Box3, BoxGeometry, Group, LoopOnce, LoopRepeat, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
+import { clone as cloneModel } from 'three/addons/utils/SkeletonUtils.js';
 import { modelUrl } from '../cloud/models';
 import { createGltfLoader } from '../scene/gltf';
 import { applyParts, nodeByPath } from './parts';
@@ -10,6 +11,7 @@ import type { RoomModel } from './types';
 // position / yaw / scale. Shared by the PC editor and the headset view.
 // One GLB is downloaded and parsed once, however many rooms or models use it.
 const assets = new Map<string, Promise<Object3D>>();
+const clipsByPath = new Map<string, AnimationClip[]>(); // the animations each file carries
 let loader: ReturnType<typeof createGltfLoader> | null = null;
 
 function asset(path: string): Promise<Object3D> {
@@ -18,6 +20,7 @@ function asset(path: string): Promise<Object3D> {
     p = modelUrl(path)
       .then((url) => (loader ??= createGltfLoader()).loadAsync(url))
       .then((gltf) => {
+        clipsByPath.set(path, gltf.animations ?? []);
         const box = new Box3().setFromObject(gltf.scene);
         const c = box.getCenter(new Vector3());
         const wrapper = new Group();
@@ -45,6 +48,41 @@ const lookKey = (m: RoomModel) => [m.color, m.materialColors, m.finish, m.materi
 
 export function createModelLayer(parent: Object3D, onError: (text: string, model: RoomModel) => void) {
   const holders = new Map<string, Group>();
+  // The file's own animations: one mixer per placed model, driven by `update(dt)`; what plays is chosen in `model.anim`.
+  interface Anim {
+    mixer: AnimationMixer;
+    clips: AnimationClip[];
+    clip: string | null; // the one set up now
+    action: AnimationAction | null;
+    playing: boolean;
+    started: boolean; // the automatic start has been done
+  }
+  const anims = new Map<string, Anim>();
+  function applyAnim(m: RoomModel) {
+    const st = anims.get(m.id);
+    if (!st) return;
+    const a = m.anim;
+    const name = a?.clip && st.clips.some((c) => c.name === a.clip) ? a.clip : null;
+    if (st.clip !== name) {
+      st.mixer.stopAllAction();
+      st.action = null;
+      st.clip = name;
+      if (name) {
+        st.action = st.mixer.clipAction(st.clips.find((c) => c.name === name)!);
+        st.action.play();
+      } else st.playing = false;
+    }
+    if (!st.action) return;
+    const loop = a?.loop ?? true;
+    st.action.setLoop(loop ? LoopRepeat : LoopOnce, Infinity);
+    st.action.clampWhenFinished = true;
+    st.action.timeScale = a?.speed ?? 1;
+    if (a?.auto && !st.started) {
+      st.started = true;
+      st.playing = true;
+    }
+    st.action.paused = !st.playing;
+  }
 
   // Colours of the model, then the moved / coloured components on top; each only when it changed.
   function refresh(h: Group, m: RoomModel) {
@@ -75,10 +113,16 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
     pending++;
     asset(m.path)
       .then((obj) => {
-        holder.add(obj.clone(true));
+        const inst = cloneModel(obj) as Object3D;
+        holder.add(inst);
+        const clips = clipsByPath.get(m.path) ?? [];
+        if (clips.length) anims.set(m.id, { mixer: new AnimationMixer(inst), clips, clip: null, action: null, playing: false, started: false });
         lightMetals(holder);
         const look = holder.userData.look as RoomModel | undefined;
-        if (look) refresh(holder, look);
+        if (look) {
+          refresh(holder, look);
+          applyAnim(look);
+        }
       })
       .catch((e: Error) => {
         onError(`${m.name}: ${e.message}`, m);
@@ -89,6 +133,20 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
 
   return {
     holders,
+    // The animations of a model's file (empty for most), and whether one plays now.
+    clips: (id: string) => (anims.get(id)?.clips ?? []).map((c) => ({ name: c.name, duration: c.duration })),
+    isPlaying: (id: string) => !!anims.get(id)?.playing,
+    setPlaying(id: string, on: boolean) {
+      const st = anims.get(id);
+      if (!st?.action) return;
+      st.playing = on;
+      if (on && !st.action.isRunning() && !st.action.paused && st.action.time >= st.action.getClip().duration) st.action.reset().play();
+      st.action.paused = !on;
+    },
+    // Every frame, with the seconds since the last one.
+    update(dt: number) {
+      for (const st of anims.values()) if (st.playing) st.mixer.update(dt);
+    },
     // Call after any change to the list or to a model's transform.
     sync(models: RoomModel[]) {
       const ids = new Set(models.map((m) => m.id));
@@ -96,6 +154,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
         if (!ids.has(id)) {
           parent.remove(h);
           holders.delete(id);
+          anims.delete(id);
         }
       }
       for (const m of models) {
@@ -109,6 +168,7 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
         }
         h.userData.look = m;
         refresh(h, m);
+        applyAnim(m);
         h.position.set(...m.pos);
         h.rotation.set(m.tilt?.[0] ?? 0, m.yaw, m.tilt?.[1] ?? 0, 'YXZ'); // yaw first, then the tilt in the model's own frame
         h.scale.setScalar(m.scale);

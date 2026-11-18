@@ -678,6 +678,12 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       part: { model: m.name, moved: !!(e?.d || e?.yaw || (e?.scale && e.scale !== 1)) },
     };
   }
+  // A model's own animation (from its file) for the object page: set only when the file has one.
+  function animOf(m: RoomModel): ObjectView['anim'] {
+    const layer = houses.get(m.roomId)?.layer;
+    if (!layer || !layer.clips(m.id).length) return undefined;
+    return { playing: layer.isPlaying(m.id) };
+  }
   function objectView(): ObjectView | null {
     if (objectOpen && selectedPart) {
       const v = partView();
@@ -701,6 +707,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     return {
       measures: measureOverride.get(`m:${m.id}`) ?? view.measures !== 'off',
       gaps: gapOverride.get(`m:${m.id}`) ?? view.gaps,
+      anim: animOf(m),
       name: m.name,
       yawDeg: ((Math.round((m.yaw * 180) / Math.PI) % 360) + 360) % 360,
       scale: m.scale,
@@ -3311,6 +3318,20 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       measureAt = 0;
       refreshView();
     },
+    objAnim() {
+      const m = selectedModel();
+      const layer = m && houses.get(m.roomId)?.layer;
+      if (!m || !layer) return;
+      const on = !layer.isPlaying(m.id);
+      if (on && !m.anim?.clip) {
+        const first = layer.clips(m.id)[0];
+        if (!first) return;
+        m.anim = { ...m.anim, clip: first.name }; // no clip chosen on the PC: the first one
+        layer.sync(modelsOf(m.roomId));
+      }
+      layer.setPlaying(m.id, on);
+      refreshView();
+    },
     objGaps() {
       if (!selectedId) return;
       const key = `m:${selectedId}`;
@@ -4886,6 +4907,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         const goal = head.pos.y - 0.04;
         card.mesh.position.y += (goal - card.mesh.position.y) * Math.min(1, dt * 4);
       }
+      for (const h of houses.values()) h.layer.update(dt); // the models' own animations
       dwellTick(now, head);
       if (now - lastHere > 1000) {
         lastHere = now;

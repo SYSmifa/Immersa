@@ -98,6 +98,8 @@ export interface EditorHandlers {
   onPick(key: string, additive: boolean): void;
   onModelScale(value: number, commit: boolean): void;
   onModelYaw(deg: number, commit: boolean): void;
+  onModelAnim(patch: { clip?: string | null; speed?: number; loop?: boolean; auto?: boolean }, commit: boolean): void;
+  onModelAnimPlay(on: boolean): void;
   onModelTilt(axis: 'x' | 'z', deg: number, commit: boolean): void;
   onModelName(name: string): void;
   onModelLook(edit: LookEdit, commit: boolean): void;
@@ -138,6 +140,7 @@ export type Details =
       color: string | null; // the colour given to every material, if any
       finish: { roughness: number; metalness: number }; // for 'every material'
       materials: MaterialRow[];
+      animation?: { clips: { name: string; duration: number }[]; clip: string | null; speed: number; loop: boolean; auto: boolean; playing: boolean }; // the file's own animations, if it has any
     }
   | {
       kind: 'part';
@@ -1040,6 +1043,42 @@ export function createEditorUi(h: EditorHandlers) {
     // A refresh that arrived during a drag is applied now.
     setTimeout(() => pending !== undefined && api.setDetails(pending), 0);
   });
+  // The file's own animations: which clip, speed, repeat, start with the project, and a preview button.
+  function animationBlock(an: NonNullable<Extract<Details, { kind: 'model' }>['animation']>): HTMLElement[] {
+    const pick = document.createElement('select');
+    pick.append(Object.assign(document.createElement('option'), { value: '', textContent: 'Nessuna (modello fermo)' }));
+    for (const c of an.clips) pick.append(Object.assign(document.createElement('option'), { value: c.name, textContent: `${c.name || 'Animazione'} · ${c.duration.toFixed(1)} s` }));
+    pick.value = an.clip ?? '';
+    pick.onchange = () => h.onModelAnim({ clip: pick.value || null }, true);
+    const loop = document.createElement('input');
+    loop.type = 'checkbox';
+    loop.checked = an.loop;
+    loop.onchange = () => h.onModelAnim({ loop: loop.checked }, true);
+    const auto = document.createElement('input');
+    auto.type = 'checkbox';
+    auto.checked = an.auto;
+    auto.onchange = () => h.onModelAnim({ auto: auto.checked }, true);
+    const label = (box: HTMLInputElement, text: string) => {
+      const l = el('label', '', 'ed-check');
+      l.append(box, el('span', text));
+      return l;
+    };
+    return [
+      el('div', 'Animazione', 'ed-h'),
+      card(
+        pick,
+        ...(an.clip
+          ? [
+              row(el('span', 'Velocità ×'), numberField(an.speed, '0.1', '0.1', (v, c) => h.onModelAnim({ speed: Math.max(0.1, v) }, c))),
+              label(loop, 'Ripeti'),
+              label(auto, 'Parte quando si apre il progetto'),
+              pill(an.playing ? 'Pausa' : 'Riproduci', () => h.onModelAnimPlay(!an.playing), 'acc'),
+            ]
+          : [el('div', 'Questo modello ha delle animazioni: sceglila per riprodurla qui e nel visore.', 'ed-meta')]),
+      ),
+    ];
+  }
+
   function renderDetails(d: Details | null) {
     details.style.display = d ? 'flex' : 'none';
     if (!d) return;
@@ -1137,6 +1176,7 @@ export function createEditorUi(h: EditorHandlers) {
           row(el('span', 'Inclina ° (Z)'), numberField(d.tiltDeg[1], '1', null, (v, c) => h.onModelTilt('z', v, c))),
           size,
         ),
+        ...(d.animation ? animationBlock(d.animation) : []),
         el('div', 'Colore e materiali', 'ed-h'),
         el('div', '', 'ed-list-mini'),
         ...targets,

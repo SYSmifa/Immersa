@@ -21,6 +21,7 @@ export interface ObjectView {
   finish: { roughness: number; metalness: number }; // of the target, as shown now
   measures: boolean; // its sizes are shown now
   gaps: boolean; // its distances to the nearest things are shown now (models only)
+  anim?: { playing: boolean }; // models whose file has an animation
   // Set when the selection is a note or a ruler instead of a model.
   annotation?: { kind: 'note' | 'ruler'; text: string; color: string; colors: string[]; length: string | null };
   // Set when the selection is one component of a model.
@@ -139,6 +140,7 @@ export interface MenuActions {
   objMeasures(): void;
   toggleGaps(): void;
   objGaps(): void;
+  objAnim(): void;
   toggleAnnotations(): void;
   startTool(kind: 'note' | 'ruler'): void;
   objAnnotText(): void;
@@ -327,7 +329,10 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
     const bw2 = (W - 14) / 2;
     out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 404, w: bw2, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 24, onClick: a.objMeasures });
     out.push({ kind: 'pill', icon: 'room_plan', primary: o.gaps, rect: { x: M + bw2 + 14, y: 404, w: bw2, h: 64 }, text: o.gaps ? 'Distanze: sì' : 'Distanze: no', size: 24, onClick: a.objGaps });
-    out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 480, w: W, h: 64 }, text: 'Elimina oggetto', size: 26, color: theme().bad, onClick: a.objDelete });
+    if (o.anim) {
+      out.push({ kind: 'pill', icon: 'check', primary: o.anim.playing, rect: { x: M, y: 480, w: bw2, h: 64 }, text: o.anim.playing ? 'Animazione: pausa' : 'Animazione: avvia', size: 22, onClick: a.objAnim });
+      out.push({ kind: 'pill', icon: 'trash', rect: { x: M + bw2 + 14, y: 480, w: bw2, h: 64 }, text: 'Elimina', size: 24, color: theme().bad, onClick: a.objDelete });
+    } else out.push({ kind: 'pill', icon: 'trash', rect: { x: M, y: 480, w: W, h: 64 }, text: 'Elimina oggetto', size: 26, color: theme().bad, onClick: a.objDelete });
   }
   return out;
 }
