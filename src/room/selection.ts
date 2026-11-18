@@ -196,6 +196,7 @@ function tinted(src: Material, hex: string | undefined, finish: Finish | undefin
 // The distinct materials of a model, in a fixed order (the index is what the project stores): name and original colour.
 export interface MaterialInfo {
   name: string;
+  plain: string; // the file's own name, without the number
   color: string; // '#rrggbb' as in the file
   roughness: number; // as in the file (0.5 when the material has none)
   metalness: number;
@@ -221,6 +222,7 @@ function materialsOf(holder: Object3D): Material[] {
 export function listMaterials(holder: Object3D): MaterialInfo[] {
   return materialsOf(holder).map((m, i) => ({
     name: m.name ? `${i + 1} · ${m.name}` : `Materiale ${i + 1}`, // the number keeps duplicated or generic names apart
+    plain: m.name || `Materiale ${i + 1}`, // the file's own name, without the number
     color: `#${(m as Shiny).color?.getHexString() ?? 'ffffff'}`,
     roughness: (m as Shiny).roughness ?? 0.5,
     metalness: (m as Shiny).metalness ?? 0,

@@ -98,6 +98,7 @@ export interface EditorHandlers {
   onPick(key: string, additive: boolean): void;
   onModelScale(value: number, commit: boolean): void;
   onModelYaw(deg: number, commit: boolean): void;
+  onMaterialName(index: number, name: string): void;
   onModelAnim(patch: { clip?: string | null; then?: string[]; delay?: number; speed?: number; loop?: boolean; auto?: boolean }, commit: boolean): void;
   onModelAnimPlay(on: boolean): void;
   onModelTilt(axis: 'x' | 'z', deg: number, commit: boolean): void;
@@ -120,6 +121,8 @@ export interface OutlineItem {
 }
 export interface MaterialRow {
   name: string;
+  plain: string; // the name without the number: the user's, or the file's
+  original: string; // the file's own
   color: string;
   roughness: number;
   metalness: number;
@@ -300,7 +303,8 @@ const CSS = `
 .ed-modal{position:fixed;inset:0;z-index:40;background:#05070bb0;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
 .ed-modal .ed-panel{width:380px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .ed-modal h3{margin:0;font-size:18px}
-.ed-refs{width:780px!important;max-width:96vw}.ed-refs canvas{width:100%;height:380px;border-radius:14px;background:#ffffff10;touch-action:none}.ed-refs input{padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:14px;flex:1;min-width:0}.ed-refbtns{display:flex;gap:8px;flex-wrap:wrap}.ed-refbtns .ed-pill{flex:none;white-space:nowrap}.ed-refrow{display:flex;gap:8px;align-items:center}.ed-refrow b{width:26px;height:26px;border-radius:50%;background:#2dd4bf;color:#04211d;display:flex;align-items:center;justify-content:center;flex:none}
+.ed-refs{width:780px!important;max-width:96vw}.ed-refs canvas{width:100%;height:380px;border-radius:14px;background:#ffffff10;touch-action:none}.ed-refs input{padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:14px;flex:1;min-width:0}.ed-seq{display:flex;gap:6px;align-items:center}.ed-seq select{flex:1;min-width:0}.ed-x{flex:none;width:26px;height:26px;border-radius:50%;border:0;background:#e7eaf1;color:#475467;cursor:pointer;font-size:12px;line-height:1;padding:0}.ed-x:hover{background:#f87171;color:#fff}
+.ed-refbtns{display:flex;gap:8px;flex-wrap:wrap}.ed-refbtns .ed-pill{flex:none;white-space:nowrap}.ed-refrow{display:flex;gap:8px;align-items:center}.ed-refrow b{width:26px;height:26px;border-radius:50%;background:#2dd4bf;color:#04211d;display:flex;align-items:center;justify-content:center;flex:none}
 .ed-modal .ed-card{gap:10px}
 .ed-warn{color:#b45309;font-size:12px;font-weight:500}
 .ed-modal .ed-login{width:420px;padding:30px 28px 24px;gap:14px}
@@ -1064,12 +1068,14 @@ export function createEditorUi(h: EditorHandlers) {
       l.append(box, el('span', text));
       return l;
     };
-    const then = an.then.map((name, i) =>
-      row(
-        clipSelect(name, 'Nessuna', (v) => h.onModelAnim({ then: v ? an.then.map((x, j) => (j === i ? v : x)) : an.then.filter((_, j) => j !== i) }, true)),
-        pill('✕', () => h.onModelAnim({ then: an.then.filter((_, j) => j !== i) }, true)),
-      ),
-    );
+    const then = an.then.map((name, i) => {
+      const line = el('div', '', 'ed-seq');
+      const x = el('button', '✕', 'ed-x');
+      x.title = 'Togli questa animazione dalla sequenza';
+      x.onclick = () => h.onModelAnim({ then: an.then.filter((_, j) => j !== i) }, true);
+      line.append(clipSelect(name, 'Nessuna', (v) => h.onModelAnim({ then: v ? an.then.map((y, j) => (j === i ? v : y)) : an.then.filter((_, j) => j !== i) }, true)), x);
+      return line;
+    });
     return [
       el('div', 'Animazione', 'ed-h'),
       card(
@@ -1164,11 +1170,27 @@ export function createEditorUi(h: EditorHandlers) {
         return b;
       });
       const cur = matTarget === 'all' ? null : d.materials[matTarget];
+      // a material chosen: its name can be changed (a clear field gives the file's name back)
+      const renamer: HTMLElement[] = [];
+      if (typeof matTarget === 'number' && cur) {
+        const input = el('input');
+        input.type = 'text';
+        input.value = cur.plain;
+        input.placeholder = cur.original;
+        const idx = matTarget;
+        input.onchange = () => h.onMaterialName(idx, input.value);
+        input.onkeydown = (e) => {
+          if (e.key === 'Enter') input.blur();
+          e.stopPropagation();
+        };
+        renamer.push(row(el('span', 'Nome'), input));
+      }
       const hex = cur ? cur.color : (d.color ?? d.materials[0]?.color ?? '#ffffff');
       const fin = cur ? { roughness: cur.roughness, metalness: cur.metalness } : d.finish;
       const t = matTarget;
       const colour = d.materials.length
         ? card(
+            ...renamer,
             picker(hex, (c, commit) => h.onModelLook({ target: t, color: c }, commit), () => h.onModelLook(t === 'all' ? { target: 'all', color: null } : { target: t, color: null }, true)),
             finishRow('Rugosità', fin.roughness, (v, c) => h.onModelLook({ target: t, roughness: v }, c)),
             finishRow('Metallico', fin.metalness, (v, c) => h.onModelLook({ target: t, metalness: v }, c)),

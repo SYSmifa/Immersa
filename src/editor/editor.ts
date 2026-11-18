@@ -859,7 +859,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const holder = layer.holders.get(m.id);
       const materials = holder
         ? listMaterials(holder).map((info, i) => ({
-            name: info.name,
+            name: m.materialNames?.[String(i)] ? `${i + 1} · ${m.materialNames[String(i)]}` : info.name,
+            plain: m.materialNames?.[String(i)] || info.plain,
+            original: info.plain,
             color: m.materialColors?.[i] ?? m.color ?? info.color,
             roughness: m.materialFinish?.[i]?.roughness ?? m.finish?.roughness ?? info.roughness,
             metalness: m.materialFinish?.[i]?.metalness ?? m.finish?.metalness ?? info.metalness,
@@ -1969,6 +1971,19 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       m.scale = value;
       refreshPivot();
       changed(doCommit);
+    },
+    onMaterialName(index, name) {
+      const m = selModels()[0];
+      const holder = m && layer.holders.get(m.id);
+      if (!m || !holder) return;
+      const original = listMaterials(holder)[index]?.plain;
+      const n = name.trim();
+      m.materialNames = { ...m.materialNames };
+      if (!n || n === original) delete m.materialNames[String(index)];
+      else m.materialNames[String(index)] = n;
+      if (!Object.keys(m.materialNames).length) delete m.materialNames;
+      changed(true);
+      refreshAll();
     },
     onModelAnim(patch, doCommit) {
       const m = selModels()[0];

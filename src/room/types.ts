@@ -30,6 +30,7 @@ export interface RoomModel {
   anim?: { clip?: string; then?: string[]; delay?: number; speed?: number; loop?: boolean; auto?: boolean }; // the file's own animation to play: which clip (by name), speed (1 = as made), repeat, and start when the project opens
   color?: string; // '#rrggbb' tint replacing the colour of every material (textures stay); absent: the file's own colours
   materialColors?: Record<string, string>; // per material (index in the model's material list): overrides `color`
+  materialNames?: Record<string, string>; // per material (same index): the name the user gave it, instead of the file's
   finish?: { roughness?: number; metalness?: number }; // 0..1, every material
   materialFinish?: Record<string, { roughness?: number; metalness?: number }>; // per material: overrides `finish`
   parts?: Record<string, PartEdit>; // changes to single components (parts of the file), by path (see room/parts.ts)

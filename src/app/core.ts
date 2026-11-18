@@ -715,7 +715,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       color: m.color ?? null,
       confirmDelete,
       colorPage,
-      materials: mats.map((x, i) => ({ name: x.name, color: shownColor(m, i, mats) })),
+      materials: mats.map((x, i) => ({ name: m.materialNames?.[String(i)] ? `${i + 1} · ${m.materialNames[String(i)]}` : x.name, color: shownColor(m, i, mats) })),
       target: colorTarget,
       matPage,
       hsv: pick,
@@ -752,6 +752,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       height = lastHead.pos.y - 0.12;
       placeMenu(lastHead);
     }
+    refreshView(); // what it shows now (the main menu, not the page it showed when it was closed)
   }
   function closeMenu() {
     keyboard.close();
