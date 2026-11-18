@@ -578,9 +578,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   const selectedStruct = () => (selectedStructId ? (current?.structures?.find((x) => x.id === selectedStructId) ?? null) : null);
   const structsOf = (roomId: string) => current?.structures?.filter((x) => x.roomId === roomId) ?? [];
   // A real structure (see Structure.mode) is not drawn in the headset, so it cannot be pointed at, unless the visit or the option shows them.
-  const realShown = () => visit || view.real === 'shown'; // drawn like the virtual ones
-  const realPickable = () => visit || view.real !== 'hidden'; // with the outline on (or drawn) they can be pointed at and changed
-  const structMesh = (st: Structure) => (st.mode === 'real' && !realPickable() ? null : (houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null));
+  const realShown = () => visit || view.real === 'shown';
+  const structMesh = (st: Structure) => (st.mode === 'real' && !realShown() ? null : (houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null));
   const structName = (st: Structure) => `${st.kind === 'wall' ? 'Parete' : 'Pavimento'} ${structsOf(st.roomId).filter((x) => x.kind === st.kind).indexOf(st) + 1}`;
   const DEFAULT_TINT = { wall: '#e9ecf2', floor: '#c7cdd9' };
   // A component of the selected model (double pinch): moved, turned, scaled and coloured on its own.
@@ -3412,10 +3411,10 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       st.mode = st.mode === 'real' ? 'virtual' : 'real';
       markUnsaved();
       syncHouses();
-      if (st.mode === 'real' && !realPickable()) {
+      if (st.mode === 'real' && !realShown()) {
         selectStruct(null); // it is hidden now: nothing to hold on to
         objectOpen = false;
-        notify('Parete reale: nel visore non si vede, nasconde ciò che ha dietro (Opzioni → Pareti reali per rivederla)', 3500);
+        notify('Parete reale: nel visore non si vede, nasconde ciò che ha dietro (Opzioni → Pareti reali per mostrarla)', 3500);
       }
       refreshView();
     },
