@@ -98,7 +98,7 @@ export interface EditorHandlers {
   onPick(key: string, additive: boolean): void;
   onModelScale(value: number, commit: boolean): void;
   onModelYaw(deg: number, commit: boolean): void;
-  onModelAnim(patch: { clip?: string | null; speed?: number; loop?: boolean; auto?: boolean }, commit: boolean): void;
+  onModelAnim(patch: { clip?: string | null; then?: string[]; delay?: number; speed?: number; loop?: boolean; auto?: boolean }, commit: boolean): void;
   onModelAnimPlay(on: boolean): void;
   onModelTilt(axis: 'x' | 'z', deg: number, commit: boolean): void;
   onModelName(name: string): void;
@@ -140,7 +140,7 @@ export type Details =
       color: string | null; // the colour given to every material, if any
       finish: { roughness: number; metalness: number }; // for 'every material'
       materials: MaterialRow[];
-      animation?: { clips: { name: string; duration: number }[]; clip: string | null; speed: number; loop: boolean; auto: boolean; playing: boolean }; // the file's own animations, if it has any
+      animation?: { clips: { name: string; duration: number }[]; clip: string | null; then: string[]; delay: number; speed: number; loop: boolean; auto: boolean; playing: boolean }; // the file's own animations, if it has any
     }
   | {
       kind: 'part';
@@ -1043,35 +1043,43 @@ export function createEditorUi(h: EditorHandlers) {
     // A refresh that arrived during a drag is applied now.
     setTimeout(() => pending !== undefined && api.setDetails(pending), 0);
   });
-  // The file's own animations: which clip, speed, repeat, start with the project, and a preview button.
+  // The file's own animations: which clip (and the ones that follow), delay, speed, repeat, start with the project, and a preview.
   function animationBlock(an: NonNullable<Extract<Details, { kind: 'model' }>['animation']>): HTMLElement[] {
-    const pick = document.createElement('select');
-    pick.append(Object.assign(document.createElement('option'), { value: '', textContent: 'Nessuna (modello fermo)' }));
-    for (const c of an.clips) pick.append(Object.assign(document.createElement('option'), { value: c.name, textContent: `${c.name || 'Animazione'} · ${c.duration.toFixed(1)} s` }));
-    pick.value = an.clip ?? '';
-    pick.onchange = () => h.onModelAnim({ clip: pick.value || null }, true);
-    const loop = document.createElement('input');
-    loop.type = 'checkbox';
-    loop.checked = an.loop;
-    loop.onchange = () => h.onModelAnim({ loop: loop.checked }, true);
-    const auto = document.createElement('input');
-    auto.type = 'checkbox';
-    auto.checked = an.auto;
-    auto.onchange = () => h.onModelAnim({ auto: auto.checked }, true);
-    const label = (box: HTMLInputElement, text: string) => {
+    const clipSelect = (value: string | null, none: string, onPick: (name: string | null) => void) => {
+      const pick = document.createElement('select');
+      pick.append(Object.assign(document.createElement('option'), { value: '', textContent: none }));
+      for (const c of an.clips) pick.append(Object.assign(document.createElement('option'), { value: c.name, textContent: `${c.name || 'Animazione'} · ${c.duration.toFixed(1)} s` }));
+      pick.value = value ?? '';
+      pick.onchange = () => onPick(pick.value || null);
+      return pick;
+    };
+    const check = (value: boolean, text: string, onChange: (v: boolean) => void) => {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = value;
+      box.onchange = () => onChange(box.checked);
       const l = el('label', '', 'ed-check');
       l.append(box, el('span', text));
       return l;
     };
+    const then = an.then.map((name, i) =>
+      row(
+        clipSelect(name, 'Nessuna', (v) => h.onModelAnim({ then: v ? an.then.map((x, j) => (j === i ? v : x)) : an.then.filter((_, j) => j !== i) }, true)),
+        pill('✕', () => h.onModelAnim({ then: an.then.filter((_, j) => j !== i) }, true)),
+      ),
+    );
     return [
       el('div', 'Animazione', 'ed-h'),
       card(
-        pick,
+        clipSelect(an.clip, 'Nessuna (modello fermo)', (v) => h.onModelAnim({ clip: v }, true)),
         ...(an.clip
           ? [
+              ...(then.length ? [el('div', 'Poi, di seguito:', 'ed-meta'), ...then] : []),
+              pill('+ Un\'altra animazione di seguito', () => h.onModelAnim({ then: [...an.then, an.clips.find((c) => c.name !== an.clip)?.name ?? an.clip!] }, true)),
               row(el('span', 'Velocità ×'), numberField(an.speed, '0.1', '0.1', (v, c) => h.onModelAnim({ speed: Math.max(0.1, v) }, c))),
-              label(loop, 'Ripeti'),
-              label(auto, 'Parte quando si apre il progetto'),
+              row(el('span', 'Ritardo (s)'), numberField(an.delay, '0.5', '0', (v, c) => h.onModelAnim({ delay: Math.max(0, v) }, c))),
+              check(an.loop, an.then.length ? 'Ripeti tutta la sequenza' : 'Ripeti', (v) => h.onModelAnim({ loop: v }, true)),
+              check(an.auto, 'Parte quando si apre il progetto', (v) => h.onModelAnim({ auto: v }, true)),
               pill(an.playing ? 'Pausa' : 'Riproduci', () => h.onModelAnimPlay(!an.playing), 'acc'),
               pill('Rimuovi animazione', () => h.onModelAnim({ clip: null, auto: false }, true)), // back to the still model, as in the file
             ]

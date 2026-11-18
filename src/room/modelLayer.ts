@@ -48,38 +48,54 @@ const lookKey = (m: RoomModel) => [m.color, m.materialColors, m.finish, m.materi
 
 export function createModelLayer(parent: Object3D, onError: (text: string, model: RoomModel) => void) {
   const holders = new Map<string, Group>();
-  // The file's own animations: one mixer per placed model, driven by `update(dt)`; what plays is chosen in `model.anim`.
+  // The file's own animations: one mixer per placed model, driven by `update(dt)`; what plays is chosen in `model.anim`: one clip, or
+  // several in a row (`clip` then `then`), a delay before the start, speed, and whether it all repeats.
   interface Anim {
     mixer: AnimationMixer;
     clips: AnimationClip[];
-    clip: string | null; // the one set up now
+    seq: string[]; // the clips set up now, in order
+    index: number; // the one running
     action: AnimationAction | null;
     playing: boolean;
     started: boolean; // the automatic start has been done
+    wait: number; // seconds left before it starts moving
+    done: boolean; // the sequence reached its end (and does not repeat)
   }
   const anims = new Map<string, Anim>();
+  function runClip(st: Anim, m: RoomModel) {
+    st.action?.stop();
+    const a = m.anim;
+    const clip = st.clips.find((c) => c.name === st.seq[st.index]);
+    if (!clip) return void (st.action = null);
+    const act = st.mixer.clipAction(clip);
+    act.reset();
+    // one clip that repeats loops by itself; in a row, each plays once and the next one follows when it ends
+    act.setLoop(st.seq.length === 1 && (a?.loop ?? true) ? LoopRepeat : LoopOnce, Infinity);
+    act.clampWhenFinished = true;
+    act.timeScale = a?.speed ?? 1;
+    act.play();
+    st.action = act;
+  }
   function applyAnim(m: RoomModel) {
     const st = anims.get(m.id);
     if (!st) return;
     const a = m.anim;
-    const name = a?.clip && st.clips.some((c) => c.name === a.clip) ? a.clip : null;
-    if (st.clip !== name) {
+    const names = [a?.clip, ...(a?.then ?? [])].filter((n): n is string => !!n && st.clips.some((c) => c.name === n));
+    if (st.seq.join('\u0001') !== names.join('\u0001')) {
       st.mixer.stopAllAction();
+      st.seq = names;
+      st.index = 0;
       st.action = null;
-      st.clip = name;
-      if (name) {
-        st.action = st.mixer.clipAction(st.clips.find((c) => c.name === name)!);
-        st.action.play();
-      } else st.playing = false;
+      st.done = false;
+      if (!names.length) st.playing = false;
+      else runClip(st, m);
     }
     if (!st.action) return;
-    const loop = a?.loop ?? true;
-    st.action.setLoop(loop ? LoopRepeat : LoopOnce, Infinity);
-    st.action.clampWhenFinished = true;
     st.action.timeScale = a?.speed ?? 1;
     if (a?.auto && !st.started) {
       st.started = true;
       st.playing = true;
+      st.wait = a.delay ?? 0;
     }
     st.action.paused = !st.playing;
   }
@@ -116,7 +132,23 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
         const inst = cloneModel(obj) as Object3D;
         holder.add(inst);
         const clips = clipsByPath.get(m.path) ?? [];
-        if (clips.length) anims.set(m.id, { mixer: new AnimationMixer(inst), clips, clip: null, action: null, playing: false, started: false });
+        if (clips.length) {
+          const st: Anim = { mixer: new AnimationMixer(inst), clips, seq: [], index: 0, action: null, playing: false, started: false, wait: 0, done: false };
+          // a clip of a sequence ended: the next one, or the start again if it repeats
+          st.mixer.addEventListener('finished', () => {
+            const look = holder.userData.look as RoomModel | undefined;
+            if (!look || st.seq.length < 2) return;
+            if (st.index < st.seq.length - 1) st.index++;
+            else if (look.anim?.loop ?? true) st.index = 0;
+            else {
+              st.done = true;
+              return;
+            }
+            runClip(st, look);
+            if (st.action) st.action.paused = !st.playing;
+          });
+          anims.set(m.id, st);
+        }
         lightMetals(holder);
         const look = holder.userData.look as RoomModel | undefined;
         if (look) {
@@ -139,13 +171,28 @@ export function createModelLayer(parent: Object3D, onError: (text: string, model
     setPlaying(id: string, on: boolean) {
       const st = anims.get(id);
       if (!st?.action) return;
+      const look = holders.get(id)?.userData.look as RoomModel | undefined;
+      if (on && !st.playing) {
+        st.wait = look?.anim?.delay ?? 0;
+        if (st.done || (st.seq.length === 1 && !(look?.anim?.loop ?? true) && st.action.time >= st.action.getClip().duration)) {
+          st.done = false;
+          st.index = 0;
+          if (look) runClip(st, look); // from the start again
+        }
+      }
       st.playing = on;
-      if (on && !st.action.isRunning() && !st.action.paused && st.action.time >= st.action.getClip().duration) st.action.reset().play();
-      st.action.paused = !on;
+      if (st.action) st.action.paused = !on;
     },
     // Every frame, with the seconds since the last one.
     update(dt: number) {
-      for (const st of anims.values()) if (st.playing) st.mixer.update(dt);
+      for (const st of anims.values()) {
+        if (!st.playing) continue;
+        if (st.wait > 0) {
+          st.wait -= dt;
+          continue;
+        }
+        st.mixer.update(dt);
+      }
     },
     // Call after any change to the list or to a model's transform.
     sync(models: RoomModel[]) {

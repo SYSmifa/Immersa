@@ -898,7 +898,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function animationInfo(m: RoomModel): Details extends infer D ? (D extends { kind: 'model'; animation?: infer A } ? A : never) : never {
     const clips = layer.clips(m.id);
     if (!clips.length) return undefined as never;
-    return { clips, clip: m.anim?.clip ?? null, speed: m.anim?.speed ?? 1, loop: m.anim?.loop ?? true, auto: !!m.anim?.auto, playing: layer.isPlaying(m.id) } as never;
+    return { clips, clip: m.anim?.clip ?? null, then: m.anim?.then ?? [], delay: m.anim?.delay ?? 0, speed: m.anim?.speed ?? 1, loop: m.anim?.loop ?? true, auto: !!m.anim?.auto, playing: layer.isPlaying(m.id) } as never;
   }
 
   function refreshAll() {
@@ -1974,7 +1974,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       const m = selModels()[0];
       if (!m) return;
       const next: NonNullable<RoomModel['anim']> = { ...m.anim, ...patch, clip: patch.clip === undefined ? m.anim?.clip : (patch.clip ?? undefined) };
-      if (!next.clip) delete next.clip;
+      if (!next.clip) {
+        delete next.clip;
+        delete next.then; // nothing to follow
+      }
+      if (next.then && !next.then.length) delete next.then;
+      if (!next.delay) delete next.delay;
       m.anim = Object.keys(next).length ? next : undefined;
       layer.sync(models());
       changed(doCommit);
