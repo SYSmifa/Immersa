@@ -270,7 +270,7 @@ const CSS = `
 .ed-wheel i{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1.5px #0007,0 2px 6px #0006;pointer-events:none}
 .ed-pickrow{display:flex;gap:10px;align-items:center;width:100%}
 .ed-chipc{width:34px;height:34px;border-radius:10px;border:1px solid #0002;flex:none}
-.ed-hex{font-weight:700;letter-spacing:.04em;color:#344054;font-size:13px}
+.ed-hex{font-weight:700;letter-spacing:.04em;color:#344054;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace;flex:0 0 7.4ch;white-space:nowrap}
 .ed-bright{flex:1;height:14px;-webkit-appearance:none;appearance:none;border-radius:999px;outline:none;border:1px solid #0002}
 .ed-bright::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #14b8a6;box-shadow:0 1px 5px #0005;cursor:pointer}
 .ed-presets{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;width:100%}
@@ -1036,7 +1036,9 @@ export function createEditorUi(h: EditorHandlers) {
   let lastSig = '';
   let pending: Details | null | undefined;
   let interacting = false;
-  details.addEventListener('pointerdown', () => (interacting = true));
+  // In the capture phase: the wheel's own handler runs first and already changes the colour, which refreshes the details; that
+  // refresh must see the drag has begun, or it rebuilds the wheel under the pointer and the drag is lost.
+  details.addEventListener('pointerdown', () => (interacting = true), true);
   window.addEventListener('pointerup', () => {
     if (!interacting) return;
     interacting = false;
