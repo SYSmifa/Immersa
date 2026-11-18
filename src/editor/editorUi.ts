@@ -339,7 +339,8 @@ const ICON = {
   // a square with a dot on each corner: snap to vertices
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
-  walls: svg('<path d="M3 8l9-4 9 4v9l-9 4-9-4z" stroke-dasharray="2 2.5"/><path d="M12 4v17M3 8l9 4 9-4"/>'),
+  // an open room seen from above-front: two back walls (filled) and the floor outline
+  walls: svg('<path d="M3 7.5 12 4v9l-9 3.5z" fill="currentColor" fill-opacity="0.28"/><path d="M12 4l9 3.5v9L12 13z" fill="currentColor" fill-opacity="0.28"/><path d="M3 16.5 12 20l9-3.5"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
   note: svg('<path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>'),
   tape: svg('<circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/><path d="M7.2 12h9.6M5 8.5V6M19 8.5V6"/>'),
