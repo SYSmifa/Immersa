@@ -146,5 +146,53 @@ create policy "reports: read own" on public.reports for select to authenticated 
 drop policy if exists "reports: update own" on public.reports;
 create policy "reports: update own" on public.reports for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
+-- ---- Hardening (safe to re-run; audit of 18/11, see docs/sicurezza-supabase.md) ----
+
+-- Nobody without an account touches the data tables (the policies are already "to authenticated"; this is the second lock), and the
+-- tables only the Edge Functions use are closed to every client role.
+revoke all on public.rooms, public.projects, public.reports from anon;
+revoke all on public.device_links, public.device_link_failures from anon, authenticated;
+
+-- Size caps on what an account can store: a hostile or broken client cannot fill the database. NOT VALID = checked on new and changed
+-- rows only (rows saved before stay as they are).
+alter table public.rooms drop constraint if exists rooms_size;
+alter table public.rooms add constraint rooms_size check (
+  pg_column_size(data) <= 20000000 and (previous_data is null or pg_column_size(previous_data) <= 20000000)
+  and char_length(name) <= 200 and char_length(coalesce(place, '')) <= 200
+) not valid;
+alter table public.projects drop constraint if exists projects_size;
+alter table public.projects add constraint projects_size check (
+  pg_column_size(models) <= 5000000 and pg_column_size(structures) <= 5000000 and pg_column_size(annotations) <= 5000000
+  and pg_column_size(room_ids) <= 100000 and char_length(name) <= 200
+) not valid;
+
+-- A project can only point at a room of its own owner (the foreign key alone would accept anybody's room id, and tell by its answer
+-- whether that id exists).
+create or replace function public.projects_room_owner() returns trigger language plpgsql security invoker set search_path = public as $$
+begin
+  if new.room_id is not null and not exists (select 1 from public.rooms r where r.id = new.room_id and r.owner = new.owner) then
+    raise exception 'the room does not belong to the project owner';
+  end if;
+  return new;
+end $$;
+drop trigger if exists projects_room_owner on public.projects;
+create trigger projects_room_owner before insert or update of room_id on public.projects for each row execute function public.projects_room_owner();
+
+-- Reports: only the three known kinds, and at most 60 an hour per account (they send an email each: no flooding).
+alter table public.reports drop constraint if exists reports_kind;
+alter table public.reports add constraint reports_kind check (kind in ('manual', 'auto', 'pc')) not valid;
+create or replace function public.reports_rate() returns trigger language plpgsql security invoker set search_path = public as $$
+begin
+  if (select count(*) from public.reports r where r.user_id = new.user_id and r.created_at > now() - interval '1 hour') >= 60 then
+    raise exception 'too many reports, try again later';
+  end if;
+  return new;
+end $$;
+drop trigger if exists reports_rate on public.reports;
+create trigger reports_rate before insert on public.reports for each row execute function public.reports_rate();
+
+-- The models bucket: no file over 50 MB (the app already refuses more).
+update storage.buckets set file_size_limit = 52428800 where id = 'models';
+
 -- Make the API see the new tables right away.
 notify pgrst, 'reload schema';

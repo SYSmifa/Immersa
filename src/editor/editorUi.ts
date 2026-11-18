@@ -641,6 +641,7 @@ export function createEditorUi(h: EditorHandlers) {
       waiting,
       el('div', 'oppure scrivi il codice', 'ed-or'),
       el('div', "Serve se il visore è su un'altra rete (per esempio l'hotspot del telefono).", 'ed-sub'),
+      el('div', 'Approva solo un codice che vedi sul TUO visore: chi ti chiede un codice per telefono o messaggio vuole entrare nel tuo account.', 'ed-sub'),
       card(code),
       note,
       go,
