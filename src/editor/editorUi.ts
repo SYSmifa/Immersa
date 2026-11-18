@@ -1073,6 +1073,7 @@ export function createEditorUi(h: EditorHandlers) {
               label(loop, 'Ripeti'),
               label(auto, 'Parte quando si apre il progetto'),
               pill(an.playing ? 'Pausa' : 'Riproduci', () => h.onModelAnimPlay(!an.playing), 'acc'),
+              pill('Rimuovi animazione', () => h.onModelAnim({ clip: null, auto: false }, true)), // back to the still model, as in the file
             ]
           : [el('div', 'Questo modello ha delle animazioni: sceglila per riprodurla qui e nel visore.', 'ed-meta')]),
       ),
