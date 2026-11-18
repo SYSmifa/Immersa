@@ -21,7 +21,7 @@ import { unzipSync } from 'three/addons/libs/fflate.module.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createGltfLoader } from '../scene/gltf';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
@@ -197,7 +197,7 @@ async function readFile(files: File[], main: File): Promise<Object3D> {
     }
     if (kind === '3mf') return new ThreeMFLoader(side.manager).parse(await main.arrayBuffer());
     if (kind === 'gltf' || kind === 'glb') {
-      const loader = new GLTFLoader(side.manager);
+      const loader = createGltfLoader(side.manager); // also reads Draco / meshopt compressed files (SolidWorks and others write them)
       const data = kind === 'glb' ? await main.arrayBuffer() : await main.text();
       const gltf = await new Promise<{ scene: Object3D; animations: AnimationClip[] }>((resolve, reject) => loader.parse(data, '', resolve, reject));
       await side.idle();
