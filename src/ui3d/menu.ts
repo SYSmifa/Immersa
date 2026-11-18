@@ -556,7 +556,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
-    out.push({ kind: 'card', icon: 'room_plan', rect: at(1, 6), text: 'Pareti reali', size: 19, sub: 'Contorno o piani, se ci sono', badge: v.real === 'hidden' ? 'Nascoste' : v.real === 'outline' ? 'Contorno' : 'Visibili', badgeOn: v.real !== 'hidden', onClick: a.cycleReal });
+    out.push({ kind: 'card', icon: 'room_plan', rect: at(1, 6), text: 'Pareti reali', size: 19, sub: 'Con contorno o piani si scelgono', badge: v.real === 'hidden' ? 'Nascoste' : v.real === 'outline' ? 'Contorno' : 'Visibili', badgeOn: v.real !== 'hidden', onClick: a.cycleReal });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));
