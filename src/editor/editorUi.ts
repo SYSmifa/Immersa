@@ -173,7 +173,7 @@ export interface ToolbarState {
   annot: 'note' | 'ruler' | null; // the annotation tool in use
   annotStep: string; // what to do next with it ('' when none)
   measures: MeasureMode;
-  fade: boolean; // the walls between the camera and the inside of the room are hidden
+  fade: boolean; // the walls' surfaces are hidden (only their outline stays)
   gaps: boolean; // distances from the selected object to the nearest things
   canUndo: boolean;
   canRedo: boolean;
@@ -807,7 +807,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, fade: true, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, fade: false, canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -819,7 +819,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
   const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto selezionato (acceso / spento)', () => h.onMeasures(state.measures === 'off' ? 'sel' : 'off'));
   const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
-  const bFade = ib(ICON.walls, 'Pareti davanti alla camera: nascoste (resta il contorno) / sempre visibili', () => h.onWallsFade(!state.fade));
+  const bFade = ib(ICON.walls, 'Pareti: nascondi i piani (resta il contorno) / mostra i piani', () => h.onWallsFade(!state.fade));
   const bNote = ib(ICON.note, 'Nota: clic su un punto per lasciare un commento', () => h.onAnnot(state.annot === 'note' ? null : 'note'));
   const bTape = ib(ICON.tape, 'Metro: clic su due punti per misurare e lasciare la misura', () => h.onAnnot(state.annot === 'ruler' ? null : 'ruler'));
   const bUndo = ib(ICON.undo, 'Annulla (Ctrl+Z)', h.onUndo);
