@@ -350,6 +350,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     changedRoom: null,
     info: '',
     refsInfo: null,
+    roomByPoints: false,
     resid: null,
     liveReady: false,
     captureAvailable: false,
@@ -533,7 +534,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     view.roomPlace = recognised?.room.place ?? null;
     view.candidate = candidate?.room.name ?? null;
     view.changedRoom = changed?.room.name ?? null;
-    view.refsInfo = recognised ? (recognised.room.scan.refs?.length ? `${recognised.room.scan.refs.length} punti` : 'aggiungi') : null;
+    // A room made from points is placed on its points (never by hand); one from the headset's scan only has the manual alignment.
+    view.roomByPoints = !!recognised && byPoints(recognised.room);
+    view.refsInfo = recognised && byPoints(recognised.room) ? `${recognised.room.scan.refs?.length ?? 0} punti` : null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
     view.info = `Piani qui ${live.length} / visti ${rawLive.length}`;
@@ -1241,7 +1244,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
   function alignableRoom(): Room | null {
     if (!current) return null;
-    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !hasRefs(r) && !!suggestCorners(r.scan.planes));
+    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !byPoints(r) && !!suggestCorners(r.scan.planes));
     return rs.find((r) => !aligns.has(r.id)) ?? rs.find((r) => r.id === recognised?.room.id) ?? rs[0] ?? null;
   }
 
@@ -3074,6 +3077,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       colorTarget = t;
       const h = holderOf(m);
       pick = hexToHsv(shownColor(m, t, h ? listMaterials(h) : []));
+      refreshView();
+    },
+    async objRenameMaterial(index: number) {
+      const m = selectedModel();
+      const h = m && holderOf(m);
+      if (!m || !h) return;
+      const info = listMaterials(h)[index];
+      if (!info) return;
+      const v = await ask('Nome del materiale', m.materialNames?.[String(index)] ?? info.plain, { max: 40, capital: true, allowEmpty: true });
+      if (v === null) return;
+      const name = v.trim();
+      m.materialNames = { ...m.materialNames };
+      if (!name || name === info.plain) delete m.materialNames[String(index)]; // empty: the file's own name again
+      else m.materialNames[String(index)] = name;
+      if (!Object.keys(m.materialNames).length) delete m.materialNames;
+      markUnsaved();
       refreshView();
     },
     objMatPage(delta: number) {

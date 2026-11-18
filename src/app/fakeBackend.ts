@@ -1,3 +1,4 @@
+import { scanFromPoints } from '../room/byPoints';
 import { Quaternion, Vector3 } from 'three';
 import type { Backend } from '../cloud/backend';
 import type { Project, Room, RoomBox, RoomModel, RoomPlane, RoomScan } from '../room/types';
@@ -70,6 +71,8 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
     { id: 'r1', name: 'Salotto', createdAt: '2026-03-14T10:00:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(5, 4, 2.6), boxes: boxRoomBoxes(5, 4) } },
     { id: 'r2', name: 'Cucina', createdAt: '2026-05-02T16:30:00Z', updatedAt: now(), scan: { version: 1, savedAt: 1, planes: boxRoom(3.2, 2.8, 2.5), boxes: boxRoomBoxes(3.2, 2.8) } },
   ];
+  // A room made from points (a hangar): for the tests of its dialogs.
+  rooms.push({ id: 'r3', name: 'Capannone punti', createdAt: '2026-11-10T09:00:00Z', updatedAt: now(), scan: scanFromPoints([[0, 0, 0], [24, 0, 0], [24, 0, 10], [12, 0, 14], [0, 0, 10]].map((pos) => ({ pos: pos as [number, number, number] })), 0, 6) });
   const reports: import('../cloud/backend').ReportRow[] = [];
   const projects: Project[] = [
     { id: 'p1', roomIds: ['r1'], name: 'Allestimento A', updatedAt: now(), structures: [], annotations: [

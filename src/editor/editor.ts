@@ -51,8 +51,9 @@ import { listMaterials, modelBox, modelSize as localModelSize } from '../room/se
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
-import { IDENTITY, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
+import { IDENTITY, apply, invertLink, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
+import { WALL_HEIGHT as DEFAULT_WALL_HEIGHT, scanFromPoints } from '../room/byPoints';
 import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type SheetOptions } from './planPdf';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
@@ -791,7 +792,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function refreshLists() {
     const tones = projectTones(projects);
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, place: r.place, links: linksText(r), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, byPoints: !!r.scan.contour, place: r.place, links: linksText(r), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
       projectRoomsList().map((r) => {
@@ -1760,6 +1761,28 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         r.place = spelled || undefined;
         refreshLists();
       }),
+    onRoomContour: (id) =>
+      run(async () => {
+        const r = rooms.find((x) => x.id === id);
+        if (!r?.scan.contour) return;
+        const res = await ui.showContour({ roomName: r.name, height: r.scan.height ?? DEFAULT_WALL_HEIGHT, points: r.scan.contour });
+        if (!res) return;
+        // the anchors follow the points they were taken from; if one was removed, the two farthest points are the anchors
+        const old = r.scan.contour;
+        const follow = (r.scan.refs ?? []).map((a) => {
+          const i = old.findIndex((p) => p.pos[0] === a.pos[0] && p.pos[2] === a.pos[2]);
+          const j = i >= 0 ? res.origin.indexOf(i) : -1;
+          return j >= 0 ? { ...a, pos: [...res.points[j].pos] as Vec3 } : null;
+        });
+        const floorY = res.points[0].pos[1];
+        const fresh = scanFromPoints(res.points, floorY, res.height);
+        const scan = { ...r.scan, planes: fresh.planes, contour: fresh.contour, height: res.height, refs: follow.every((a) => a) && follow.length >= 2 ? (follow as NonNullable<(typeof follow)[number]>[]) : fresh.refs, refsPrev: r.scan.refs ?? r.scan.refsPrev, savedAt: Date.now() };
+        await backend.saveRoomData(id, scan);
+        r.scan = scan;
+        refreshLists();
+        if (room?.id === id) showRoom(r);
+        ui.setStatus('Muri e perimetro aggiornati');
+      }),
     onRoomRefs: (id) =>
       run(async () => {
         const r = rooms.find((x) => x.id === id);
@@ -2080,7 +2103,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       }
       changed(doCommit);
     },
-    onStructure(edit: StructureEdit, doCommit) {
+    async onStructure(edit: StructureEdit, doCommit) {
+      // Changing the type of several walls / floors at once is asked about: a wrong click would change them all.
+      if (edit.mode) {
+        const n = selStructs().filter((x) => (x.mode ?? 'virtual') !== edit.mode).length;
+        if (n > 1 && !(await ui.askConfirm(`Rendere ${edit.mode === 'real' ? 'REALI' : 'VIRTUALI'} ${n} tra pareti e pavimenti?\n${edit.mode === 'real' ? 'Nel visore non si vedranno più, ma nasconderanno ciò che hanno dietro.' : 'Nel visore si vedranno, con colore e texture.'}`, 'Cambia', 'Cambio di tipo'))) return;
+      }
       for (const s of selStructs()) {
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
         if (edit.mode) s.mode = edit.mode;
@@ -2502,6 +2530,80 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     markDirty();
     commit();
     refreshAll();
+  });
+
+  // ---- another room of the place, dragged to correct where it stands in relation to this one ----
+  // A press on the floor of another (visible) room, not on anything of this room, grabs it: the drag moves it, Shift + drag turns it
+  // about its centre; on release the position is saved as a link made by hand (both rooms), which every project of the place uses.
+  let roomDrag: { id: string; start: Vector3; pose: Pose; moved: boolean; x0: number } | null = null;
+  const groundAt = (e: PointerEvent) => {
+    ray.setFromCamera(ndcOf(e), camera);
+    return ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -floorY()), new Vector3());
+  };
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || build || annotMode || partSel || !room || !others.count()) return;
+    ray.setFromCamera(ndcOf(e), camera);
+    if (ray.intersectObjects([modelsGroup, structuresGroup], true).length) return; // something of this room is under the pointer
+    const g = groundAt(e);
+    if (!g) return;
+    const id = others.hit(g.x, g.z);
+    if (!id) return;
+    const pose = others.pose(id)!;
+    roomDrag = { id, start: g, pose, moved: false, x0: e.clientX };
+    controls.enabled = false;
+    renderer.domElement.setPointerCapture(e.pointerId);
+    e.stopImmediatePropagation(); // neither a selection nor the orbit
+  }, true);
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!roomDrag) return;
+    const d = roomDrag;
+    if (e.shiftKey) {
+      // turn about the room's centre (1 degree per 4 pixels)
+      const dyaw = ((e.clientX - d.x0) * Math.PI) / 180 / 4;
+      const c = others.floorCentre(d.id)!;
+      const before = apply(d.pose, c);
+      const yaw = d.pose.yaw + dyaw;
+      const after = apply({ ...d.pose, yaw, tx: 0, tz: 0 }, c);
+      others.setPose(d.id, { ...d.pose, yaw, tx: before[0] - after[0], tz: before[2] - after[2] });
+      d.moved = true;
+      return;
+    }
+    const g = groundAt(e);
+    if (!g) return;
+    const step = snapGrid ? GRID_STEP : 0;
+    const dx = g.x - d.start.x;
+    const dz = g.z - d.start.z;
+    const snap = (v: number) => (step ? Math.round(v / step) * step : v);
+    if (Math.hypot(dx, dz) > 0.02) d.moved = true;
+    others.setPose(d.id, { ...d.pose, tx: d.pose.tx + snap(dx), tz: d.pose.tz + snap(dz) });
+  });
+  renderer.domElement.addEventListener('pointerup', () => {
+    if (!roomDrag) return;
+    const d = roomDrag;
+    roomDrag = null;
+    controls.enabled = true;
+    const other = rooms.find((x) => x.id === d.id);
+    if (!d.moved || !room || !other) {
+      if (other) ui.setStatus(`"${other.name}": trascina per spostarla (Maiusc + trascina per girarla). La posizione si salva come collegamento a mano.`);
+      return;
+    }
+    const pose = others.pose(d.id)!;
+    const current = room;
+    void (async () => {
+      try {
+        const link = { yaw: pose.yaw, tx: pose.tx, ty: pose.ty, tz: pose.tz, at: Date.now(), src: 'manual' as const, n: 2, sess: 'pc' };
+        current.scan = { ...current.scan, links: { ...current.scan.links, [other.id]: link } };
+        other.scan = { ...other.scan, links: { ...other.scan.links, [current.id]: invertLink(link) } };
+        await backend.saveRoomData(current.id, current.scan);
+        await backend.saveRoomData(other.id, other.scan);
+        refreshOthers();
+        refreshLists();
+        ui.setStatus(`"${other.name}" collegata a mano a "${current.name}".`);
+      } catch (err) {
+        refreshOthers(); // back to the saved place
+        ui.setStatus(`Non riesco a salvare il collegamento: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
   });
 
   // Releasing Shift (or leaving the window) ends a Shift-held series of walls / floors.

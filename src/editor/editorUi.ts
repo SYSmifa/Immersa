@@ -68,6 +68,7 @@ export interface EditorHandlers {
   onRenameRoom(id: string): void;
   onRoomPlace(id: string): void;
   onRoomRefs(id: string): void;
+  onRoomContour(id: string): void;
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
@@ -186,7 +187,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean };
+export type Option = { id: string; name: string; byPoints?: boolean; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -550,7 +551,7 @@ export function createEditorUi(h: EditorHandlers) {
         el('div', r.place ? `Luogo: ${r.place}` : 'Senza luogo: assegnalo per poterla usare con altre stanze', 'ed-meta'),
         ...(r.links ? [el('div', `Posizione relativa: ${r.links}`, 'ed-meta')] : []),
         el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'),
-        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Punti di riferimento', () => h.onRoomRefs(r.id)), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
+        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Punti di riferimento', () => h.onRoomRefs(r.id)), ...(r.byPoints ? [pill('Muri e perimetro', () => h.onRoomContour(r.id))] : []), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
       );
     };
     // Grouped by place (in the order the rooms come: the most recently used place first), the rooms without one at the end.
@@ -1779,6 +1780,137 @@ export function createEditorUi(h: EditorHandlers) {
           draw();
         };
         panel.append(el('h3', `Punti di riferimento · ${opts.roomName}`), canvas, hint, list, err, buttons);
+        overlay.append(panel);
+        root.append(overlay);
+        render();
+        requestAnimationFrame(draw);
+      });
+    },
+    // The walls of a room made from points: the height, and the perimeter points on the top-down plan (drag to move one, delete one;
+    // at least 3 stay). Resolves with the new set, or null if cancelled.
+    showContour(opts: { roomName: string; height: number; points: RoomRef[] }) {
+      return new Promise<{ height: number; points: RoomRef[]; origin: number[] } | null>((resolve) => {
+        const pts: RoomRef[] = opts.points.map((p) => ({ pos: [...p.pos] as Vec3, name: p.name }));
+        const origin = opts.points.map((_, i) => i); // for each point now, its index in the set the dialog opened with
+        let height = opts.height;
+        let drag: number | null = null;
+        const xs0 = pts.map((p) => p.pos[0]);
+        const zs0 = pts.map((p) => p.pos[2]);
+        const m = 2;
+        const bounds = { minX: Math.min(...xs0) - m, maxX: Math.max(...xs0) + m, minZ: Math.min(...zs0) - m, maxZ: Math.max(...zs0) + m };
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel ed-refs');
+        const canvas = document.createElement('canvas');
+        const hint = el('div', '', 'ed-sub');
+        hint.style.textAlign = 'left';
+        const list = el('div', '', 'ed-waiting');
+        const buttons = el('div', '', 'ed-refbtns');
+        const done = (v: { height: number; points: RoomRef[]; origin: number[] } | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v);
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const frame = () => {
+          const w = canvas.clientWidth || 720;
+          const h2 = canvas.clientHeight || 380;
+          const pad = 30;
+          const k = Math.min((w - 2 * pad) / (bounds.maxX - bounds.minX), (h2 - 2 * pad) / (bounds.maxZ - bounds.minZ));
+          const ox = (w - k * (bounds.maxX - bounds.minX)) / 2 - k * bounds.minX;
+          const oz = (h2 - k * (bounds.maxZ - bounds.minZ)) / 2 - k * bounds.minZ;
+          return { k, w, h: h2, X: (x: number) => ox + k * x, Z: (z: number) => oz + k * z, x: (px: number) => (px - ox) / k, z: (pz: number) => (pz - oz) / k };
+        };
+        let fr = frame();
+        const draw = () => {
+          const dpr = window.devicePixelRatio || 1;
+          fr = frame();
+          canvas.width = Math.round(fr.w * dpr);
+          canvas.height = Math.round(fr.h * dpr);
+          const c = canvas.getContext('2d')!;
+          c.scale(dpr, dpr);
+          c.lineJoin = 'round';
+          c.strokeStyle = '#e8edf5';
+          c.fillStyle = 'rgba(255,255,255,0.06)';
+          c.lineWidth = 3;
+          c.beginPath();
+          pts.forEach((p, i) => (i ? c.lineTo(fr.X(p.pos[0]), fr.Z(p.pos[2])) : c.moveTo(fr.X(p.pos[0]), fr.Z(p.pos[2]))));
+          c.closePath();
+          c.fill();
+          c.stroke();
+          c.font = '600 12px sans-serif';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          pts.forEach((p, i) => {
+            const q = pts[(i + 1) % pts.length];
+            const len = Math.hypot(q.pos[0] - p.pos[0], q.pos[2] - p.pos[2]);
+            c.fillStyle = '#9fb3c8';
+            c.fillText(`${len.toFixed(2)} m`, fr.X((p.pos[0] + q.pos[0]) / 2), fr.Z((p.pos[2] + q.pos[2]) / 2) - 10);
+          });
+          c.font = '700 13px sans-serif';
+          pts.forEach((p, i) => {
+            c.fillStyle = drag === i ? '#ffffff' : '#2dd4bf';
+            c.beginPath();
+            c.arc(fr.X(p.pos[0]), fr.Z(p.pos[2]), 11, 0, Math.PI * 2);
+            c.fill();
+            c.fillStyle = '#04211d';
+            c.fillText(String(i + 1), fr.X(p.pos[0]), fr.Z(p.pos[2]) + 1);
+          });
+        };
+        const at = (e: PointerEvent) => {
+          const r = canvas.getBoundingClientRect();
+          return [e.clientX - r.left, e.clientY - r.top] as const;
+        };
+        canvas.onpointerdown = (e) => {
+          const [px, pz] = at(e);
+          const hit = pts.findIndex((p) => Math.hypot(fr.X(p.pos[0]) - px, fr.Z(p.pos[2]) - pz) < 18);
+          if (hit < 0) return;
+          drag = hit;
+          canvas.setPointerCapture(e.pointerId);
+          draw();
+        };
+        canvas.onpointermove = (e) => {
+          if (drag === null) return;
+          const [px, pz] = at(e);
+          const x = Math.min(bounds.maxX, Math.max(bounds.minX, Math.round(fr.x(px) / 0.05) * 0.05));
+          const z = Math.min(bounds.maxZ, Math.max(bounds.minZ, Math.round(fr.z(pz) / 0.05) * 0.05));
+          pts[drag].pos = [x, pts[drag].pos[1], z];
+          draw();
+        };
+        canvas.onpointerup = () => {
+          drag = null;
+          render();
+        };
+        const render = () => {
+          hint.textContent = 'Trascina un punto per spostarlo (la lunghezza dei lati si aggiorna). Se sposti uno dei due punti di allineamento, nel visore dovrai toccarlo nella nuova posizione.';
+          const hf = Object.assign(document.createElement('input'), { type: 'number', value: String(height), step: '0.1', min: '1' });
+          hf.onchange = () => {
+            const v = Number(hf.value.replace(',', '.'));
+            if (v >= 1 && v <= 50) height = v;
+            else hf.value = String(height);
+          };
+          const heightRow = row(el('span', 'Altezza dei muri (m)'), hf);
+          list.replaceChildren(
+            heightRow,
+            ...pts.map((p, i) => {
+              const r = el('div', '', 'ed-refrow');
+              r.append(el('b', String(i + 1)), el('span', `${p.pos[0].toFixed(2)} ; ${p.pos[2].toFixed(2)} m`, 'ed-meta'), pill('Togli il punto', () => {
+                if (pts.length <= 3) return;
+                pts.splice(i, 1);
+                origin.splice(i, 1);
+                render();
+              }));
+              if (pts.length <= 3) (r.lastChild as HTMLElement).style.opacity = '0.45';
+              return r;
+            }),
+          );
+          buttons.replaceChildren(pill('Salva', () => done({ height, points: pts, origin }), 'acc'), pill('Annulla', () => done(null)));
+          draw();
+        };
+        panel.append(el('h3', `Muri e perimetro · ${opts.roomName}`), canvas, hint, list, buttons);
         overlay.append(panel);
         root.append(overlay);
         render();

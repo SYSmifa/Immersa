@@ -62,7 +62,8 @@ export interface MenuView {
   alignRoom: string | null; // a room of the open project that can be placed by touching two of its corners (its name)
   candidate: string | null; // saved room the headset reports, but you do not seem to be inside it
   changedRoom: string | null; // saved room that only partly fits the live scan: probably this room, with a moved or changed scan
-  refsInfo: string | null; // recognised room is a big space: how many reference points it has (null = not big)
+  refsInfo: string | null; // recognised room made from points: how many reference points it has (null = not made from points)
+  roomByPoints: boolean; // the recognised room was made from points: no manual alignment, no scan again
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
@@ -162,6 +163,7 @@ export interface MenuActions {
   objOpenColor(): void;
   objColorBack(): void;
   objColorTarget(t: 'all' | number): void;
+  objRenameMaterial(index: number): void;
   objMatPage(delta: number): void;
   objPick(h: number | null, s: number | null, v: number | null): void;
   objFinish(key: 'roughness' | 'metalness', value: number): void;
@@ -237,6 +239,11 @@ function colorPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
   items.slice(page * ROWS, (page + 1) * ROWS).forEach((it, i) =>
     out.push({ kind: 'row', rect: { x: M + 12, y: 116 + i * 52, w: 328, h: 46 }, text: it.name, size: 22, swatch: it.color ?? undefined, swatchImage: it.image, active: st ? st.texture === it.tex : o.target === it.t, onClick: () => (st ? a.objTexture(it.tex ?? null) : a.objColorTarget(it.t)) }),
   );
+  // the chosen material has a pencil to rename it (a keyboard opens)
+  if (!st && typeof o.target === 'number') {
+    const at = items.slice(page * ROWS, (page + 1) * ROWS).findIndex((it) => it.t === o.target);
+    if (at >= 0) out.push({ kind: 'iconbtn', icon: 'pencil', rect: { x: M + 12 + 328 - 42, y: 116 + at * 52 + 3, w: 40, h: 40 }, text: '', onClick: () => a.objRenameMaterial(o.target as number) });
+  }
   if (pages > 1) {
     out.push({ kind: 'iconbtn', icon: 'left', fill: theme().accentSoft, color: theme().accentText, rect: { x: M + 14, y: 382, w: 36, h: 36 }, text: '', disabled: page === 0, onClick: () => a.objMatPage(-1) });
     out.push(text(`${page + 1} / ${pages}`, M + 60, 382, 232, 36, 20, theme().dim, { align: 'center' }));
@@ -469,7 +476,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       }
     }
   } else if (v.tab === 'scan') {
-    out.push(surface(M, top, W, v.roomName && v.refsInfo ? 396 : 340));
+    out.push(surface(M, top, W, 340));
     const inner = M + 28;
     const iw = W - 56;
     // The buttons stack from `y`; the last one is always "Allineamento manuale" (place the room by touching two corners).
@@ -485,9 +492,11 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       y = top + 92;
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);
-      if (v.refsInfo) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);
-      if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
-      manual();
+      if (v.roomByPoints) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);
+      else {
+        if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
+        manual();
+      }
     } else if (v.candidate) {
       out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
       y = top + 114;

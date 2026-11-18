@@ -1,7 +1,7 @@
 import { Box3, CanvasTexture, Group, LinearFilter, LineBasicMaterial, Matrix4, Sprite, SpriteMaterial, SRGBColorSpace, Vector3, type Object3D, type Scene } from 'three';
 import { floorCentre } from '../room/floor';
 import { drawBoxes, drawPlanes } from '../room/draw';
-import { placeAround, type Placement } from '../room/layout';
+import { invert, apply, placeAround, roomContains, type Placement, type Pose } from '../room/layout';
 import { createModelLayer, type ModelLayer } from '../room/modelLayer';
 import type { Room, RoomModel } from '../room/types';
 
@@ -46,6 +46,8 @@ function labelSprite(name: string, state: Placement['state']): Sprite {
 }
 
 interface Entry {
+  room: Room;
+  pose: Pose;
   planes: Room['scan']['planes'];
   state: Placement['state'];
   root: Group;
@@ -83,7 +85,7 @@ export function createOtherRooms(scene: Scene, onError: (text: string, model: Ro
     label.position.set(c[0], c[1] + 2.5, c[2]);
     root.add(label);
     top.add(root);
-    return { planes: room.scan.planes, state, root, outline, label, layer: createModelLayer(root, onError) };
+    return { room, pose: { yaw: 0, tx: 0, ty: 0, tz: 0 }, planes: room.scan.planes, state, root, outline, label, layer: createModelLayer(root, onError) };
   }
 
   return {
@@ -103,6 +105,8 @@ export function createOtherRooms(scene: Scene, onError: (text: string, model: Ro
         }
         e ??= build(room, place.state);
         entries.set(id, e);
+        e.room = room;
+        e.pose = { ...place.pose };
         e.root.matrix.copy(new Matrix4().makeRotationY(-place.pose.yaw).setPosition(place.pose.tx, place.pose.ty, place.pose.tz));
         e.root.matrixWorldNeedsUpdate = true;
         e.root.visible = !hidden.has(id);
@@ -126,6 +130,28 @@ export function createOtherRooms(scene: Scene, onError: (text: string, model: Ro
         e.label.visible = !on;
         if (on) e.root.visible = show.has(id);
       }
+    },
+    // The visible other room whose floor is under this point of the editor's world (null: none).
+    hit(x: number, z: number): string | null {
+      for (const [id, e] of entries) {
+        if (!e.root.visible) continue;
+        const p = apply(invert(e.pose), [x, e.pose.ty + 1, z]); // into the room's own frame, at about a metre above its floor
+        if (roomContains(e.room, [p[0], floorCentre(e.planes)[1] + 1, p[2]], 0.3)) return id;
+      }
+      return null;
+    },
+    pose: (id: string): Pose | null => (entries.get(id) ? { ...entries.get(id)!.pose } : null),
+    floorCentre: (id: string): [number, number, number] | null => {
+      const e = entries.get(id);
+      return e ? floorCentre(e.planes) : null;
+    },
+    // While dragging: the room follows at once (nothing is saved).
+    setPose(id: string, pose: Pose) {
+      const e = entries.get(id);
+      if (!e) return;
+      e.pose = { ...pose };
+      e.root.matrix.copy(new Matrix4().makeRotationY(-pose.yaw).setPosition(pose.tx, pose.ty, pose.tz));
+      e.root.matrixWorldNeedsUpdate = true;
     },
     holders: (id: string) => entries.get(id)?.layer.holders ?? null,
     position: (id: string) => entries.get(id)?.root.getWorldPosition(new Vector3()) ?? null,
