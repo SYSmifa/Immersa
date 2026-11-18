@@ -302,7 +302,7 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
     out.push({ kind: 'card', icon: 'scale', rect: { x: st.kind === 'wall' ? M + half + 16 : M, y: 112, w: half, h: 104 }, text: `${(st.thickness * 100).toFixed(0)} cm`, sub: 'Spessore', size: 34, onClick: a.objThickness });
     if (o.size) out.push({ kind: 'chip', rect: { x: M, y: 230, w: 440, h: 40 }, text: o.size, size: 19, fill: theme().glass });
     const tex = st.textures.find((t) => t.id === st.texture);
-    out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Texture e colore', sub: tex?.id ? `Texture: ${tex.name}` : o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colore predefinito', swatch: o.color ?? tex?.color ?? undefined, swatchImage: !o.color ? tex?.image : undefined, onClick: a.objOpenColor });
+    if (!st.real) out.push({ kind: 'card', icon: 'palette', rect: { x: M, y: 284, w: W, h: 100 }, text: 'Texture e colore', sub: tex?.id ? `Texture: ${tex.name}` : o.color ? `Tinta ${o.color.toUpperCase()}` : 'Colore predefinito', swatch: o.color ?? tex?.color ?? undefined, swatchImage: !o.color ? tex?.image : undefined, onClick: a.objOpenColor });
     if (o.confirmDelete) {
       out.push(surface(M, 404, W, 176));
       out.push(text(`Eliminare "${o.name}"?`, M + 28, 420, W - 56, 44, 30, theme().bad, { bold: true }));

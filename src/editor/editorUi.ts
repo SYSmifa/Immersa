@@ -1239,14 +1239,19 @@ export function createEditorUi(h: EditorHandlers) {
       el('div', d.count && d.count > 1 ? `${d.count} ${d.type === 'wall' ? 'pareti' : 'pavimenti'}` : d.type === 'wall' ? 'Parete' : 'Pavimento', 'ed-h'),
       ...(d.count && d.count > 1 ? [el('div', 'Le modifiche valgono per tutti quelli selezionati', 'ed-sub')] : []),
       card(...rows, el('div', d.measure, 'ed-meta')),
-      el('div', 'Texture', 'ed-h'),
-      card(textureGrid(d.texture, (id) => h.onStructure({ texture: id }, true))),
-      el('div', d.texture ? 'Tinta' : 'Colore', 'ed-h'),
-      card(
-        picker(d.color ?? (d.texture ? '#ffffff' : d.type === 'wall' ? '#e9ecf2' : '#c7cdd9'), (c, commit) => h.onStructure({ color: c }, commit)),
-        finishRow('Rugosità', d.finish.roughness, (v, c) => h.onStructure({ roughness: v }, c)),
-        finishRow('Metallico', d.finish.metalness, (v, c) => h.onStructure({ metalness: v }, c)),
-      ),
+      // A real structure is not drawn in the headset: no texture or colour to choose.
+      ...(d.mode === 'real'
+        ? []
+        : [
+            el('div', 'Texture', 'ed-h'),
+            card(textureGrid(d.texture, (id) => h.onStructure({ texture: id }, true))),
+            el('div', d.texture ? 'Tinta' : 'Colore', 'ed-h'),
+            card(
+              picker(d.color ?? (d.texture ? '#ffffff' : d.type === 'wall' ? '#e9ecf2' : '#c7cdd9'), (c, commit) => h.onStructure({ color: c }, commit)),
+              finishRow('Rugosità', d.finish.roughness, (v, c) => h.onStructure({ roughness: v }, c)),
+              finishRow('Metallico', d.finish.metalness, (v, c) => h.onStructure({ metalness: v }, c)),
+            ),
+          ]),
       card(del),
     );
   }
