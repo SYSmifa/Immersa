@@ -39,6 +39,7 @@ export interface LookEdit {
   reset?: boolean; // every colour and finish back to the file's own
 }
 export interface StructureEdit {
+  mode?: 'real' | 'virtual';
   height?: number;
   thickness?: number;
   color?: string | null;
@@ -157,7 +158,7 @@ export type Details =
       finish: { roughness: number; metalness: number };
       moved: boolean; // not where / as it is in the file
     }
-  | { kind: 'structure'; key: string; count?: number; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
+  | { kind: 'structure'; key: string; count?: number; mode: 'real' | 'virtual' | 'mixed'; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
 // What the measure button shows: nothing, or the sizes of the selected objects.
 export type MeasureMode = 'off' | 'sel';
 export interface MeasureLabel {
@@ -303,7 +304,8 @@ const CSS = `
 .ed-modal{position:fixed;inset:0;z-index:40;background:#05070bb0;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
 .ed-modal .ed-panel{width:380px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .ed-modal h3{margin:0;font-size:18px}
-.ed-refs{width:780px!important;max-width:96vw}.ed-refs canvas{width:100%;height:380px;border-radius:14px;background:#ffffff10;touch-action:none}.ed-refs input{padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:14px;flex:1;min-width:0}.ed-seq{display:flex;gap:6px;align-items:center}.ed-seq select{flex:1;min-width:0}.ed-x{flex:none;width:26px;height:26px;border-radius:50%;border:0;background:#e7eaf1;color:#475467;cursor:pointer;font-size:12px;line-height:1;padding:0}.ed-x:hover{background:#f87171;color:#fff}
+.ed-refs{width:780px!important;max-width:96vw}.ed-refs canvas{width:100%;height:380px;border-radius:14px;background:#ffffff10;touch-action:none}.ed-refs input{padding:8px 10px;border-radius:10px;border:1px solid #d9dee8;background:#f4f6fa;color:#12151c;outline:none;font-size:14px;flex:1;min-width:0}.ed-layerline{display:flex;gap:8px;align-items:center}.ed-layerline .ed-check{flex:1;min-width:0}.ed-layerline select{flex:0 0 96px}
+.ed-seq{display:flex;gap:6px;align-items:center}.ed-seq select{flex:1;min-width:0}.ed-x{flex:none;width:26px;height:26px;border-radius:50%;border:0;background:#e7eaf1;color:#475467;cursor:pointer;font-size:12px;line-height:1;padding:0}.ed-x:hover{background:#f87171;color:#fff}
 .ed-refbtns{display:flex;gap:8px;flex-wrap:wrap}.ed-refbtns .ed-pill{flex:none;white-space:nowrap}.ed-refrow{display:flex;gap:8px;align-items:center}.ed-refrow b{width:26px;height:26px;border-radius:50%;background:#2dd4bf;color:#04211d;display:flex;align-items:center;justify-content:center;flex:none}
 .ed-modal .ed-card{gap:10px}
 .ed-warn{color:#b45309;font-size:12px;font-weight:500}
@@ -1220,6 +1222,10 @@ export function createEditorUi(h: EditorHandlers) {
       return;
     }
     const rows: HTMLElement[] = [];
+    // Real: it exists in the place (not drawn in the headset, hides what is behind it). Virtual: added by the project, drawn.
+    const seg = row();
+    for (const [v, label] of [['real', 'Reale'], ['virtual', 'Virtuale']] as ['real' | 'virtual', string][]) seg.append(pill(label, () => h.onStructure({ mode: v }, true), v === d.mode ? 'acc' : ''));
+    rows.push(el('div', 'Tipo', 'ed-meta'), seg, el('div', d.mode === 'real' ? 'Esiste già nel luogo: nel visore non si vede ma nasconde i modelli che ha dietro.' : d.mode === 'virtual' ? 'Lo aggiungi tu: nel visore si vede, con colore e texture.' : 'Tipi diversi: scegline uno per tutti.', 'ed-meta'));
     if (d.type === 'wall') rows.push(row(el('span', 'Altezza (m)'), numberField(d.height, '0.1', '0.05', (v, c) => h.onStructure({ height: v }, c))));
     rows.push(row(el('span', 'Spessore (m)'), numberField(d.thickness, '0.01', '0.01', (v, c) => h.onStructure({ thickness: v }, c))));
     if (d.type === 'wall' && d.align) {
@@ -1264,7 +1270,7 @@ export function createEditorUi(h: EditorHandlers) {
     // choices would build, live.
     askPlan(info: PlanInfo, start: PlanOptions, preview: (o: PlanOptions) => string) {
       return new Promise<PlanOptions | null>((resolve) => {
-        const o: PlanOptions = { ...start, wallLayers: [...start.wallLayers], floorLayers: [...start.floorLayers] };
+        const o: PlanOptions = { ...start, wallLayers: [...start.wallLayers], floorLayers: [...start.floorLayers], virtualLayers: [...(start.virtualLayers ?? [])] };
         const overlay = el('div', '', 'ed-modal');
         const panel = el('div', '', 'ed-panel');
         const summary = el('div', '', 'ed-meta');
@@ -1293,7 +1299,19 @@ export function createEditorUi(h: EditorHandlers) {
             };
             const lab = el('label', '', 'ed-check');
             lab.append(c, document.createTextNode(`${l.name} · ${l.lines} linee${l.closed ? `, ${l.closed} chiuse` : ''}`));
-            box.append(lab);
+            // reale (c'è già nel luogo, resta invisibile nel visore) o virtuale (aggiunto dal progetto, si vede)
+            const kind = document.createElement('select');
+            kind.append(Object.assign(document.createElement('option'), { value: 'real', textContent: 'Reale' }), Object.assign(document.createElement('option'), { value: 'virtual', textContent: 'Virtuale' }));
+            kind.value = (o.virtualLayers ?? []).includes(l.name) ? 'virtual' : 'real';
+            kind.onchange = () => {
+              const v = (o.virtualLayers ??= []);
+              const i = v.indexOf(l.name);
+              if (kind.value === 'virtual' && i < 0) v.push(l.name);
+              if (kind.value === 'real' && i >= 0) v.splice(i, 1);
+            };
+            const line = el('div', '', 'ed-layerline');
+            line.append(lab, kind);
+            box.append(line);
           }
           return box;
         };
@@ -1352,6 +1370,7 @@ export function createEditorUi(h: EditorHandlers) {
             unitNote,
             choice<PlanUnit>([['mm', 'mm'], ['cm', 'cm'], ['m', 'm'], ['in', 'pollici'], ['ft', 'piedi']], () => o.unit, (v) => (o.unit = v)),
           ),
+          el('div', 'Reale: c\'è già nel luogo, nel visore non si vede ma nasconde ciò che ha dietro. Virtuale: lo aggiungi tu, si vede.', 'ed-meta'),
           layerList(o.wallLayers, 'Livelli delle pareti'),
           card(
             el('div', 'Come sono disegnate le pareti', 'ed-title'),

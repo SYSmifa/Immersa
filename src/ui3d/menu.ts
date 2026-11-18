@@ -32,6 +32,7 @@ export interface ObjectView {
     height: number;
     thickness: number;
     texture: string | null;
+    real: boolean; // exists in the place (not drawn in the headset, hides what is behind)
     moved: boolean; // shifted / turned / scaled in the headset
     textures: { id: string | null; name: string; color: string; image?: CanvasImageSource }[]; // the catalogue, "none" first
   };
@@ -86,6 +87,7 @@ export interface MenuView {
   tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
+  real: 'hidden' | 'outline' | 'shown'; // how real walls and floors show: not at all, a thin outline, or like the others
   autoReports: boolean; // serious errors are sent by themselves
   foveation: number; // 0 none, 0.5 medium, 1 high: the edges of the picture at lower resolution
   planes: boolean; // automatic recognition of the room by the headset's planes (read when the session starts)
@@ -148,6 +150,8 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
+  cycleReal(): void;
+  objStructMode(): void;
   toggleDepthFix(): void;
   toggleAutoReports(): void;
   toggleHand(): void;
@@ -310,7 +314,9 @@ function objectPage(o: ObjectView, out: Widget[], a: MenuActions): Widget[] {
       const bw = (W - 14) / 2;
       out.push({ kind: 'pill', icon: 'back', rect: { x: M, y: 404, w: bw, h: 64 }, text: "Riposiziona", size: 24, disabled: !st.moved, onClick: a.objReset });
       out.push({ kind: 'pill', icon: 'trash', rect: { x: M + bw + 14, y: 404, w: bw, h: 64 }, text: `Elimina`, size: 24, color: theme().bad, onClick: a.objDelete });
-      out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 480, w: W, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 26, onClick: a.objMeasures });
+      const hw = (W - 14) / 2;
+      out.push({ kind: 'pill', icon: 'scale', primary: o.measures, rect: { x: M, y: 480, w: hw, h: 64 }, text: o.measures ? 'Misure: sì' : 'Misure: no', size: 24, onClick: a.objMeasures });
+      out.push({ kind: 'pill', icon: 'room_plan', rect: { x: M + hw + 14, y: 480, w: hw, h: 64 }, text: st.real ? 'Tipo: reale' : 'Tipo: virtuale', size: 24, onClick: a.objStructMode });
     }
     return out;
   }
@@ -550,6 +556,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
+    out.push({ kind: 'card', icon: 'room_plan', rect: at(1, 6), text: 'Pareti reali', size: 19, sub: 'Contorno o piani, se ci sono', badge: v.real === 'hidden' ? 'Nascoste' : v.real === 'outline' ? 'Contorno' : 'Visibili', badgeOn: v.real !== 'hidden', onClick: a.cycleReal });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
     v.events.slice(-1).forEach((line) => out.push(text(line, M + 24, top + 7 * STEP + 20, W - 48, 15, 13, T.dim)));

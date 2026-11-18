@@ -1,4 +1,4 @@
-import { BoxGeometry, CanvasTexture, ExtrudeGeometry, Mesh, MeshStandardMaterial, RepeatWrapping, Shape, SRGBColorSpace, Vector2, type Object3D } from 'three';
+import { BoxGeometry, CanvasTexture, DoubleSide, EdgesGeometry, ExtrudeGeometry, LineBasicMaterial, LineSegments, Material, Mesh, MeshBasicMaterial, MeshStandardMaterial, RepeatWrapping, Shape, SRGBColorSpace, Vector2, type Object3D } from 'three';
 import { finishEnv } from './selection';
 import { textureById, textureMaps } from './textures';
 import type { Structure } from './types';
@@ -132,11 +132,24 @@ function texturedBox(w: number, h: number, d: number, tile: number) {
   return g;
 }
 
-export function createStructureLayer(parent: Object3D) {
+// Real structures (see Structure.mode): `hidden` is the depth-only material that makes them invisible yet hiding what is behind (the
+// headset); `ghost` draws them as a faint grey surface instead (the editor). Both with a thin outline when `outline` is on.
+export interface StructureLayerOptions {
+  hidden?: Material;
+  ghost?: boolean;
+}
+const ghostMaterial = () => new MeshBasicMaterial({ color: 0x9aa7b8, transparent: true, opacity: 0.18, depthWrite: false, side: DoubleSide });
+const outlineMaterial = new LineBasicMaterial({ color: 0xc9d3e0, transparent: true, opacity: 0.8 });
+
+export function createStructureLayer(parent: Object3D, opts: StructureLayerOptions = {}) {
   const meshes = new Map<string, Mesh>();
+  const ghost = opts.ghost ? ghostMaterial() : null;
+  let realVisible = false; // the visit: no real place behind, so real structures are drawn like the others
+  let outline = !!opts.ghost; // thin edges on real structures
+  let last: Structure[] = [];
   let hl: string | null = null; // the selected one (headset): a soft azure glow
   const glow = (id: string, m: Mesh) => {
-    const mat = m.material as MeshStandardMaterial;
+    const mat = m.userData.own as MeshStandardMaterial;
     mat.emissive.set(id === hl ? 0x1d7fd0 : 0x000000);
     mat.emissiveIntensity = id === hl ? 0.7 : 0;
   };
@@ -146,14 +159,27 @@ export function createStructureLayer(parent: Object3D) {
       hl = id;
       for (const [k, m] of meshes) glow(k, m);
     },
+    // The visit draws every structure; otherwise the real ones are hidden (or ghosts).
+    setRealVisible(on: boolean) {
+      if (on === realVisible) return;
+      realVisible = on;
+      this.sync(last);
+    },
+    // A thin outline on the real structures (the headset's option).
+    setOutline(on: boolean) {
+      if (on === outline) return;
+      outline = on;
+      this.sync(last);
+    },
     // Call after any change to the list.
     sync(list: Structure[]) {
+      last = list;
       const ids = new Set(list.map((s) => s.id));
       for (const [id, m] of meshes) {
         if (!ids.has(id)) {
           parent.remove(m);
           m.geometry.dispose();
-          (m.material as MeshStandardMaterial).dispose();
+          (m.userData.own as MeshStandardMaterial).dispose();
           meshes.delete(id);
         }
       }
@@ -161,13 +187,20 @@ export function createStructureLayer(parent: Object3D) {
         const s = effective(s0);
         let m = meshes.get(s.id);
         if (!m) {
-          m = new Mesh(box, new MeshStandardMaterial({ roughness: 0.9, metalness: 0 }));
+          const own = new MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+          m = new Mesh(box, own);
+          m.userData.own = own;
           m.userData.structureId = s.id;
           parent.add(m);
           meshes.set(s.id, m);
         }
         glow(s.id, m);
-        const mat = m.material as MeshStandardMaterial;
+        const mat = m.userData.own as MeshStandardMaterial;
+        // real structures: not drawn (or a ghost); they still hide what is behind them
+        const real = s.mode === 'real' && !realVisible;
+        const look = real ? (opts.hidden ?? ghost ?? mat) : mat;
+        if (m.material !== look) m.material = look;
+        m.renderOrder = real && opts.hidden ? -10 : 0; // before the models, so they are depth-tested against it
         const def = textureById(s.texture);
         const tex = def ? textureFor(def.id) : null;
         // The tint multiplies the texture; with no explicit colour a textured surface shows the texture as it is.
@@ -219,6 +252,24 @@ export function createStructureLayer(parent: Object3D) {
           m.geometry.dispose();
           m.geometry = box;
           m.userData.key = '';
+        }
+      }
+      // The outline of the real structures, made again when their shape changes.
+      for (const s0 of list) {
+        const m = meshes.get(s0.id);
+        if (!m) continue;
+        const want = s0.mode === 'real' && !realVisible && outline;
+        const e = m.userData.edges as LineSegments | null | undefined;
+        if (e && (!want || m.userData.edgesFor !== m.geometry)) {
+          m.remove(e);
+          e.geometry.dispose();
+          m.userData.edges = null;
+        }
+        if (want && !m.userData.edges) {
+          const edges = new LineSegments(new EdgesGeometry(m.geometry), outlineMaterial);
+          m.userData.edges = edges;
+          m.userData.edgesFor = m.geometry;
+          m.add(edges);
         }
       }
     },

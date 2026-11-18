@@ -170,7 +170,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setStatus(`Errore modello: ${t}. Selezionalo e sostituiscilo dal pannello a destra.`);
     if (sel.includes(`m:${m.id}`)) ui.setDetails(detailsInfo());
   });
-  const structLayer = createStructureLayer(structuresGroup);
+  const structLayer = createStructureLayer(structuresGroup, { ghost: true }); // real walls / floors: a faint grey surface with an outline
   // The other rooms of the project, around the one being edited (read-only, see otherRooms.ts), and how sure their places are.
   const others = createOtherRooms(scene, (t) => ui.setStatus(`Errore modello in un'altra stanza: ${t}`));
   let roomStates = new Map<string, 'manual' | 'confirmed' | 'tentative' | 'unknown'>();
@@ -885,6 +885,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       kind: 'structure',
       key: `s:${group.map((x) => x.id).join(',')}`,
       count: group.length,
+      mode: group.every((x) => (x.mode ?? 'virtual') === (s.mode ?? 'virtual')) ? (s.mode ?? 'virtual') : 'mixed',
       type: s.kind,
       height: s.height,
       thickness: s.thickness,
@@ -2082,6 +2083,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onStructure(edit: StructureEdit, doCommit) {
       for (const s of selStructs()) {
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
+        if (edit.mode) s.mode = edit.mode;
         if (edit.align && s.kind === 'wall') s.align = edit.align;
         if (edit.roughness !== undefined || edit.metalness !== undefined) {
           s.finish = { ...s.finish, ...(edit.roughness !== undefined && { roughness: edit.roughness }), ...(edit.metalness !== undefined && { metalness: edit.metalness }) };

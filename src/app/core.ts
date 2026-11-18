@@ -139,6 +139,16 @@ const FOV_KEY = 'immersa.fov';
 export const foveationPreferred = (): number => 1;
 // Fixed to 'unbounded' (no card any more; ?ref=local-floor still works for a test).
 export const refSpacePreferred = (): 'unbounded' | 'local-floor' => 'unbounded';
+// How real structures show in the headset: hidden, with a thin outline, or drawn like the virtual ones.
+const REAL_KEY = 'immersa.realwalls';
+export const realPreferred = (): 'hidden' | 'outline' | 'shown' => {
+  try {
+    const v = localStorage.getItem(REAL_KEY);
+    return v === 'outline' || v === 'shown' ? v : 'hidden';
+  } catch {
+    return 'hidden';
+  }
+};
 export const fpsPreferred = () => {
   try {
     return localStorage.getItem(FPS_KEY) === '1';
@@ -375,6 +385,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     depthInfo: '',
     dominant: handPreferred(),
     showOccluders: false,
+    real: realPreferred(),
     message: '',
   };
   let rooms: Room[] = [];
@@ -566,7 +577,9 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   const annotOf = (id: string | null): Annotation | null => (id ? (current?.annotations.find((a) => a.id === id) ?? null) : null);
   const selectedStruct = () => (selectedStructId ? (current?.structures?.find((x) => x.id === selectedStructId) ?? null) : null);
   const structsOf = (roomId: string) => current?.structures?.filter((x) => x.roomId === roomId) ?? [];
-  const structMesh = (st: Structure) => houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null;
+  // A real structure (see Structure.mode) is not drawn in the headset, so it cannot be pointed at, unless the visit or the option shows them.
+  const realShown = () => visit || view.real === 'shown';
+  const structMesh = (st: Structure) => (st.mode === 'real' && !realShown() ? null : (houses.get(st.roomId)?.structs.meshes.get(st.id) ?? null));
   const structName = (st: Structure) => `${st.kind === 'wall' ? 'Parete' : 'Pavimento'} ${structsOf(st.roomId).filter((x) => x.kind === st.kind).indexOf(st) + 1}`;
   const DEFAULT_TINT = { wall: '#e9ecf2', floor: '#c7cdd9' };
   // A component of the selected model (double pinch): moved, turned, scaled and coloured on its own.
@@ -649,6 +662,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         thickness: st.thickness,
         texture: st.texture ?? null,
         moved: hasXf(st),
+        real: st.mode === 'real',
         textures: [{ id: null, name: 'Nessuna', color: st.color ?? DEFAULT_TINT[st.kind] }, ...TEXTURES.map((t) => ({ id: t.id, name: t.name, color: textureAverage(t.id), image: textureCanvas(t.id) ?? undefined }))],
       },
     };
@@ -911,7 +925,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       scene.add(root);
       const occluder = buildOccluders(rooms.find((r) => r.id === roomId)?.scan.planes ?? [], occluderMaterial);
       root.add(occluder);
-      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), structs: createStructureLayer(root), occluder };
+      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), structs: createStructureLayer(root, { hidden: occluderMaterial }), occluder };
       houses.set(roomId, h);
     }
     return h;
@@ -2118,6 +2132,11 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
 
   // Bring the scene in line with the open project and the alignments found so far.
+  // How the real structures show in a room: hidden (they only hide what is behind), with a thin outline, or drawn like the others.
+  function applyReal(h: House) {
+    h.structs.setRealVisible(realShown());
+    h.structs.setOutline(view.real === 'outline');
+  }
   function syncHouses() {
     if (!current) return;
     placeByLayout();
@@ -2147,6 +2166,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       h.root.visible = !gap && (!!a || foreign?.roomId === id);
       h.occluder.visible = foreign?.roomId !== id; // a room shown away from its place must not hide its own models
       h.layer.sync(modelsHeld ? [] : modelsOf(id));
+      applyReal(h);
       h.structs.sync(current.structures?.filter((x) => x.roomId === id) ?? []);
     }
     if (free) {
@@ -2156,6 +2176,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       h.root.visible = !gap;
       h.occluder.visible = false;
       h.layer.sync(modelsHeld ? [] : modelsOf(''));
+      applyReal(h);
       h.structs.sync(current.structures?.filter((x) => x.roomId === '') ?? []);
     }
   }
@@ -3372,6 +3393,29 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       closeMenu();
       selectAnnot(null);
       notify(kind === 'note' ? 'Punta il laser e pizzica dove mettere la nota' : 'Punta e pizzica il primo punto del metro', 4000);
+      refreshView();
+    },
+    cycleReal() {
+      view.real = view.real === 'hidden' ? 'outline' : view.real === 'outline' ? 'shown' : 'hidden';
+      try {
+        localStorage.setItem(REAL_KEY, view.real);
+      } catch {
+        /* storage can be unavailable */
+      }
+      syncHouses();
+      refreshView();
+    },
+    objStructMode() {
+      const st = selectedStruct();
+      if (!st) return;
+      st.mode = st.mode === 'real' ? 'virtual' : 'real';
+      markUnsaved();
+      syncHouses();
+      if (st.mode === 'real' && !realShown()) {
+        selectStruct(null); // it is hidden now: nothing to hold on to
+        objectOpen = false;
+        notify('Parete reale: nel visore non si vede, nasconde ciò che ha dietro (Opzioni → Pareti reali per mostrarla)', 3500);
+      }
       refreshView();
     },
     toggleOccluders() {

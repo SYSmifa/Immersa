@@ -109,6 +109,9 @@ export interface Structure {
   // floor: the corners (x, z) of its outline, any number >= 3; undefined = the rectangle with corners a and b
   pts?: [number, number][];
   finish?: { roughness?: number; metalness?: number }; // 0..1
+  // 'real': it exists in the place (a wall from a CAD plan of the building): in the headset it is not drawn but it hides the models behind it,
+  // like the walls of the headset's own scan. 'virtual' (also when absent): added in the project, drawn with its colour / texture.
+  mode?: 'real' | 'virtual';
   // Moved / turned / scaled in the headset, about the centre of its footprint (see room/structures.ts `effective`); the
   // PC editor takes it in as the new shape when it opens the project.
   xf?: { d?: [number, number]; yaw?: number; scale?: number };

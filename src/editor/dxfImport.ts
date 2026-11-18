@@ -115,6 +115,7 @@ export interface PlanOptions {
   thickness: number; // m, for axis mode (and lines without a pair)
   height: number; // m
   boxFloor: boolean; // when there are no floor layers: one floor under everything
+  virtualLayers?: string[]; // layers whose walls / floors are added by the project (drawn in the headset); the others are real (see Structure.mode)
 }
 
 type Seg = { a: [number, number]; b: [number, number]; t: number };
@@ -212,7 +213,8 @@ const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slic
 export function planToStructures(info: PlanInfo, o: PlanOptions): Structure[] {
   const k = PLAN_UNIT_M[o.unit];
   const tx = (p: [number, number]): [number, number] => [p[0] * k, -p[1] * k]; // drawing y -> scene -z
-  let segs: Seg[] = [];
+  const virt = new Set(o.virtualLayers ?? []);
+  const bucket: { real: Seg[]; virtual: Seg[] } = { real: [], virtual: [] };
   const walls = new Set(o.wallLayers);
   for (const l of info.lines) {
     if (!walls.has(l.layer)) continue;
@@ -221,15 +223,27 @@ export function planToStructures(info: PlanInfo, o: PlanOptions): Structure[] {
     for (let i = 0; i < n; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
-      if (Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.01) segs.push({ a, b, t: o.thickness });
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.01) (virt.has(l.layer) ? bucket.virtual : bucket.real).push({ a, b, t: o.thickness });
     }
   }
-  if (o.mode === 'double') segs = pairLines(segs.map((s) => ({ ...s, t: o.thickness })));
-  segs = mergeCollinear(segs).filter((s) => len(s) >= 0.05);
+  // Real and virtual walls are paired and merged apart: a wall of one kind never fuses with one of the other.
+  const tidy = (list: Seg[]) => {
+    let out = list;
+    if (o.mode === 'double') out = pairLines(out.map((s) => ({ ...s, t: o.thickness })));
+    return mergeCollinear(out).filter((s) => len(s) >= 0.05);
+  };
+  const realSegs = tidy(bucket.real);
+  const virtSegs = tidy(bucket.virtual);
+  const segs = [...realSegs, ...virtSegs];
 
   const floorPolys: [number, number][][] = [];
+  const floorVirtual: boolean[] = [];
   const floorLayers = new Set(o.floorLayers);
-  for (const l of info.lines) if (floorLayers.has(l.layer) && l.closed && l.pts.length >= 3) floorPolys.push(l.pts.map(tx));
+  for (const l of info.lines)
+    if (floorLayers.has(l.layer) && l.closed && l.pts.length >= 3) {
+      floorPolys.push(l.pts.map(tx));
+      floorVirtual.push(virt.has(l.layer));
+    }
 
   // Everything is centred on the middle of what was built.
   let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
@@ -242,17 +256,17 @@ export function planToStructures(info: PlanInfo, o: PlanOptions): Structure[] {
   const c = (p: [number, number]): [number, number] => [+(p[0] - cx).toFixed(3), +(p[1] - cz).toFixed(3)];
 
   const out: Structure[] = [];
-  for (const poly of floorPolys) {
+  floorPolys.forEach((poly, fi) => {
     const pts = poly.map(c);
     const xs = pts.map((p) => p[0]);
     const zs = pts.map((p) => p[1]);
-    out.push({ id: newId(), roomId: '', kind: 'floor', a: [Math.min(...xs), Math.min(...zs)], b: [Math.max(...xs), Math.max(...zs)], y: 0, height: o.height, thickness: 0.05, pts });
-  }
+    out.push({ id: newId(), roomId: '', kind: 'floor', a: [Math.min(...xs), Math.min(...zs)], b: [Math.max(...xs), Math.max(...zs)], y: 0, height: o.height, thickness: 0.05, pts, mode: floorVirtual[fi] ? 'virtual' : 'real' });
+  });
   if (!floorPolys.length && o.boxFloor) {
     const a = c([minX, minZ]);
     const b = c([maxX, maxZ]);
-    out.push({ id: newId(), roomId: '', kind: 'floor', a, b, y: 0, height: o.height, thickness: 0.05, pts: [a, [b[0], a[1]], b, [a[0], b[1]]] });
+    out.push({ id: newId(), roomId: '', kind: 'floor', a, b, y: 0, height: o.height, thickness: 0.05, pts: [a, [b[0], a[1]], b, [a[0], b[1]]], mode: 'real' });
   }
-  for (const s of segs) out.push({ id: newId(), roomId: '', kind: 'wall', a: c(s.a), b: c(s.b), y: 0, height: o.height, thickness: +s.t.toFixed(3), align: 'center' });
+  for (const s of segs) out.push({ id: newId(), roomId: '', kind: 'wall', a: c(s.a), b: c(s.b), y: 0, height: o.height, thickness: +s.t.toFixed(3), align: 'center', mode: virtSegs.includes(s) ? 'virtual' : 'real' });
   return out;
 }
