@@ -479,22 +479,29 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push({ kind: 'scroll', rect: { x: M + W - 30, y: listTop, w: 30, h }, text: '', value: first / (list.length - PER_PAGE), span: PER_PAGE / list.length, onPoint: (_fx, fy) => a.setScroll(fy) });
       }
     }
-  } else if (v.tab === 'scan' && v.projectRoom) {
-    // A project with rooms is open: one button, to do the room's first alignment again.
+  } else if (v.tab === 'scan' && v.projectRoom?.byPoints) {
+    // A project with a room made from points is open: one button, to do its alignment again (its points).
     out.push(surface(M, top, W, 190));
     const inner = M + 28;
     const iw = W - 56;
-    out.push(text(`${v.projectRoom.name}\n${v.projectRoom.byPoints ? 'Rifai l\'allineamento toccando i suoi punti di riferimento.' : 'Rifai l\'allineamento toccando due angoli della stanza.'}`, inner, top + 16, iw, 80, 24, T.text2, { wrap: true }));
+    out.push(text(`${v.projectRoom.name}\n$Rifai l\'allineamento toccando i suoi punti di riferimento.`, inner, top + 16, iw, 80, 24, T.text2, { wrap: true }));
     out.push({ kind: 'pill', primary: true, icon: 'room', rect: { x: inner, y: top + 112, w: iw, h: 56 }, text: 'Riallinea', size: 26, onClick: a.realign });
   } else if (v.tab === 'scan') {
     out.push(surface(M, top, W, 340));
     const inner = M + 28;
     const iw = W - 56;
-    // The buttons stack from `y` (no project with rooms open: scan, save, create a room from points...).
+    // The buttons stack from `y`. "Allineamento manuale" only in a project with scanned rooms; "Crea stanza con punti" only without one.
     let y = top;
     const add = (label: string, onClick: () => void, o: Partial<Widget> = {}) => {
       out.push({ kind: 'pill', rect: { x: inner, y, w: iw, h: 50 }, text: label, size: 23, onClick, ...o });
       y += 58;
+    };
+    const scannedProject = !!v.projectRoom && !v.projectRoom.byPoints;
+    const manual = () => {
+      if (scannedProject) add('Allineamento manuale', a.alignRoom, { disabled: !v.alignRoom, icon: 'room' });
+    };
+    const byPointsBtn = () => {
+      if (!scannedProject) add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
     };
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
@@ -503,7 +510,10 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);
       if (v.roomByPoints) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);
-      else if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
+      else {
+        if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
+        manual();
+      }
     } else if (v.candidate) {
       out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
       y = top + 114;
@@ -513,28 +523,33 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push(text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, y, iw, 60, 21, T.dim, { wrap: true }));
         y += 66;
       }
+      manual();
     } else if (v.changedRoom) {
       out.push(text(`Sembra la stanza "${v.changedRoom}", ma la scansione del visore è cambiata. Aggiorno quella salvata: i modelli restano al loro posto.`, inner, top + 18, iw, 96, 24, T.text2, { wrap: true }));
       y = top + 118;
       add(`Aggiorna "${v.changedRoom}"`, a.updateChanged, { primary: true });
       add('Salva come stanza nuova', a.saveRoom);
       if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
+      manual();
     } else if (v.liveReady) {
       out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
       y = top + 114;
       add('Salva stanza', a.saveRoom, { primary: true });
       if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
+      manual();
     } else if (v.captureAvailable) {
       out.push(text('Nessuna scansione trovata in questa stanza.', inner, top + 20, iw, 50, 25, T.text2, { wrap: true }));
       y = top + 84;
       add('Scansiona la stanza', a.scan, { primary: true, icon: 'scan' });
       add('Rileggi', a.reread);
-      add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
+      byPointsBtn();
+      manual();
     } else {
       out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 20, iw, 130, 23, T.text2, { wrap: true }));
       y = top + 156;
       add('Rileggi', a.reread, { primary: true });
-      add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
+      byPointsBtn();
+      manual();
     }
   } else if (v.tab === 'tools') {
     out.push(surface(M, top, W, 380));
@@ -563,7 +578,6 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 19, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
-    out.push({ kind: 'card', icon: 'room', rect: at(0, 6), text: 'Allinea la stanza', size: 19, sub: v.alignRoom ? `${v.alignRoom}: tocca 2 angoli` : 'Serve un progetto con stanza', disabled: !v.alignRoom, onClick: a.alignRoom });
     out.push({ kind: 'card', icon: 'room_plan', rect: at(1, 6), text: 'Pareti reali', size: 19, sub: 'Contorno o piani, se ci sono', badge: v.real === 'hidden' ? 'Nascoste' : v.real === 'outline' ? 'Contorno' : 'Visibili', badgeOn: v.real !== 'hidden', onClick: a.cycleReal });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));
     if (v.fits[0]) out.push(text(v.fits[0], M + 24, top + 7 * STEP + 4, W - 48, 17, 15, v.fits[0].includes(': NO') ? T.bad : T.good));
