@@ -35,6 +35,11 @@ export interface PlanModel {
   hu: number; // half width
   hv: number; // half depth
 }
+export interface PlanZone {
+  poly: P2[]; // the zona di rispetto in plan (metres, world)
+  label: string; // its name and size
+  bad: boolean; // something is inside it, or it cuts a wall
+}
 export interface PlanData {
   title: string; // the room's name
   subtitle: string; // the project's name
@@ -46,6 +51,7 @@ export interface PlanData {
   walls: [P2, P2][]; // the scan's wall faces seen from above
   boxes: PlanModel[]; // the scan's furniture volumes
   models: PlanModel[];
+  zones: PlanZone[]; // zone di rispetto, under the walls and the models
   labels: { text: string; p: P2 }[]; // room names (overview)
   measures: Measure[]; // wall lengths / floor areas ('dim', 'label') and the annotations ('pin', 'note', 'ruler')
 }
@@ -188,6 +194,15 @@ function drawSheet(page: PdfPage, d: PlanData, L: PlanLayout, o: SheetOptions, p
 
   // the scan's furniture volumes: light, under everything else
   for (const b of d.boxes) page.polygon(rect(b), { fill: '#e6e8ec', stroke: '#b4bac4', width: 0.2 });
+
+  // the zone di rispetto: a pale amber area (red when invaded) with its outline and name
+  for (const z of d.zones) {
+    const pts = z.poly.map((p) => toPage(p[0], p[1]));
+    page.polygon(pts, { fill: z.bad ? '#fecaca' : '#fde9b8', stroke: z.bad ? '#dc2626' : '#d97706', width: 0.35 });
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const cy = Math.min(...pts.map((p) => p[1])) + 3;
+    if (clip([cx, cy])) page.text(z.label, cx, cy, { size: 6, align: 'center', color: z.bad ? '#b91c1c' : '#92400e', halo });
+  }
 
   // the walls: a dark line each, with its length when it is long enough to be worth saying
   for (const [a, b] of d.walls) {

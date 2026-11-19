@@ -4010,12 +4010,22 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const texts: string[] = [];
     for (const [roomId, house] of houses) {
       const all = current && house.root.visible ? modelsOf(roomId) : [];
-      const ms = all.some((m) => m.zone) ? all : []; // nothing to compute (the boxes of heavy models are not free) without a zone
-      const states = zoneStates(ms, (m) => {
-        const h = house.layer.holders.get(m.id);
-        return h ? modelBox(h) : null;
-      });
-      const sig = `${view.zones}|${states.map((z) => `${z.id},${z.solid.c},${z.solid.hu},${z.solid.hv},${z.solid.u},${z.invaders.join()}`).join(';')}`;
+      const structs = current && house.root.visible ? (current.structures?.filter((x) => x.roomId === roomId) ?? []) : [];
+      const free = structs.filter((x) => x.kind === 'floor' && x.zone);
+      // nothing to compute (the boxes of heavy models are not free) without a zone
+      const states =
+        all.some((m) => m.zone) || free.length
+          ? zoneStates({
+              models: all,
+              structures: free,
+              boxOf: (m) => {
+                const h = house.layer.holders.get(m.id);
+                return h ? modelBox(h) : null;
+              },
+              walls: [...structs.flatMap(wallSegs), ...(rooms.find((r) => r.id === roomId)?.scan.planes ?? []).map((p, i) => planeSeg(p, i)).filter((x): x is Seg => !!x)],
+            })
+          : [];
+      const sig = `${view.zones}|${states.map((z) => `${z.id},${JSON.stringify(z.poly)},${z.invaders.join()},${z.walls}`).join(';')}`;
       if (zoneSigs.get(roomId) !== sig) {
         zoneSigs.set(roomId, sig);
         house.zones.sync(states, view.zones);

@@ -114,6 +114,7 @@ export interface Structure {
   // 'real': it exists in the place (a wall from a CAD plan of the building): in the headset it is not drawn but it hides the models behind it,
   // like the walls of the headset's own scan. 'virtual' (also when absent): added in the project, drawn with its colour / texture.
   mode?: 'real' | 'virtual';
+  zone?: boolean; // floor only: a zona di rispetto of the project (a corridor, an exit): drawn flat and amber, nothing may stand in it (room/zones.ts)
   // Moved / turned / scaled in the headset, about the centre of its footprint (see room/structures.ts `effective`); the
   // PC editor takes it in as the new shape when it opens the project.
   xf?: { d?: [number, number]; yaw?: number; scale?: number };

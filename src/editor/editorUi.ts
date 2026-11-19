@@ -47,6 +47,7 @@ export interface StructureEdit {
   align?: 'left' | 'center' | 'right'; // walls: which side of the drawn line they stand on
   roughness?: number;
   metalness?: number;
+  zone?: boolean; // floors: a zona di rispetto to keep free
 }
 
 export interface EditorHandlers {
@@ -128,7 +129,7 @@ export interface EditorHandlers {
 export interface OutlineItem {
   key: string; // 'm:<id>' model, 's:<id>' structure, 'a:<id>' annotation
   name: string;
-  kind: 'model' | BuildKind | 'note' | 'ruler';
+  kind: 'model' | BuildKind | 'zone' | 'note' | 'ruler';
   warn?: string; // e.g. "Banco invade la zona"
 }
 export interface MaterialRow {
@@ -170,7 +171,7 @@ export type Details =
       finish: { roughness: number; metalness: number };
       moved: boolean; // not where / as it is in the file
     }
-  | { kind: 'structure'; key: string; count?: number; mode: 'real' | 'virtual' | 'mixed'; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string };
+  | { kind: 'structure'; key: string; count?: number; mode: 'real' | 'virtual' | 'mixed'; type: BuildKind; height: number; thickness: number; color: string | null; texture: string | null; align?: 'left' | 'center' | 'right'; finish: { roughness: number; metalness: number }; measure: string; zone?: { on: boolean; invaders: string[]; walls: boolean } };
 // What the measure button shows: nothing, or the sizes of the selected objects.
 export type MeasureMode = 'off' | 'sel';
 export interface MeasureLabel {
@@ -1347,11 +1348,38 @@ export function createEditorUi(h: EditorHandlers) {
       details.querySelector('.ed-list-mini')?.remove();
       return;
     }
+    let zoneCheck: HTMLElement | null = null;
+    if (d.type === 'floor' && d.zone) {
+      // A floor can be a zona di rispetto: an area that has to stay free (a corridor, an exit). Then it has no texture or thickness.
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = d.zone.on;
+      box.onchange = () => h.onStructure({ zone: box.checked }, true);
+      zoneCheck = el('label', '', 'ed-check');
+      zoneCheck.append(box, el('span', 'Zona di rispetto (da tenere libera)'));
+      if (d.zone.on) {
+        details.replaceChildren(
+          el('div', 'Zona di rispetto', 'ed-h'),
+          ...(d.count && d.count > 1 ? [el('div', 'Le modifiche valgono per tutti quelli selezionati', 'ed-sub')] : []),
+          card(
+            zoneCheck,
+            el('div', d.measure, 'ed-meta'),
+            ...(d.zone.invaders.length ? [el('div', `⚠ Invasa da: ${d.zone.invaders.join(', ')}`, 'ed-meta warn')] : []),
+            ...(d.zone.walls ? [el('div', '⚠ Tocca un muro', 'ed-meta warn')] : []),
+            ...(!d.zone.invaders.length && !d.zone.walls ? [el('div', 'Libera: nessun oggetto ci entra.', 'ed-meta')] : []),
+            el('div', "Lo spazio che nessun oggetto deve occupare, fino a 2,2 m d'altezza. Sposta i vertici per cambiarla.", 'ed-meta'),
+          ),
+          card(del),
+        );
+        return;
+      }
+    }
     const rows: HTMLElement[] = [];
     // Real: it exists in the place (not drawn in the headset, hides what is behind it). Virtual: added by the project, drawn.
     const seg = row();
     for (const [v, label] of [['real', 'Reale'], ['virtual', 'Virtuale']] as ['real' | 'virtual', string][]) seg.append(pill(label, () => h.onStructure({ mode: v }, true), v === d.mode ? 'acc' : ''));
     rows.push(el('div', 'Tipo', 'ed-meta'), seg, el('div', d.mode === 'real' ? 'Esiste già nel luogo: nel visore non si vede ma nasconde i modelli che ha dietro.' : d.mode === 'virtual' ? 'Lo aggiungi tu: nel visore si vede, con colore e texture.' : 'Tipi diversi: scegline uno per tutti.', 'ed-meta'));
+    if (zoneCheck) rows.push(zoneCheck, el('div', 'Spuntala per farne uno spazio da tenere libero: si vede in giallo, in rosso se un oggetto ci entra.', 'ed-meta'));
     if (d.type === 'wall') rows.push(row(el('span', 'Altezza (m)'), numberField(d.height, '0.1', '0.05', (v, c) => h.onStructure({ height: v }, c))));
     rows.push(row(el('span', 'Spessore (m)'), numberField(d.thickness, '0.01', '0.01', (v, c) => h.onStructure({ thickness: v }, c))));
     if (d.type === 'wall' && d.align) {
@@ -2381,7 +2409,7 @@ export function createEditorUi(h: EditorHandlers) {
         ...(items.length
           ? items.map((it) => {
               const b = el('button', '', `ed-item${selected.has(it.key) ? ' on' : ''}`);
-              b.innerHTML = `${it.kind === 'model' ? ICON.cube : it.kind === 'note' ? ICON.note : it.kind === 'ruler' ? ICON.tape : ICON[it.kind]}<span></span>`;
+              b.innerHTML = `${it.kind === 'model' ? ICON.cube : it.kind === 'note' ? ICON.note : it.kind === 'ruler' ? ICON.tape : it.kind === 'zone' ? ICON.zone : ICON[it.kind]}<span></span>`;
               b.querySelector('span')!.textContent = it.name;
               if (it.warn) b.querySelector('span')!.append(el('small', `⚠ ${it.warn}`, 'ed-note warn'));
               b.onclick = (e) => h.onPick(it.key, e.shiftKey || e.ctrlKey || e.metaKey);

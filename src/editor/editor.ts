@@ -57,7 +57,7 @@ import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } 
 import { IDENTITY, apply, invertLink, linkBetween, linkState, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
 import { WALL_HEIGHT as DEFAULT_WALL_HEIGHT, scanFromPoints } from '../room/byPoints';
-import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type SheetOptions } from './planPdf';
+import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type PlanZone, type SheetOptions } from './planPdf';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -185,16 +185,28 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let zoneSig = '';
   let zoneNow: ZoneState[] = [];
   let zoneTexts = '';
-  // The zones of the open room's models and who is inside them; redrawn when something moved (also while dragging).
+  // The zones of the open room (models' and free ones) and who is inside them; redrawn when something moved (also while dragging).
   function updateZones() {
     const ms = models().filter((m) => m.roomId === (room?.id ?? ''));
-    const states = zoneStates(ms, (m) => {
-      const h = layer.holders.get(m.id);
-      return h ? modelBox(h) : null;
-    });
-    const sig = `${zonesOn}|` + ms.map((m) => (m.zone ? `${m.id},${m.pos},${m.yaw},${m.scale},${m.tilt ?? ''},${Object.values(m.zone)}` : `${m.id},${m.pos},${m.yaw},${m.scale}`)).join(';') + states.map((z) => z.invaders.join()).join('|');
+    const free = structures().filter((s) => s.kind === 'floor' && s.zone);
+    const planes = room?.scan.planes ?? [];
+    const walls = structures().filter((s) => s.kind === 'wall');
+    const sig =
+      `${zonesOn}|${planes.length}|` +
+      ms.map((m) => `${m.id},${m.pos},${m.yaw},${m.scale},${m.tilt ?? ''},${layer.holders.has(m.id)},${m.zone ? Object.values(m.zone) : ''}`).join(';') +
+      '|' + free.map((s) => `${s.id},${s.y},${JSON.stringify(floorPoints(s))}`).join(';') +
+      '|' + walls.map((s) => `${s.id},${s.a},${s.b},${s.y},${s.height},${s.thickness}`).join(';');
     if (sig === zoneSig) return;
     zoneSig = sig;
+    const states = zoneStates({
+      models: ms,
+      structures: free,
+      boxOf: (m) => {
+        const h = layer.holders.get(m.id);
+        return h ? modelBox(h) : null;
+      },
+      walls: [...walls.flatMap(wallSegs), ...planes.map((p, i) => planeSeg(p, i)).filter((x): x is Seg => !!x)],
+    });
     zoneNow = states;
     zoneLayer.sync(states, zonesOn);
     const texts = invasionTexts(states).join('\n');
@@ -203,7 +215,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       zoneTexts = texts;
       refreshOutline();
       if (texts && texts !== was) ui.setStatus(`Attenzione: ${texts.split('\n').join(' · ')}.`);
-      if (sel.length === 1 && sel[0].startsWith('m:')) ui.setDetails(detailsInfo());
+      if (sel.length) ui.setDetails(detailsInfo());
     }
   }
   const structLayer = createStructureLayer(structuresGroup, { ghost: true }); // real walls / floors: a faint grey surface with an outline
@@ -895,6 +907,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function warnOf(id: string, name: string): string | undefined {
     const own = zoneNow.find((z) => z.id === id);
     if (own?.invaders.length) return `zona invasa da ${own.invaders.join(', ')}`;
+    if (own?.walls) return 'la zona tocca un muro';
     const inside = zoneNow.filter((z) => z.invaders.includes(name)).map((z) => z.name);
     return inside.length ? `dentro la zona di ${inside.join(', ')}` : undefined;
   }
@@ -906,7 +919,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       [
         ...models().map((m) => ({ key: `m:${m.id}`, name: m.name, kind: 'model' as const, warn: warnOf(m.id, m.name) })),
         ...walls.map((s, i) => ({ key: `s:${s.id}`, name: `Parete ${i + 1}`, kind: 'wall' as const })),
-        ...floors.map((s, i) => ({ key: `s:${s.id}`, name: `Pavimento ${i + 1}`, kind: 'floor' as const })),
+        ...floors.filter((s) => !s.zone).map((s, i) => ({ key: `s:${s.id}`, name: `Pavimento ${i + 1}`, kind: 'floor' as const })),
+        ...floors.filter((s) => s.zone).map((s) => {
+          const z = zoneNow.find((x) => x.id === s.id);
+          return { key: `s:${s.id}`, name: z?.name ?? 'Zona', kind: 'zone' as const, warn: z?.invaders.length ? `invasa da ${z.invaders.join(', ')}` : z?.walls ? 'tocca un muro' : undefined };
+        }),
         ...annotations().map((a) => ({ key: `a:${a.id}`, name: annotationName(a), kind: a.kind })),
       ],
       new Set(selAnnotId ? [...sel, `a:${selAnnotId}`] : sel),
@@ -988,6 +1005,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       texture: s.texture ?? null,
       align: s.kind === 'wall' ? (s.align ?? 'center') : undefined,
       finish: { roughness: s.finish?.roughness ?? (s.texture ? 1 : 0.9), metalness: s.finish?.metalness ?? 0 },
+      zone: s.kind === 'floor' && group.every((x) => x.kind === 'floor') ? { on: group.every((x) => x.zone), invaders: group.flatMap((x) => zoneNow.find((z) => z.id === x.id)?.invaders ?? []), walls: group.some((x) => zoneNow.find((z) => z.id === x.id)?.walls) } : undefined,
       measure: group.length > 1 ? (s.kind === 'wall' ? `Lunghezza totale ${total.toFixed(2)} m` : `Superficie totale ${total.toFixed(2)} m²`) : structMeasure(s),
     };
   }
@@ -1086,6 +1104,25 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return b ? [wsolid(P, m.name, modelSolid(m, b.min, b.max))] : [];
     });
     const mv = (m: Measure): Measure => ({ ...m, a: wvec(P, m.a), b: wvec(P, m.b) });
+    // the zone di rispetto of this room (when they are shown): the models' and the free ones
+    const mineModels = (project?.models ?? []).filter((m) => m.roomId === id);
+    const roomStructs = (project?.structures ?? []).filter((s) => s.roomId === id);
+    const zones = !zonesOn
+      ? []
+      : zoneStates({
+          models: mineModels,
+          structures: roomStructs.filter((s) => s.kind === 'floor' && s.zone),
+          boxOf: (m) => {
+            const h = holders?.get(m.id);
+            return h ? modelBox(h) : null;
+          },
+          walls: [...segs, ...roomStructs.flatMap(wallSegs)],
+        }).map((z) => {
+          const m = mineModels.find((x) => x.id === z.id);
+          const cm = (v: number) => `${Math.round(v * 100)} cm`;
+          const margins = m?.zone ? (m.zone.f === m.zone.b && m.zone.b === m.zone.l && m.zone.l === m.zone.r ? cm(m.zone.f) : `dav. ${cm(m.zone.f)} · dietro ${cm(m.zone.b)} · sx ${cm(m.zone.l)} · dx ${cm(m.zone.r)}`) : `${polygonArea(z.poly).toFixed(1).replace('.', ',')} m²`;
+          return { poly: z.poly.map((p) => wpt(P, p)), label: `Zona ${z.free ? '' : 'di '}${z.name}: ${margins}`.replace('Zona Zona', 'Zona'), bad: z.invaders.length > 0 || z.walls };
+        });
     const measures = [
       ...sts.flatMap((st) => dimsOfStructure(st).filter((x) => x.kind === 'dim' || x.kind === 'label')),
       ...(project?.annotations ?? []).filter((a) => a.roomId === id).flatMap((a) => annotationMeasures(a, mine ? noteAnchor(a) : null)),
@@ -1094,6 +1131,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       walls: segs.map((sg) => [wpt(P, sg.a), wpt(P, sg.b)] as [P2, P2]),
       boxes: (r?.scan.boxes ?? []).map((b, i) => wsolid(P, '', boxSolid(b, i))),
       models,
+      zones,
       measures,
       axis: axisLocal ? wdir(P, axisLocal) : ([1, 0] as P2),
       centre: r ? wpt(P, [floorCentre(r.scan.planes)[0], floorCentre(r.scan.planes)[2]]) : ([0, 0] as P2),
@@ -1105,16 +1143,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const date = new Date().toLocaleDateString('it-IT');
     const name = project?.name ?? 'Progetto';
     const rs = projectRoomsList();
-    const empty = { bounds: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 }, labels: [] as { text: string; p: P2 }[] };
+    const empty = { bounds: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 }, labels: [] as { text: string; p: P2 }[], zones: [] as PlanZone[] };
     if (!room || !rs.length) {
       const d = roomSheet(null, IDENTITY, layer.holders);
-      return [{ title: name, subtitle: '', date, renderKey: 'space', ...empty, walls: d.walls, boxes: d.boxes, models: d.models, measures: d.measures, axis: d.axis }];
+      return [{ title: name, subtitle: '', date, renderKey: 'space', ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, measures: d.measures, axis: d.axis }];
     }
     const around = placeAround(room, rs);
     const poseOf = (r: Room): Pose => (r.id === room!.id ? IDENTITY : around.get(r.id)?.pose ?? IDENTITY);
     const holdersOf = (r: Room) => (r.id === room!.id ? layer.holders : others.holders(r.id));
     const sheets = rs.map((r) => ({ r, d: roomSheet(r, poseOf(r), holdersOf(r)) }));
-    const pages: PlanData[] = sheets.map(({ r, d }) => ({ title: r.name, subtitle: name, date, renderKey: `room:${r.id}`, ...empty, walls: d.walls, boxes: d.boxes, models: d.models, measures: d.measures, axis: d.axis }));
+    const pages: PlanData[] = sheets.map(({ r, d }) => ({ title: r.name, subtitle: name, date, renderKey: `room:${r.id}`, ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, measures: d.measures, axis: d.axis }));
     const known = sheets.filter(({ r }) => r.id === room!.id || (around.get(r.id) && around.get(r.id)!.state !== 'unknown'));
     if (known.length > 1) {
       const lost = sheets.filter((x) => !known.includes(x)).map((x) => x.r.name);
@@ -1128,6 +1166,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         walls: known.flatMap((x) => x.d.walls),
         boxes: known.flatMap((x) => x.d.boxes),
         models: known.flatMap((x) => x.d.models),
+        zones: known.flatMap((x) => x.d.zones),
         measures: known.flatMap((x) => x.d.measures.filter((m) => m.kind !== 'dim' && m.kind !== 'label')),
         labels: known.map((x) => ({ text: x.r.name, p: x.d.centre })),
         axis: [1, 0],
@@ -2502,6 +2541,12 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       for (const s of selStructs()) {
         if (edit.height !== undefined && edit.height > 0 && s.kind === 'wall') s.height = edit.height;
         if (edit.mode) s.mode = edit.mode;
+        if (edit.zone !== undefined && s.kind === 'floor') {
+          if (edit.zone) {
+            s.zone = true;
+            s.mode = 'virtual';
+          } else delete s.zone;
+        }
         if (edit.align && s.kind === 'wall') s.align = edit.align;
         if (edit.roughness !== undefined || edit.metalness !== undefined) {
           s.finish = { ...s.finish, ...(edit.roughness !== undefined && { roughness: edit.roughness }), ...(edit.metalness !== undefined && { metalness: edit.metalness }) };

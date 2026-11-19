@@ -5,7 +5,8 @@ import type { Structure } from './types';
 
 // Walls and floor slabs of a project as simple boxes, in their room's frame. Shared by the PC editor and the headset.
 export const WALL_COLOR = '#e9ecf2';
-export const FLOOR_COLOR = '#c7cdd9';
+export const ZONE_COLOR = '#f59e0b';
+const FLOOR_COLOR = '#c7cdd9';
 const box = new BoxGeometry(1, 1, 1);
 
 // The outline of a floor: its own corners, or the rectangle a-b of the first floors.
@@ -204,7 +205,14 @@ export function createStructureLayer(parent: Object3D, opts: StructureLayerOptio
         const def = textureById(s.texture);
         const tex = def ? textureFor(def.id) : null;
         // The tint multiplies the texture; with no explicit colour a textured surface shows the texture as it is.
-        mat.color.set(s.color ?? (tex ? '#ffffff' : s.kind === 'wall' ? WALL_COLOR : FLOOR_COLOR));
+        mat.color.set(s.zone ? ZONE_COLOR : (s.color ?? (tex ? '#ffffff' : s.kind === 'wall' ? WALL_COLOR : FLOOR_COLOR)));
+        const flat = !!s.zone; // a free zone: a translucent amber sheet (the red when it is invaded is drawn by room/zoneView.ts)
+        if (mat.transparent !== flat) {
+          mat.transparent = flat;
+          mat.opacity = flat ? 0.22 : 1;
+          mat.depthWrite = !flat;
+          mat.needsUpdate = true;
+        }
         if (mat.map !== (tex?.map ?? null)) {
           mat.map = tex?.map ?? null;
           mat.normalMap = tex?.normalMap ?? null;
@@ -224,10 +232,11 @@ export function createStructureLayer(parent: Object3D, opts: StructureLayerOptio
         if (s.kind === 'floor') {
           // Always a polygon slab at the room's origin (the outline is in room coordinates).
           const pts = floorPoints(s);
-          const key = `f|${JSON.stringify(pts)}|${s.thickness}|${def?.id ?? ''}`;
+          const thick = s.zone ? 0.02 : s.thickness;
+          const key = `f|${JSON.stringify(pts)}|${thick}|${def?.id ?? ''}`;
           if (m.userData.key !== key) {
             if (m.geometry !== box) m.geometry.dispose();
-            m.geometry = floorSlab(pts, s.thickness, def?.size ?? 1);
+            m.geometry = floorSlab(pts, thick, def?.size ?? 1);
             m.userData.key = key;
           }
           m.position.set(0, s.y, 0);
