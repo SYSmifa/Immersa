@@ -37,7 +37,7 @@ import { BACKUP_EXT, buildBackup, parseBackup, remapProject, remapScan, selectFo
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, uploadModelOnce, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
-import { boxSolid, dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
+import { boxSolid, dimsOfSolid, dimsOfStructure, floorYOf, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
 import { ANNOTATION_COLORS, annotationLength, annotationMeasures, annotationName, copyAnnotation, newAnnotation, DEFAULT_COLOR } from '../room/annotations';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -57,7 +57,7 @@ import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } 
 import { IDENTITY, apply, invertLink, linkBetween, linkState, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
 import { WALL_HEIGHT as DEFAULT_WALL_HEIGHT, scanFromPoints } from '../room/byPoints';
-import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type PlanZone, type SheetOptions } from './planPdf';
+import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type PlanOpening, type PlanZone, type SheetOptions } from './planPdf';
 import { createStage } from '../scene/stage';
 import { SelectionOutlinePass } from './outline';
 import { createLogin } from '../ui/login';
@@ -1123,12 +1123,30 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           const margins = m?.zone ? (m.zone.f === m.zone.b && m.zone.b === m.zone.l && m.zone.l === m.zone.r ? cm(m.zone.f) : `dav. ${cm(m.zone.f)} · dietro ${cm(m.zone.b)} · sx ${cm(m.zone.l)} · dx ${cm(m.zone.r)}`) : `${polygonArea(z.poly).toFixed(1).replace('.', ',')} m²`;
           return { poly: z.poly.map((p) => wpt(P, p)), label: `Zona ${z.free ? '' : 'di '}${z.name}: ${margins}`.replace('Zona Zona', 'Zona'), bad: z.invaders.length > 0 || z.walls };
         });
+    // doors and windows of a room made from points: where they are in the world, and which way the room is
+    const openings: PlanOpening[] = (r?.scan.openings ?? []).flatMap((o) => {
+      const pts = r?.scan.contour;
+      if (!pts || o.wall >= pts.length) return [];
+      const a = pts[o.wall].pos;
+      const b = pts[(o.wall + 1) % pts.length].pos;
+      const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
+      if (len < 1e-3) return [];
+      const t: P2 = [(b[0] - a[0]) / len, (b[2] - a[2]) / len];
+      let nrm: P2 = [-t[1], t[0]];
+      const cx = pts.reduce((s, p) => s + p.pos[0], 0) / pts.length;
+      const cz = pts.reduce((s, p) => s + p.pos[2], 0) / pts.length;
+      if ((cx - a[0]) * nrm[0] + (cz - a[2]) * nrm[1] < 0) nrm = [-nrm[0], -nrm[1]]; // towards the middle of the room
+      const at = (m: number): P2 => [a[0] + t[0] * m, a[2] + t[1] * m];
+      return [{ a: wpt(P, at(o.at - o.w / 2)), b: wpt(P, at(o.at + o.w / 2)), inward: wdir(P, nrm), kind: o.kind }];
+    });
     const measures = [
       ...sts.flatMap((st) => dimsOfStructure(st).filter((x) => x.kind === 'dim' || x.kind === 'label')),
       ...(project?.annotations ?? []).filter((a) => a.roomId === id).flatMap((a) => annotationMeasures(a, mine ? noteAnchor(a) : null)),
     ].map(mv);
     return {
-      walls: segs.map((sg) => [wpt(P, sg.a), wpt(P, sg.b)] as [P2, P2]),
+      // (the parts of a wall above a door or window are not lines of the plan)
+      walls: segs.filter((sg) => sg.y0 <= (r ? floorYOf(r.scan.planes) : 0) + 0.05).map((sg) => [wpt(P, sg.a), wpt(P, sg.b)] as [P2, P2]),
+      openings,
       boxes: (r?.scan.boxes ?? []).map((b, i) => wsolid(P, '', boxSolid(b, i))),
       models,
       zones,
@@ -1143,16 +1161,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const date = new Date().toLocaleDateString('it-IT');
     const name = project?.name ?? 'Progetto';
     const rs = projectRoomsList();
-    const empty = { bounds: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 }, labels: [] as { text: string; p: P2 }[], zones: [] as PlanZone[] };
+    const empty = { bounds: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 }, labels: [] as { text: string; p: P2 }[], zones: [] as PlanZone[], openings: [] as PlanOpening[] };
     if (!room || !rs.length) {
       const d = roomSheet(null, IDENTITY, layer.holders);
-      return [{ title: name, subtitle: '', date, renderKey: 'space', ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, measures: d.measures, axis: d.axis }];
+      return [{ title: name, subtitle: '', date, renderKey: 'space', ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, openings: d.openings, measures: d.measures, axis: d.axis }];
     }
     const around = placeAround(room, rs);
     const poseOf = (r: Room): Pose => (r.id === room!.id ? IDENTITY : around.get(r.id)?.pose ?? IDENTITY);
     const holdersOf = (r: Room) => (r.id === room!.id ? layer.holders : others.holders(r.id));
     const sheets = rs.map((r) => ({ r, d: roomSheet(r, poseOf(r), holdersOf(r)) }));
-    const pages: PlanData[] = sheets.map(({ r, d }) => ({ title: r.name, subtitle: name, date, renderKey: `room:${r.id}`, ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, measures: d.measures, axis: d.axis }));
+    const pages: PlanData[] = sheets.map(({ r, d }) => ({ title: r.name, subtitle: name, date, renderKey: `room:${r.id}`, ...empty, walls: d.walls, boxes: d.boxes, models: d.models, zones: d.zones, openings: d.openings, measures: d.measures, axis: d.axis }));
     const known = sheets.filter(({ r }) => r.id === room!.id || (around.get(r.id) && around.get(r.id)!.state !== 'unknown'));
     if (known.length > 1) {
       const lost = sheets.filter((x) => !known.includes(x)).map((x) => x.r.name);
@@ -1167,6 +1185,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         boxes: known.flatMap((x) => x.d.boxes),
         models: known.flatMap((x) => x.d.models),
         zones: known.flatMap((x) => x.d.zones),
+        openings: known.flatMap((x) => x.d.openings),
         measures: known.flatMap((x) => x.d.measures.filter((m) => m.kind !== 'dim' && m.kind !== 'label')),
         labels: known.map((x) => ({ text: x.r.name, p: x.d.centre })),
         axis: [1, 0],
@@ -2173,7 +2192,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       run(async () => {
         const r = rooms.find((x) => x.id === id);
         if (!r?.scan.contour) return;
-        const res = await ui.showContour({ roomName: r.name, height: r.scan.height ?? DEFAULT_WALL_HEIGHT, points: r.scan.contour });
+        const res = await ui.showContour({ roomName: r.name, height: r.scan.height ?? DEFAULT_WALL_HEIGHT, points: r.scan.contour, openings: r.scan.openings });
         if (!res) return;
         // the anchors follow the points they were taken from; if one was removed, the two farthest points are the anchors
         const old = r.scan.contour;
@@ -2183,8 +2202,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
           return j >= 0 ? { ...a, pos: [...res.points[j].pos] as Vec3 } : null;
         });
         const floorY = res.points[0].pos[1];
-        const fresh = scanFromPoints(res.points, floorY, res.height);
-        const scan = { ...r.scan, planes: fresh.planes, contour: fresh.contour, height: res.height, refs: follow.every((a) => a) && follow.length >= 2 ? (follow as NonNullable<(typeof follow)[number]>[]) : fresh.refs, refsPrev: r.scan.refs ?? r.scan.refsPrev, savedAt: Date.now() };
+        const fresh = scanFromPoints(res.points, floorY, res.height, res.openings);
+        const scan = { ...r.scan, planes: fresh.planes, contour: fresh.contour, height: res.height, openings: fresh.openings, refs: follow.every((a) => a) && follow.length >= 2 ? (follow as NonNullable<(typeof follow)[number]>[]) : fresh.refs, refsPrev: r.scan.refs ?? r.scan.refsPrev, savedAt: Date.now() };
         await backend.saveRoomData(id, scan);
         r.scan = scan;
         refreshLists();

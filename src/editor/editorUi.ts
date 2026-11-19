@@ -12,7 +12,8 @@ import { HEAVY_TRIANGLES } from './simplify';
 import { floorHeight, suggestCorners } from '../room/anchors';
 import { floorPoints as outlinePoints } from '../room/bigSpace';
 import { MAX_REFS, MIN_REFS, MIN_REF_GAP, refName, refProblem, refsCollinear } from '../room/refs';
-import type { RoomPlane, RoomRef, Vec3 } from '../room/types';
+import type { Opening, RoomPlane, RoomRef, Vec3 } from '../room/types';
+import { DOOR, WINDOW } from '../room/byPoints';
 
 // DOM UI of the PC editor, in the same "Aura" look as the headset menu: ink gradient, white cards, turquoise accent, font Sen.
 // Layout: left sidebar (home: open / new project / my rooms; then the project settings; login at the bottom),
@@ -1940,12 +1941,30 @@ export function createEditorUi(h: EditorHandlers) {
     },
     // The walls of a room made from points: the height, and the perimeter points on the top-down plan (drag to move one, delete one;
     // at least 3 stay). Resolves with the new set, or null if cancelled.
-    showContour(opts: { roomName: string; height: number; points: RoomRef[] }) {
-      return new Promise<{ height: number; points: RoomRef[]; origin: number[] } | null>((resolve) => {
+    showContour(opts: { roomName: string; height: number; points: RoomRef[]; openings?: Opening[] }) {
+      return new Promise<{ height: number; points: RoomRef[]; origin: number[]; openings: Opening[] } | null>((resolve) => {
         const pts: RoomRef[] = opts.points.map((p) => ({ pos: [...p.pos] as Vec3, name: p.name }));
         const origin = opts.points.map((_, i) => i); // for each point now, its index in the set the dialog opened with
         let height = opts.height;
         let drag: number | null = null;
+        // Doors and windows: placed on a side by clicking it (after "Aggiungi"), moved along it by dragging, edited in the list.
+        const openings: Opening[] = (opts.openings ?? []).map((o) => ({ ...o }));
+        let chosen: number | null = null;
+        let adding: 'door' | 'window' | null = null;
+        let dragO: number | null = null;
+        const side = (i: number) => {
+          const a = pts[i].pos;
+          const b = pts[(i + 1) % pts.length].pos;
+          const len = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
+          return { a, b, len, tx: (b[0] - a[0]) / len, tz: (b[2] - a[2]) / len };
+        };
+        const bad = (i: number) => {
+          // outside its side, or on top of another opening of the same side
+          const o = openings[i];
+          const s2 = side(o.wall);
+          if (o.at - o.w / 2 < -1e-6 || o.at + o.w / 2 > s2.len + 1e-6 || o.sill + o.h > height + 1e-6) return true;
+          return openings.some((q, j) => j !== i && q.wall === o.wall && Math.abs(q.at - o.at) < (q.w + o.w) / 2 - 1e-6);
+        };
         const xs0 = pts.map((p) => p.pos[0]);
         const zs0 = pts.map((p) => p.pos[2]);
         const m = 2;
@@ -1955,9 +1974,10 @@ export function createEditorUi(h: EditorHandlers) {
         const canvas = document.createElement('canvas');
         const hint = el('div', '', 'ed-sub');
         hint.style.textAlign = 'left';
+        const baseHint = 'Trascina un punto per spostarlo (la lunghezza dei lati si aggiorna). Se sposti uno dei due punti di allineamento, nel visore dovrai toccarlo nella nuova posizione.';
         const list = el('div', '', 'ed-waiting');
         const buttons = el('div', '', 'ed-refbtns');
-        const done = (v: { height: number; points: RoomRef[]; origin: number[] } | null) => {
+        const done = (v: { height: number; points: RoomRef[]; origin: number[]; openings: Opening[] } | null) => {
           window.removeEventListener('keydown', key, true);
           overlay.remove();
           resolve(v);
@@ -2002,6 +2022,28 @@ export function createEditorUi(h: EditorHandlers) {
             c.fillStyle = '#9fb3c8';
             c.fillText(`${len.toFixed(2)} m`, fr.X((p.pos[0] + q.pos[0]) / 2), fr.Z((p.pos[2] + q.pos[2]) / 2) - 10);
           });
+          openings.forEach((o, i) => {
+            const s2 = side(o.wall);
+            const p0 = [s2.a[0] + s2.tx * (o.at - o.w / 2), s2.a[2] + s2.tz * (o.at - o.w / 2)];
+            const p1 = [s2.a[0] + s2.tx * (o.at + o.w / 2), s2.a[2] + s2.tz * (o.at + o.w / 2)];
+            const col = bad(i) ? '#ef4444' : o.kind === 'door' ? '#f59e0b' : '#38bdf8';
+            c.lineCap = 'butt';
+            c.strokeStyle = chosen === i ? '#ffffff' : col;
+            c.lineWidth = chosen === i ? 11 : 8;
+            c.beginPath();
+            c.moveTo(fr.X(p0[0]), fr.Z(p0[1]));
+            c.lineTo(fr.X(p1[0]), fr.Z(p1[1]));
+            c.stroke();
+            if (chosen === i) {
+              c.strokeStyle = col;
+              c.lineWidth = 7;
+              c.beginPath();
+              c.moveTo(fr.X(p0[0]), fr.Z(p0[1]));
+              c.lineTo(fr.X(p1[0]), fr.Z(p1[1]));
+              c.stroke();
+            }
+          });
+          c.lineWidth = 3;
           c.font = '700 13px sans-serif';
           pts.forEach((p, i) => {
             c.fillStyle = drag === i ? '#ffffff' : '#2dd4bf';
@@ -2019,12 +2061,55 @@ export function createEditorUi(h: EditorHandlers) {
         canvas.onpointerdown = (e) => {
           const [px, pz] = at(e);
           const hit = pts.findIndex((p) => Math.hypot(fr.X(p.pos[0]) - px, fr.Z(p.pos[2]) - pz) < 18);
-          if (hit < 0) return;
-          drag = hit;
-          canvas.setPointerCapture(e.pointerId);
-          draw();
+          if (hit >= 0 && !adding) {
+            drag = hit;
+            canvas.setPointerCapture(e.pointerId);
+            draw();
+            return;
+          }
+          // the nearest side (distance in pixels) and where along it the pointer is
+          let best: { i: number; d: number; t: number } | null = null;
+          for (let i = 0; i < pts.length; i++) {
+            const s2 = side(i);
+            const x = fr.x(px) - s2.a[0];
+            const z = fr.z(pz) - s2.a[2];
+            const t = x * s2.tx + z * s2.tz;
+            const d = Math.abs(-x * s2.tz + z * s2.tx) * fr.k;
+            if (t >= 0 && t <= s2.len && (!best || d < best.d)) best = { i, d, t };
+          }
+          if (!best || best.d > 16) {
+            if (adding) hint.textContent = 'Clicca su uno dei lati del perimetro per metterla lì.';
+            return;
+          }
+          const onOne = openings.findIndex((o) => o.wall === best!.i && Math.abs(best!.t - o.at) <= o.w / 2 + 0.05);
+          if (onOne >= 0 && !adding) {
+            chosen = onOne;
+            dragO = onOne;
+            canvas.setPointerCapture(e.pointerId);
+            render();
+            return;
+          }
+          if (adding) {
+            const def = adding === 'door' ? DOOR : WINDOW;
+            openings.push({ wall: best.i, at: Math.round(best.t / 0.05) * 0.05, ...def, kind: adding });
+            const s2 = side(best.i);
+            const o = openings[openings.length - 1];
+            o.at = Math.min(s2.len - o.w / 2, Math.max(o.w / 2, o.at));
+            chosen = openings.length - 1;
+            adding = null;
+            render();
+          }
         };
         canvas.onpointermove = (e) => {
+          if (dragO !== null) {
+            const o = openings[dragO];
+            const [px2, pz2] = at(e);
+            const s2 = side(o.wall);
+            const t = (fr.x(px2) - s2.a[0]) * s2.tx + (fr.z(pz2) - s2.a[2]) * s2.tz;
+            o.at = Math.min(s2.len - o.w / 2, Math.max(o.w / 2, Math.round(t / 0.05) * 0.05));
+            draw();
+            return;
+          }
           if (drag === null) return;
           const [px, pz] = at(e);
           const x = Math.min(bounds.maxX, Math.max(bounds.minX, Math.round(fr.x(px) / 0.05) * 0.05));
@@ -2034,10 +2119,11 @@ export function createEditorUi(h: EditorHandlers) {
         };
         canvas.onpointerup = () => {
           drag = null;
+          dragO = null;
           render();
         };
         const render = () => {
-          hint.textContent = 'Trascina un punto per spostarlo (la lunghezza dei lati si aggiorna). Se sposti uno dei due punti di allineamento, nel visore dovrai toccarlo nella nuova posizione.';
+          hint.textContent = adding ? 'Clicca su uno dei lati del perimetro per metterla lì.' : baseHint;
           const hf = Object.assign(document.createElement('input'), { type: 'number', value: String(height), step: '0.1', min: '1' });
           hf.onchange = () => {
             const v = Number(hf.value.replace(',', '.'));
@@ -2051,6 +2137,14 @@ export function createEditorUi(h: EditorHandlers) {
               const r = el('div', '', 'ed-refrow');
               r.append(el('b', String(i + 1)), el('span', `${p.pos[0].toFixed(2)} ; ${p.pos[2].toFixed(2)} m`, 'ed-meta'), pill('Togli il punto', () => {
                 if (pts.length <= 3) return;
+                // the two sides that meet at this point become one: the openings on them go, the later sides move up
+                const n = pts.length;
+                for (let k = openings.length - 1; k >= 0; k--) {
+                  const w = openings[k].wall;
+                  if (w === i || w === (i - 1 + n) % n) openings.splice(k, 1);
+                  else if (w > i) openings[k].wall = w - 1;
+                }
+                chosen = null;
                 pts.splice(i, 1);
                 origin.splice(i, 1);
                 render();
@@ -2059,10 +2153,66 @@ export function createEditorUi(h: EditorHandlers) {
               return r;
             }),
           );
-          buttons.replaceChildren(pill('Salva', () => done({ height, points: pts, origin }), 'acc'), pill('Annulla', () => done(null)));
+          const addBtn = (kind: 'door' | 'window', text: string) => pill(text, () => {
+            adding = adding === kind ? null : kind;
+            hint.textContent = adding ? 'Clicca su uno dei lati del perimetro per metterla lì.' : baseHint;
+            render();
+          }, adding === kind ? 'acc' : '');
+          const save = () => {
+            if (openings.some((_, i) => bad(i))) {
+              hint.textContent = 'Alcune aperture escono dal lato o si sovrappongono (sono in rosso): correggile.';
+              return;
+            }
+            done({ height, points: pts, origin, openings });
+          };
+          buttons.replaceChildren(pill('Salva', save, 'acc'), pill('Annulla', () => done(null)));
+          openingList.replaceChildren(
+            el('div', 'Porte e finestre', 'ed-meta'),
+            row(addBtn('door', '+ Porta'), addBtn('window', '+ Finestra')),
+            ...(openings.length ? [] : [el('div', 'Nessuna: premi + Porta o + Finestra, poi clicca un lato nella pianta. Si sposta trascinandola lungo il lato.', 'ed-meta')]),
+            ...openings.map((o, i) => {
+              const line = el('div', '', 'ed-refrow');
+              line.style.flexWrap = 'wrap';
+              const field = (label: string, key: 'at' | 'w' | 'h' | 'sill', step: string) => {
+                const f = Object.assign(document.createElement('input'), { type: 'number', value: String(Number(o[key].toFixed(2))), step, min: '0' });
+                f.style.maxWidth = '76px';
+                f.onchange = () => {
+                  const v = Number(f.value.replace(',', '.'));
+                  if (Number.isFinite(v) && v >= 0) o[key] = v;
+                  render();
+                };
+                const l = el('label', '', 'ed-meta');
+                l.style.cssText = 'display:flex;gap:4px;align-items:center';
+                l.append(label, f);
+                return l;
+              };
+              const name = el('b', o.kind === 'door' ? 'P' : 'F');
+              if (chosen === i) name.style.outline = '2px solid #ffffff';
+              name.onclick = () => {
+                chosen = i;
+                render();
+              };
+              name.style.cursor = 'pointer';
+              const kind = pill(o.kind === 'door' ? 'Porta' : 'Finestra', () => {
+                o.kind = o.kind === 'door' ? 'window' : 'door';
+                const d = o.kind === 'door' ? DOOR : WINDOW;
+                o.h = d.h;
+                o.sill = d.sill;
+                render();
+              });
+              line.append(name, el('span', `lato ${o.wall + 1}`, 'ed-meta'), kind, field('da inizio', 'at', '0.05'), field('largh.', 'w', '0.05'), field('alt.', 'h', '0.05'), field('davanz.', 'sill', '0.05'), pill('Togli', () => {
+                openings.splice(i, 1);
+                chosen = null;
+                render();
+              }));
+              if (bad(i)) line.append(el('span', 'fuori dal lato o sovrapposta', 'ed-warn'));
+              return line;
+            }),
+          );
           draw();
         };
-        panel.append(el('h3', `Muri e perimetro · ${opts.roomName}`), canvas, hint, list, buttons);
+        const openingList = el('div', '', 'ed-waiting');
+        panel.append(el('h3', `Muri e perimetro · ${opts.roomName}`), canvas, hint, list, openingList, buttons);
         overlay.append(panel);
         root.append(overlay);
         render();

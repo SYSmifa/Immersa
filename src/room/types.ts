@@ -58,6 +58,18 @@ export interface RoomScan {
   contour?: RoomRef[]; // a room made from points touched along its perimeter (room/byPoints.ts): the points, in order; no headset scan behind it
   height?: number; // its walls' height
   links?: Record<string, RoomLink>; // where the other rooms of the same place are, by room id (see room/layout.ts)
+  openings?: Opening[]; // doors and windows of a room made from points (room/byPoints.ts): the walls of `planes` have holes there
+}
+
+// A door or a window in the wall that runs from contour point `wall` to the next one: `at` m from its start to the centre of the
+// opening, `w` wide, `h` high above `sill` (a door's sill is 0).
+export interface Opening {
+  wall: number;
+  at: number;
+  w: number;
+  h: number;
+  sill: number;
+  kind: 'door' | 'window';
 }
 
 // A reference point on the floor of a big space, in the room's frame.

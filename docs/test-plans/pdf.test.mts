@@ -22,6 +22,7 @@ const base = (over: Partial<PlanData> = {}): PlanData => ({
   boxes: [],
   models: [{ name: 'Tavolo', c: [4, 2.5], u: [1, 0], hu: 0.5, hv: 0.25 }],
   zones: [{ poly: [[3, 1], [6, 1], [6, 4], [3, 4]], label: 'Zona di Tavolo: 100 cm', bad: true }],
+  openings: [{ a: [1, 0], b: [1.9, 0], inward: [0, 1], kind: 'door' }, { a: [8, 2], b: [8, 3.2], inward: [-1, 0], kind: 'window' }],
   labels: [],
   measures: [{ kind: 'ruler', a: [1, 0, 1], b: [4, 0, 1], text: '3,00 m', owner: 'r', color: '#ff8800' }],
   ...over,

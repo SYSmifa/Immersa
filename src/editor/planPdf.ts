@@ -40,6 +40,12 @@ export interface PlanZone {
   label: string; // its name and size
   bad: boolean; // something is inside it, or it cuts a wall
 }
+export interface PlanOpening {
+  a: P2; // the two ends of the opening along the wall (metres, world)
+  b: P2;
+  inward: P2; // unit vector, into the room (where a door's leaf swings)
+  kind: 'door' | 'window';
+}
 export interface PlanData {
   title: string; // the room's name
   subtitle: string; // the project's name
@@ -52,6 +58,7 @@ export interface PlanData {
   boxes: PlanModel[]; // the scan's furniture volumes
   models: PlanModel[];
   zones: PlanZone[]; // zone di rispetto, under the walls and the models
+  openings: PlanOpening[]; // doors and windows (rooms made from points)
   labels: { text: string; p: P2 }[]; // room names (overview)
   measures: Measure[]; // wall lengths / floor areas ('dim', 'label') and the annotations ('pin', 'note', 'ruler')
 }
@@ -211,6 +218,38 @@ function drawSheet(page: PdfPage, d: PlanData, L: PlanLayout, o: SheetOptions, p
     page.line(x1, y1, x2, y2, 0.5, '#2a2f3a');
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     if (dims && len >= 0.8) page.text(formatLength(len), (x1 + x2) / 2, (y1 + y2) / 2 - 0.9, { size: 6.5, align: 'center', angle: ang(x1, y1, x2, y2), color: '#2a2f3a', halo });
+  }
+
+  // doors and windows: a door is a gap with its leaf open into the room and the arc it sweeps; a window a double line across the gap
+  for (const o of d.openings) {
+    const p0 = toPage(o.a[0], o.a[1]);
+    const p1 = toPage(o.b[0], o.b[1]);
+    const q = toPage(o.a[0] + o.inward[0], o.a[1] + o.inward[1]);
+    const nl = Math.hypot(q[0] - p0[0], q[1] - p0[1]) || 1;
+    const n: [number, number] = [(q[0] - p0[0]) / nl, (q[1] - p0[1]) / nl];
+    const w = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    if (o.kind === 'window') {
+      for (const off of [-0.7, 0.7]) page.line(p0[0] + n[0] * off, p0[1] + n[1] * off, p1[0] + n[0] * off, p1[1] + n[1] * off, 0.25, '#2a2f3a');
+      page.line(p0[0] - n[0] * 0.7, p0[1] - n[1] * 0.7, p0[0] + n[0] * 0.7, p0[1] + n[1] * 0.7, 0.35, '#2a2f3a');
+      page.line(p1[0] - n[0] * 0.7, p1[1] - n[1] * 0.7, p1[0] + n[0] * 0.7, p1[1] + n[1] * 0.7, 0.35, '#2a2f3a');
+      continue;
+    }
+    const leaf: [number, number] = [p0[0] + n[0] * w, p0[1] + n[1] * w];
+    page.line(p0[0], p0[1], leaf[0], leaf[1], 0.35, '#2a2f3a');
+    // the arc from the leaf's end to the other jamb, centred on the hinge
+    const a0 = Math.atan2(leaf[1] - p0[1], leaf[0] - p0[0]);
+    let a1 = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]);
+    let da = a1 - a0;
+    while (da > Math.PI) da -= 2 * Math.PI;
+    while (da < -Math.PI) da += 2 * Math.PI;
+    a1 = a0 + da;
+    let last = leaf;
+    for (let k = 1; k <= 12; k++) {
+      const t = a0 + (da * k) / 12;
+      const cur: [number, number] = [p0[0] + Math.cos(t) * w, p0[1] + Math.sin(t) * w];
+      page.line(last[0], last[1], cur[0], cur[1], 0.2, '#6b7280');
+      last = cur;
+    }
   }
 
   // models: the footprint and the name (and the size)
