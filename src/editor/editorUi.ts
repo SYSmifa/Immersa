@@ -256,7 +256,7 @@ const CSS = `
 .ed-h{font-weight:700;font-size:16px;padding:0 4px}
 .ed-top{position:fixed;top:12px;left:340px;right:324px;z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 .ed-top>*{pointer-events:auto}
-.ed-tools{display:flex;flex-wrap:wrap;justify-content:center;max-width:100%;gap:2px;align-items:center;padding:6px;border-radius:24px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007}
+.ed-tools{display:flex;flex-wrap:wrap;justify-content:center;max-width:100%;gap:2px;align-items:center;padding:6px;border-radius:24px;background:linear-gradient(160deg,var(--ink),var(--ink3));box-shadow:0 6px 24px #0007,0 0 0 1px color-mix(in srgb,var(--acc) 38%,transparent),0 0 22px color-mix(in srgb,var(--acc) 16%,transparent)}
 .ed-ib{width:35px;height:35px;border:0;border-radius:50%;background:transparent;color:#cfd6e4;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
 .ed-ib svg{width:19px;height:19px}
 .ed-ib:hover:not(:disabled){background:#ffffff1f}
