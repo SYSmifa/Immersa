@@ -2442,16 +2442,15 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     nameReplace = null;
     if (old) {
       // Same name = the same room scanned again: its saved scan is renewed (same id, so projects and links to other rooms stay).
-      // The models move with the room, which needs to know where the old scan sits in this session.
+      // The models move with the room, so the old scan must be found in the new one: if not, it is another room.
       const a = aligns.get(old.id) ?? bestFit(old);
-      const used = allProjects.some((p) => p.models.some((x) => x.roomId === old.id)) || Object.keys(old.scan.links ?? {}).length > 0 || rooms.some((x) => x.scan.links?.[old.id]);
-      if (!a && used) {
-        say(`Non ritrovo "${old.name}" in questa scansione: non posso aggiornarla senza spostare i modelli. Scegli un altro nome`, 9000);
+      if (!a) {
+        say(`Questa non sembra la stanza "${old.name}": scegli un altro nome`, 9000);
         return;
       }
       openMenu();
       say(`Aggiorno "${old.name}"...`);
-      if (await refreshRoomScan({ room: old, alignment: a ?? identity(planes.length) })) {
+      if (await refreshRoomScan({ room: old, alignment: a })) {
         say(`"${old.name}" aggiornata`);
         if (scannedThisSession) autoRestart('stanza aggiornata dopo la scansione', 2500, 'Stanza aggiornata', 'L\'app deve riavviarsi per continuare');
       }
