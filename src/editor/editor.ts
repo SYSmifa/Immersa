@@ -840,7 +840,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   function refreshLists() {
     const tones = projectTones(projects);
     ui.setProjects(projects.map((p) => ({ id: p.id, name: p.name, tone: tones.get(p.id) })), project?.id ?? null);
-    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, byPoints: !!r.scan.contour, place: r.place, links: linksText(r), manualLinks: Object.values(r.scan.links ?? {}).some((l) => l.src === 'manual'), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
+    ui.setRooms(rooms.map((r) => ({ id: r.id, name: r.name, byPoints: !!r.scan.contour, place: r.place, links: linksText(r), sub: `Creata il ${dateOf(r.createdAt)}`, uses: projects.filter((p) => p.roomIds.includes(r.id)).map((p) => p.name) })));
     ui.setProject(
       project?.name ?? '',
       projectRoomsList().map((r) => {
@@ -1671,35 +1671,6 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         refreshLists();
       } catch {
         /* offline or signed out: the lists already shown stay */
-      }
-    },
-    // Takes back the positions set by hand next to the other rooms (both sides): the headset measures them again in its sessions.
-    async onClearManualLinks(id) {
-      const r = rooms.find((x) => x.id === id);
-      if (!r) return;
-      const ids = Object.entries(r.scan.links ?? {}).filter(([, l]) => l.src === 'manual').map(([k]) => k);
-      if (!ids.length) return;
-      const names = ids.map((k) => rooms.find((x) => x.id === k)?.name ?? '?').join(', ');
-      if (!(await ui.askConfirm(`Togliere la posizione fatta a mano tra "${r.name}" e: ${names}?\nLe stanze restano ma senza collegamento: il visore lo misura di nuovo quando le trova insieme (diventa sicuro alla seconda sessione).`, 'Togli', 'Posizioni a mano'))) return;
-      try {
-        for (const k of ids) {
-          const o = rooms.find((x) => x.id === k);
-          const mine = { ...r.scan.links };
-          delete mine[k];
-          r.scan = { ...r.scan, links: mine };
-          if (o?.scan.links?.[r.id]) {
-            const theirs = { ...o.scan.links };
-            delete theirs[r.id];
-            o.scan = { ...o.scan, links: theirs };
-            await backend.saveRoomData(o.id, o.scan);
-          }
-        }
-        await backend.saveRoomData(r.id, r.scan);
-        refreshOthers();
-        refreshLists();
-        ui.setStatus('Posizioni a mano tolte.');
-      } catch (err) {
-        ui.setStatus(`Non riesco a salvare: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
     async onOpenProject(id) {

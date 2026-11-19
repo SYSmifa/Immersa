@@ -70,7 +70,6 @@ export interface EditorHandlers {
   onRoomPlace(id: string): void;
   onRoomRefs(id: string): void;
   onRoomContour(id: string): void;
-  onClearManualLinks?(id: string): void; // drop the positions set by hand next to the other rooms (the headset learns them again)
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
@@ -189,7 +188,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; byPoints?: boolean; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; manualLinks?: boolean; note?: string; noteWarn?: boolean };
+export type Option = { id: string; name: string; byPoints?: boolean; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -553,7 +552,7 @@ export function createEditorUi(h: EditorHandlers) {
         el('div', r.place ? `Luogo: ${r.place}` : 'Senza luogo: assegnalo per poterla usare con altre stanze', 'ed-meta'),
         ...(r.links ? [el('div', `Posizione relativa: ${r.links}`, 'ed-meta')] : []),
         el('div', r.uses?.length ? `Usata in: ${r.uses.join(', ')}` : 'Non usata da nessun progetto', 'ed-meta'),
-        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Punti di riferimento', () => h.onRoomRefs(r.id)), ...(r.byPoints ? [pill('Muri e perimetro', () => h.onRoomContour(r.id))] : []), ...(r.manualLinks ? [pill('Togli posizioni a mano', () => h.onClearManualLinks?.(r.id))] : []), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
+        row(pill('Rinomina', () => h.onRenameRoom(r.id)), pill('Luogo', () => h.onRoomPlace(r.id)), pill('Punti di riferimento', () => h.onRoomRefs(r.id)), ...(r.byPoints ? [pill('Muri e perimetro', () => h.onRoomContour(r.id))] : []), pill('Elimina', () => h.onDeleteRoom(r.id), 'bad')),
       );
     };
     // Grouped by place (in the order the rooms come: the most recently used place first), the rooms without one at the end.
