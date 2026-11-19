@@ -332,7 +332,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setMeasureLabels(labels);
   }
 
-  scene.background = new Color(0x262c38); // through the composer the clear colour would be encoded twice
+  scene.background = new Color(0x15171c); // through the composer the clear colour would be encoded twice
 
   // Selection outline: a screen-space azure edge round the selected objects.
   // The composer renders off-screen, where the canvas' own antialiasing does not apply: give it 4x MSAA targets, and finish

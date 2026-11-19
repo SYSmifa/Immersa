@@ -202,7 +202,8 @@ const CSS = `
   font-family:'Sen',system-ui,sans-serif;font-size:14px;color:#fff}
 .ed *{box-sizing:border-box;font-family:inherit}
 .ed button,.ed select,.ed input{font-size:14px}
-.ed-panel{background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));box-shadow:0 10px 40px #0008;border-radius:22px}
+.ed-panel{background:linear-gradient(160deg,var(--ink),var(--ink2) 55%,var(--ink3));border-radius:22px;
+  box-shadow:0 10px 40px #0008,0 0 0 1px color-mix(in srgb,var(--acc) 38%,transparent),0 0 22px color-mix(in srgb,var(--acc) 16%,transparent)} /* a thin turquoise rim and glow: the panels stand off the dark world */
 .ed-side{position:fixed;top:12px;left:12px;bottom:12px;width:310px;z-index:10;display:flex;flex-direction:column;gap:10px;padding:14px}
 .ed-roomlist{display:flex;flex-direction:column;gap:8px;max-height:172px;overflow:auto;flex-shrink:0}
 .ed-body{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0}
