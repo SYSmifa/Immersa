@@ -58,6 +58,9 @@ export interface EditorHandlers {
   onRenameProject(): void;
   onDuplicateProject(): void;
   onExportPdf(): void;
+  onExportProject(): void; // the open project (with its rooms and models) as one .immersa file
+  onExportAll(): void; // every room and project of the account
+  onImportBackup(file: File): void;
   onReports(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
@@ -467,6 +470,8 @@ export function createEditorUi(h: EditorHandlers) {
         setView('models');
         h.onOpenModels();
       }),
+      big(ICON.folder, 'Backup completo', 'Tutte le stanze e i progetti in un file', h.onExportAll),
+      big(ICON.plus, 'Importa un backup', 'Da un file .immersa', () => backupInput.click()),
     );
   }
 
@@ -744,6 +749,15 @@ export function createEditorUi(h: EditorHandlers) {
     return [warn, row(pick, pill('Usa questo', () => pick.value && h.onMissingFromLibrary(pick.value), 'acc')), row(pill('Da file…', () => missingInput.click()))];
   }
 
+  const backupInput = el('input', '', 'ed-file');
+  backupInput.type = 'file';
+  backupInput.accept = '.immersa,.zip';
+  backupInput.style.display = 'none';
+  backupInput.onchange = () => {
+    if (backupInput.files?.length) h.onImportBackup(backupInput.files[0]);
+    backupInput.value = '';
+  };
+
   const planInput = el('input', '', 'ed-file');
   planInput.type = 'file';
   planInput.accept = '.dxf';
@@ -810,6 +824,7 @@ export function createEditorUi(h: EditorHandlers) {
       big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
       big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
       big(ICON.ortho, 'Esporta PDF', 'Pianta in scala, da stampare', h.onExportPdf),
+      big(ICON.folder, 'Esporta il progetto', 'Un file .immersa con stanze e modelli', h.onExportProject),
     );
   }
 
