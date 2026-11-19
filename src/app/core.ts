@@ -1145,17 +1145,23 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   host.root.add(nameCard.mesh);
   host.add(nameCard);
   let nameRun: { finish: (v: string | null) => void } | null = null;
-  function askNameCard(title: string, hint: string, initial = '', exceptId?: string, plain = false): Promise<string | null> {
+  // `canReplace`: a name that is taken offers "Aggiorna <room>" (the room it belongs to is returned in `nameReplace`) instead of only an error.
+  let nameReplace: Room | null = null;
+  function askNameCard(title: string, hint: string, initial = '', exceptId?: string, plain = false, canReplace = false): Promise<string | null> {
     return new Promise((resolve) => {
       let text = initial;
       let error = '';
+      let taken: Room | null = null;
+      nameReplace = null;
       const draw = () => {
         const w = nameCard.pxW;
         nameCard.set([
           { kind: 'label', rect: { x: 36, y: 24, w: w - 72, h: 46 }, text: title, size: 34, bold: true, color: '#ffffff' },
           { kind: 'label', rect: { x: 36, y: 78, w: w - 72, h: 96 }, text: error || hint, size: 24, color: error ? '#f87171' : '#cbd5e1', wrap: true },
           { kind: 'row', rect: { x: 36, y: 184, w: w - 72, h: 62 }, text, caret: true, size: 30, fill: 'rgba(255,255,255,0.10)', hoverFill: 'rgba(255,255,255,0.10)', color: '#ffffff' },
-          { kind: 'pill', primary: true, rect: { x: 36, y: 256, w: w - 72, h: 62 }, text: 'Avanti', size: 26, disabled: !text.trim(), onClick: submit },
+          taken
+            ? { kind: 'pill', primary: true, rect: { x: 36, y: 256, w: w - 72, h: 62 }, text: `Aggiorna "${taken.name}"`, size: 24, onClick: () => { nameReplace = taken; finish(taken!.name); } }
+            : { kind: 'pill', primary: true, rect: { x: 36, y: 256, w: w - 72, h: 62 }, text: 'Avanti', size: 26, disabled: !text.trim(), onClick: submit },
           { kind: 'pill', rect: { x: 36, y: nameCard.pxH - 90, w: w - 72, h: 58 }, text: 'Annulla', size: 26, color: '#f87171', onClick: () => finish(null) },
         ]);
       };
@@ -1173,6 +1179,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
           onChange: (t) => {
             text = t;
             error = '';
+            taken = null;
             draw();
           },
           onDone: (t) => {
@@ -1185,7 +1192,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         const name = text.trim();
         if (!name) return;
         if (!plain && nameTaken(name, exceptId)) {
-          error = `"${name}" esiste già: scegli un altro nome`;
+          taken = canReplace ? rooms.find((x) => x.id !== exceptId && x.name.trim().toLowerCase() === name.toLowerCase()) ?? null : null;
+          error = taken ? `"${taken.name}" esiste già: scegli un altro nome o aggiornala con questa scansione` : `"${name}" esiste già: scegli un altro nome`;
           draw();
           typeIn(); // the keyboard closed with OK: it comes back with the same text
           return;
@@ -2428,8 +2436,27 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     const planes = live; // the scan as it is now, even if the list changes while typing
     const boxes = liveBoxes;
     if (planes.length < MIN_PLANES) return say('Nessuna scansione da salvare');
-    const name = await askNameCard('Nome della stanza', 'Come vuoi chiamare la stanza che hai scansionato?');
+    const name = await askNameCard('Nome della stanza', 'Come vuoi chiamare la stanza che hai scansionato?', '', undefined, false, true);
     if (!name) return;
+    const old = nameReplace;
+    nameReplace = null;
+    if (old) {
+      // Same name = the same room scanned again: its saved scan is renewed (same id, so projects and links to other rooms stay).
+      // The models move with the room, which needs to know where the old scan sits in this session.
+      const a = aligns.get(old.id) ?? bestFit(old);
+      const used = allProjects.some((p) => p.models.some((x) => x.roomId === old.id)) || Object.keys(old.scan.links ?? {}).length > 0 || rooms.some((x) => x.scan.links?.[old.id]);
+      if (!a && used) {
+        say(`Non ritrovo "${old.name}" in questa scansione: non posso aggiornarla senza spostare i modelli. Scegli un altro nome`, 9000);
+        return;
+      }
+      openMenu();
+      say(`Aggiorno "${old.name}"...`);
+      if (await refreshRoomScan({ room: old, alignment: a ?? identity(planes.length) })) {
+        say(`"${old.name}" aggiornata`);
+        if (scannedThisSession) autoRestart('stanza aggiornata dopo la scansione', 2500, 'Stanza aggiornata', 'L\'app deve riavviarsi per continuare');
+      }
+      return;
+    }
     const place = await pickPlace();
     if (place === undefined) return;
     // Reference points are the user's choice (Stanza → Punti di riferimento), never asked after a scan.
