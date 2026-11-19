@@ -251,6 +251,7 @@ const CSS = `
 .ed-file{color:#cfd6e4;font-size:12px}
 .ed-file::file-selector-button{border:0;border-radius:999px;padding:7px 12px;margin-right:8px;background:#ffffff1f;color:#fff;cursor:pointer;font-family:inherit}
 .ed-back{align-self:flex-start;background:#ffffff14;color:#fff}
+.ed-divider{height:1px;flex-shrink:0;margin:6px 8px;background:linear-gradient(90deg,transparent,#ffffff30 15%,#ffffff30 85%,transparent)}
 .ed-flyout{position:fixed;z-index:20;display:flex;flex-direction:column;gap:8px;padding:10px;min-width:150px}
 .ed-back:hover:not(:disabled){background:#ffffff26}
 .ed-h{font-weight:700;font-size:16px;padding:0 4px}
@@ -872,6 +873,7 @@ export function createEditorUi(h: EditorHandlers) {
       })(),
       card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       ...projectRoomsBlock(),
+      el('div', '', 'ed-divider'), // the rooms above, what is added to the project below
       big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
       big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
     );
