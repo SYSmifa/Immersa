@@ -332,7 +332,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setMeasureLabels(labels);
   }
 
-  scene.background = new Color(0x15171c); // through the composer the clear colour would be encoded twice
+  scene.background = new Color(0x262c38); // through the composer the clear colour would be encoded twice
 
   // Selection outline: a screen-space azure edge round the selected objects.
   // The composer renders off-screen, where the canvas' own antialiasing does not apply: give it 4x MSAA targets, and finish
@@ -1266,15 +1266,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   }
   const withExt = (name: string) => `${fileSafe(name.replace(/\.immersa$/i, ''))}${BACKUP_EXT}`;
 
-  // "Esporta…" in the project page: the PDF plan, or the project as a file. The project is saved first, then the name of the file is asked.
-  async function exportCard() {
+  // "Esporta" → Progetto: the project is saved first, then the name of the file is asked.
+  async function exportProjectFile() {
     if (!project) return;
-    const pick = await ui.askChoice('Esporta', 'Cosa vuoi esportare?', [
-      { label: 'Il progetto, come file .immersa', value: 'file' },
-      { label: 'La pianta in scala, in PDF', value: 'pdf' },
-    ]);
-    if (!pick) return;
-    if (pick.value === 'pdf') return exportPdf();
     if (dirty || isFileProject(project)) {
       await save();
       if (dirty || isFileProject(project)) return; // cancelled or failed: the message is already there
@@ -1954,7 +1948,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
     // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
     onExportPdf: () => run(exportPdf),
-    onExport: () => run(exportCard),
+    onExportProject: () => run(exportProjectFile),
     onBackup: () => run(backupCard),
     onImportBackup: (f) => run(() => importBackup(f)),
     onOpenFromFile: (f) => run(() => openFromFile(f)),

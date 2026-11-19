@@ -58,7 +58,7 @@ export interface EditorHandlers {
   onRenameProject(): void;
   onDuplicateProject(): void;
   onExportPdf(): void;
-  onExport(): void; // a card: the PDF plan, or the project as a .immersa file
+  onExportProject(): void; // the project as a .immersa file (saved first, the name asked)
   onBackup(): void; // a card: export or import the whole account
   onImportBackup(file: File): void; // a .immersa file with the whole account (or several projects)
   onOpenFromFile(file: File): void; // open one project of a .immersa file (it joins the list when saved)
@@ -250,6 +250,7 @@ const CSS = `
 .ed-file{color:#cfd6e4;font-size:12px}
 .ed-file::file-selector-button{border:0;border-radius:999px;padding:7px 12px;margin-right:8px;background:#ffffff1f;color:#fff;cursor:pointer;font-family:inherit}
 .ed-back{align-self:flex-start;background:#ffffff14;color:#fff}
+.ed-flyout{position:fixed;z-index:20;display:flex;flex-direction:column;gap:8px;padding:10px;min-width:150px}
 .ed-back:hover:not(:disabled){background:#ffffff26}
 .ed-h{font-weight:700;font-size:16px;padding:0 4px}
 .ed-top{position:fixed;top:12px;left:340px;right:324px;z-index:9;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
@@ -822,13 +823,39 @@ export function createEditorUi(h: EditorHandlers) {
     });
   }
 
-  // Exporting does not change the project: a small button of its own, apart from the ones that edit it.
-  function exportRow(): HTMLElement {
-    const r = row(pill('Esporta…', h.onExport));
-    r.style.marginTop = '8px';
-    r.style.paddingTop = '10px';
-    r.style.borderTop = '1px solid rgba(255,255,255,.12)';
-    return r;
+  // "Esporta" next to "Chiudi progetto": a small card opens beside the sidebar with the two things that can be exported.
+  let exportFlyout: HTMLElement | null = null;
+  function closeExport() {
+    exportFlyout?.remove();
+    exportFlyout = null;
+    window.removeEventListener('pointerdown', outsideExport, true);
+    window.removeEventListener('keydown', escExport, true);
+  }
+  function outsideExport(e: Event) {
+    if (exportFlyout && !exportFlyout.contains(e.target as Node) && !(e.target as HTMLElement).closest?.('.ed-exportbtn')) closeExport();
+  }
+  function escExport(e: KeyboardEvent) {
+    if (e.key === 'Escape') closeExport();
+  }
+  function exportButton(): HTMLElement {
+    const b = el('button', 'Esporta', 'ed-pill ed-back ed-exportbtn');
+    b.onclick = () => {
+      if (exportFlyout) return closeExport();
+      const r = b.getBoundingClientRect();
+      const card = el('div', '', 'ed-panel ed-flyout');
+      card.style.left = `${side.getBoundingClientRect().right + 8}px`;
+      card.style.top = `${r.top}px`;
+      const choose = (go: () => void) => () => {
+        closeExport();
+        go();
+      };
+      card.append(pill('Progetto', choose(h.onExportProject)), pill('PDF', choose(h.onExportPdf)));
+      root.append(card);
+      exportFlyout = card;
+      window.addEventListener('pointerdown', outsideExport, true);
+      window.addEventListener('keydown', escExport, true);
+    };
+    return b;
   }
 
   function renderProject() {
@@ -836,12 +863,16 @@ export function createEditorUi(h: EditorHandlers) {
     name.style.cssText = 'font-weight:700;font-size:16px';
     fileInput.disabled = !hasProject; // also without rooms: models then go in the free space
     body.replaceChildren(
-      back('Chiudi progetto', h.onCloseProject),
+      (() => {
+        closeExport();
+        const top = row(back('Chiudi progetto', h.onCloseProject), exportButton());
+        top.style.flexWrap = 'nowrap';
+        return top;
+      })(),
       card(name, row(pill('Rinomina', h.onRenameProject), pill('Duplica', h.onDuplicateProject), pill('Elimina', h.onDeleteProject, 'bad'))),
       ...projectRoomsBlock(),
       big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
       big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
-      exportRow(),
     );
   }
 
