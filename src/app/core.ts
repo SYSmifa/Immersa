@@ -10,6 +10,8 @@ import { adoptOrphans } from '../room/free';
 import { TEXTURES, textureAverage, textureCanvas } from '../room/textures';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { createModelLayer, modelsPending, preloadModels, type ModelLayer } from '../room/modelLayer';
+import { createZoneLayer, type ZoneLayer } from '../room/zoneView';
+import { invasionTexts, zoneStates } from '../room/zones';
 import { floorCentre } from '../room/floor';
 import { annotationLength, annotationMeasures, newAnnotation, annotationName, ANNOTATION_COLORS } from '../room/annotations';
 import { dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
@@ -318,6 +320,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     root: Group;
     layer: ModelLayer;
     structs: StructureLayer; // walls and floors built in the PC editor
+    zones: ZoneLayer; // the zone di rispetto of its models
     occluder: Group; // the room's walls, floor and ceiling as depth-only surfaces
   }
   const occluderMaterial = createOccluderMaterial();
@@ -374,6 +377,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     measures: 'off', // both start off every time
     gaps: false,
     annotations: true, // notes and rulers are shown unless switched off in Options
+    zones: (() => {
+      try {
+        return localStorage.getItem('immersa.zones') !== '0';
+      } catch {
+        return true;
+      }
+    })(), // zone di rispetto are shown unless switched off in Options
     tool: null,
     snap: readSnap(),
     layers: layersPreferred(),
@@ -931,7 +941,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       scene.add(root);
       const occluder = buildOccluders(rooms.find((r) => r.id === roomId)?.scan.planes ?? [], occluderMaterial);
       root.add(occluder);
-      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), structs: createStructureLayer(root, { hidden: occluderMaterial }), occluder };
+      h = { root, layer: createModelLayer(root, (t) => say(`Modello: ${t}`)), structs: createStructureLayer(root, { hidden: occluderMaterial }), zones: createZoneLayer(root), occluder };
       houses.set(roomId, h);
     }
     return h;
@@ -3416,6 +3426,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       measureAt = 0;
       refreshView();
     },
+    toggleZones() {
+      view.zones = !view.zones;
+      try {
+        localStorage.setItem('immersa.zones', view.zones ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      zoneAt = 0;
+      refreshView();
+    },
     toggleAnnotations() {
       view.annotations = !view.annotations;
       if (!view.annotations) selectAnnot(null);
@@ -3978,6 +3998,36 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       if (occRay.intersectObject(h.occluder, true).length) return true;
     }
     return false;
+  }
+
+  // The zone di rispetto of the placed rooms: redrawn ~10 times a second, red where something is inside; a new invasion is said once.
+  let zoneAt = 0;
+  const zoneSigs = new Map<string, string>();
+  let zoneTexts = '';
+  function updateZones(now: number) {
+    if (now - zoneAt < 100) return;
+    zoneAt = now;
+    const texts: string[] = [];
+    for (const [roomId, house] of houses) {
+      const all = current && house.root.visible ? modelsOf(roomId) : [];
+      const ms = all.some((m) => m.zone) ? all : []; // nothing to compute (the boxes of heavy models are not free) without a zone
+      const states = zoneStates(ms, (m) => {
+        const h = house.layer.holders.get(m.id);
+        return h ? modelBox(h) : null;
+      });
+      const sig = `${view.zones}|${states.map((z) => `${z.id},${z.solid.c},${z.solid.hu},${z.solid.hv},${z.solid.u},${z.invaders.join()}`).join(';')}`;
+      if (zoneSigs.get(roomId) !== sig) {
+        zoneSigs.set(roomId, sig);
+        house.zones.sync(states, view.zones);
+      }
+      texts.push(...invasionTexts(states));
+    }
+    const joined = view.zones ? texts.join('\n') : '';
+    if (joined !== zoneTexts) {
+      const fresh = texts.filter((t) => !zoneTexts.split('\n').includes(t));
+      zoneTexts = joined;
+      if (fresh.length) say(`Attenzione: ${fresh.join(' · ')}`, 5000);
+    }
   }
 
   function computeMeasures(): Measure[] {
@@ -5005,6 +5055,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
         card.mesh.position.y += (goal - card.mesh.position.y) * Math.min(1, dt * 4);
       }
       for (const h of houses.values()) h.layer.update(dt); // the models' own animations
+      updateZones(now);
       dwellTick(now, head);
       if (now - lastHere > 1000) {
         lastHere = now;

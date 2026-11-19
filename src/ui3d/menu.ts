@@ -86,6 +86,7 @@ export interface MenuView {
   measures: 'off' | 'sel'; // Options: the selected object's sizes shown or not
   gaps: boolean; // Options: distances of the selected object to the nearest things
   annotations: boolean; // Options: notes and rulers shown
+  zones: boolean; // Options: zone di rispetto shown
   tool: 'note' | 'ruler' | null; // Strumenti: waiting for the pinch(es) that place a note / a ruler
   layers: boolean; // panels drawn as WebXR layers (sharper)
   fps: boolean; // fps readout in the headset
@@ -146,6 +147,7 @@ export interface MenuActions {
   objGaps(): void;
   objAnim(): void;
   toggleAnnotations(): void;
+  toggleZones(): void;
   startTool(kind: 'note' | 'ruler'): void;
   objAnnotText(): void;
   objAnnotColor(color: string): void;
@@ -578,6 +580,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     out.push(toggle(1, 4, 'Distanze', 'Dalle pareti', v.gaps, a.toggleGaps, 'room_plan'));
     out.push({ kind: 'card', icon: 'close', rect: at(0, 4), text: 'Chiudi il progetto', size: 19, sub: v.projectName ?? 'Nessun progetto aperto', disabled: !v.currentProjectId, onClick: a.closeProject });
     out.push(toggle(0, 5, 'Annotazioni', 'Note e metri', v.annotations, a.toggleAnnotations, 'check'));
+    out.push(toggle(0, 6, 'Zone di rispetto', 'Intorno ai macchinari', v.zones, a.toggleZones, 'room_plan'));
     out.push({ kind: 'card', icon: 'room', rect: at(1, 5), text: 'Riconoscimento stanza', size: 19, sub: 'Riavvia l\'app per applicarlo', badge: v.planes ? 'Auto' : 'Manuale', badgeOn: v.planes, onClick: a.togglePlanes });
     out.push({ kind: 'card', icon: 'room_plan', rect: at(1, 6), text: 'Pareti reali', size: 19, sub: 'Contorno o piani, se ci sono', badge: v.real === 'hidden' ? 'Nascoste' : v.real === 'outline' ? 'Contorno' : 'Visibili', badgeOn: v.real !== 'hidden', onClick: a.cycleReal });
     out.push(surface(M, top + 7 * STEP + 2, W, 34));

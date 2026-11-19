@@ -47,6 +47,8 @@ import { adoptOrphans } from '../room/free';
 import { exportGlb, isSimpleGlb, parseModel, sizeFor } from './importer';
 import { countTriangles, glbTrianglesAt, describeGlb, glbTrianglesOfFile, HEAVY_TRIANGLES, MAX_FILE_BYTES, simplifyGlb } from './simplify';
 import { createModelLayer, modelsPending } from '../room/modelLayer';
+import { createZoneLayer } from '../room/zoneView';
+import { DEFAULT_ZONE_M, invasionTexts, uniformZone, zoneStates, type ZoneState } from '../room/zones';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
@@ -172,6 +174,38 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setStatus(`Errore modello: ${t}. Selezionalo e sostituiscilo dal pannello a destra.`);
     if (sel.includes(`m:${m.id}`)) ui.setDetails(detailsInfo());
   });
+  const zoneLayer = createZoneLayer(scene); // zone di rispetto, in the room's frame (the scene's)
+  let zonesOn = (() => {
+    try {
+      return localStorage.getItem('immersa.edzones') !== '0';
+    } catch {
+      return true;
+    }
+  })();
+  let zoneSig = '';
+  let zoneNow: ZoneState[] = [];
+  let zoneTexts = '';
+  // The zones of the open room's models and who is inside them; redrawn when something moved (also while dragging).
+  function updateZones() {
+    const ms = models().filter((m) => m.roomId === (room?.id ?? ''));
+    const states = zoneStates(ms, (m) => {
+      const h = layer.holders.get(m.id);
+      return h ? modelBox(h) : null;
+    });
+    const sig = `${zonesOn}|` + ms.map((m) => (m.zone ? `${m.id},${m.pos},${m.yaw},${m.scale},${m.tilt ?? ''},${Object.values(m.zone)}` : `${m.id},${m.pos},${m.yaw},${m.scale}`)).join(';') + states.map((z) => z.invaders.join()).join('|');
+    if (sig === zoneSig) return;
+    zoneSig = sig;
+    zoneNow = states;
+    zoneLayer.sync(states, zonesOn);
+    const texts = invasionTexts(states).join('\n');
+    if (texts !== zoneTexts) {
+      const was = zoneTexts;
+      zoneTexts = texts;
+      refreshOutline();
+      if (texts && texts !== was) ui.setStatus(`Attenzione: ${texts.split('\n').join(' · ')}.`);
+      if (sel.length === 1 && sel[0].startsWith('m:')) ui.setDetails(detailsInfo());
+    }
+  }
   const structLayer = createStructureLayer(structuresGroup, { ghost: true }); // real walls / floors: a faint grey surface with an outline
   // The other rooms of the project, around the one being edited (read-only, see otherRooms.ts), and how sure their places are.
   const others = createOtherRooms(scene, (t) => ui.setStatus(`Errore modello in un'altra stanza: ${t}`));
@@ -362,6 +396,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     updateFade();
     syncHandles();
     updateMeasures();
+    updateZones();
     composer.render();
   });
 
@@ -820,7 +855,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   const annotStepText = () => (annotMode === 'note' ? 'Nota: clic su un punto di un modello, di una parete o del pavimento' : annotMode === 'ruler' ? (annotFirst ? 'Metro: clic sul secondo punto' : 'Metro: clic sul primo punto') : '');
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, fade: wallsHidden, canUndo: hi > 0 || linkUndoable(), canRedo: hi < hist.length - 1 || linkRedoable() });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, fade: wallsHidden, zones: zonesOn, canUndo: hi > 0 || linkUndoable(), canRedo: hi < hist.length - 1 || linkRedoable() });
   }
 
   // How a room stands with the others of its place: "Cucina ✓, Sala (da confermare)" (a link only seen once is a guess).
@@ -856,12 +891,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     ui.setState(!!project, !!room);
   }
 
+  // "⚠" in the scene list: a model whose zone is invaded, or one that is inside another's zone.
+  function warnOf(id: string, name: string): string | undefined {
+    const own = zoneNow.find((z) => z.id === id);
+    if (own?.invaders.length) return `zona invasa da ${own.invaders.join(', ')}`;
+    const inside = zoneNow.filter((z) => z.invaders.includes(name)).map((z) => z.name);
+    return inside.length ? `dentro la zona di ${inside.join(', ')}` : undefined;
+  }
+
   function refreshOutline() {
     const walls = structures().filter((s) => s.kind === 'wall');
     const floors = structures().filter((s) => s.kind === 'floor');
     ui.setOutline(
       [
-        ...models().map((m) => ({ key: `m:${m.id}`, name: m.name, kind: 'model' as const })),
+        ...models().map((m) => ({ key: `m:${m.id}`, name: m.name, kind: 'model' as const, warn: warnOf(m.id, m.name) })),
         ...walls.map((s, i) => ({ key: `s:${s.id}`, name: `Parete ${i + 1}`, kind: 'wall' as const })),
         ...floors.map((s, i) => ({ key: `s:${s.id}`, name: `Pavimento ${i + 1}`, kind: 'floor' as const })),
         ...annotations().map((a) => ({ key: `a:${a.id}`, name: annotationName(a), kind: a.kind })),
@@ -927,6 +970,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         color: m.color ?? null,
         finish: { roughness: m.finish?.roughness ?? materials[0]?.roughness ?? 0.5, metalness: m.finish?.metalness ?? materials[0]?.metalness ?? 0 },
         animation: animationInfo(m),
+        zone: { on: !!m.zone, f: Math.round((m.zone?.f ?? 0) * 100), b: Math.round((m.zone?.b ?? 0) * 100), l: Math.round((m.zone?.l ?? 0) * 100), r: Math.round((m.zone?.r ?? 0) * 100), invaders: zoneNow.find((z) => z.id === m.id)?.invaders ?? [] },
         scale: m.scale, yawDeg: (m.yaw * 180) / Math.PI, tiltDeg: [((m.tilt?.[0] ?? 0) * 180) / Math.PI, ((m.tilt?.[1] ?? 0) * 180) / Math.PI], size: holder ? modelSize(holder, m.scale) : null, materials };
     }
     const s = selStructs()[0];
@@ -2269,6 +2313,27 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       updateFade();
       refreshToolbar();
       ui.setStatus(hide ? 'Pareti: solo il contorno.' : 'Pareti: visibili.');
+    },
+    onZones(on) {
+      zonesOn = on;
+      try {
+        localStorage.setItem('immersa.edzones', on ? '1' : '0');
+      } catch {
+        /* storage can be unavailable */
+      }
+      refreshToolbar();
+    },
+    onModelZone(change, doCommit) {
+      const m = selModels()[0];
+      if (!m) return;
+      if (change.on !== undefined) m.zone = change.on ? (m.zone ?? uniformZone(DEFAULT_ZONE_M)) : undefined;
+      else if (m.zone && change.cm !== undefined && change.side) {
+        const v = change.cm / 100;
+        m.zone = change.side === 'all' ? uniformZone(v) : { ...m.zone, [change.side]: v };
+      }
+      if (!m.zone) delete m.zone;
+      changed(doCommit);
+      refreshAll();
     },
     onGaps(on) {
       gapsOn = on;

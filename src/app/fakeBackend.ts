@@ -79,7 +79,7 @@ export function createFakeBackend(signedOut = false): Backend & { rooms: Room[];
         { id: 'n1', roomId: 'r1', kind: 'note', a: [0.5, 0.95, -0.5], text: 'Passa il cavo qui', color: '#ffb020' },
         { id: 'n2', roomId: 'r1', kind: 'ruler', a: [-1, 0.02, 1.4], b: [0.5, 0.02, 0.4], text: '', color: '#2dd4bf' },
       ], models: [model('Macchina', 0.5, -0.5), model('Banco', -1, 1)] },
-    { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), structures: [], annotations: [], models: [model('Macchina', 1, 1)] },
+    { id: 'p2', roomIds: ['r1'], name: 'Allestimento B', updatedAt: now(), structures: [], annotations: [], models: [{ ...model('Macchina', 1, 1), zone: { f: 1, b: 1, l: 1, r: 1 } }, model('Banco', 1.6, 1)] }, // a zona di rispetto invaded by the bench: for the tests
     { id: 'p3', roomIds: ['r2'], name: 'Cucina nuova', updatedAt: now(), models: [], structures: [], annotations: [] },
     // A whole house: models in two rooms, each in its own room's frame.
     // A plan from a CAD drawing: walls and a floor in the free space, no scanned room (can be visited virtually).

@@ -27,6 +27,7 @@ export interface RoomModel {
   yaw: number; // rotation about Y, radians
   tilt?: [number, number]; // also turned about X and Z (radians); the orientation is Ry(yaw) * Rx(tilt[0]) * Rz(tilt[1])
   scale: number;
+  zone?: { f: number; b: number; l: number; r: number }; // zona di rispetto: free space around the model, in metres, at its front (+Z of the file), back, left (-X) and right (+X); nothing else may enter it
   anim?: { clip?: string; then?: string[]; delay?: number; speed?: number; loop?: boolean; auto?: boolean }; // the file's own animation to play: which clip (by name), speed (1 = as made), repeat, and start when the project opens
   color?: string; // '#rrggbb' tint replacing the colour of every material (textures stay); absent: the file's own colours
   materialColors?: Record<string, string>; // per material (index in the model's material list): overrides `color`

@@ -101,6 +101,8 @@ export interface EditorHandlers {
   onAnnotColor(color: string): void;
   onGaps(on: boolean): void;
   onWallsFade(on: boolean): void;
+  onZones(on: boolean): void;
+  onModelZone(change: { on?: boolean; side?: 'f' | 'b' | 'l' | 'r' | 'all'; cm?: number }, commit: boolean): void; // zona di rispetto of the selected model
   onUndo(): void;
   onRedo(): void;
   // outline + details
@@ -127,6 +129,7 @@ export interface OutlineItem {
   key: string; // 'm:<id>' model, 's:<id>' structure, 'a:<id>' annotation
   name: string;
   kind: 'model' | BuildKind | 'note' | 'ruler';
+  warn?: string; // e.g. "Banco invade la zona"
 }
 export interface MaterialRow {
   name: string;
@@ -153,6 +156,7 @@ export type Details =
       finish: { roughness: number; metalness: number }; // for 'every material'
       materials: MaterialRow[];
       animation?: { clips: { name: string; duration: number }[]; clip: string | null; then: string[]; delay: number; speed: number; loop: boolean; auto: boolean; playing: boolean }; // the file's own animations, if it has any
+      zone: { on: boolean; f: number; b: number; l: number; r: number; invaders: string[] }; // zona di rispetto, margins in cm
     }
   | {
       kind: 'part';
@@ -190,6 +194,7 @@ export interface ToolbarState {
   measures: MeasureMode;
   fade: boolean; // the walls' surfaces are hidden (only their outline stays)
   gaps: boolean; // distances from the selected object to the nearest things
+  zones: boolean; // the zone di rispetto are drawn
   canUndo: boolean;
   canRedo: boolean;
 }
@@ -360,6 +365,7 @@ const ICON = {
   magnet: svg('<rect x="6" y="6" width="12" height="12" rx="0.5"/><circle cx="6" cy="6" r="2.4" fill="currentColor"/><circle cx="18" cy="6" r="2.4" fill="currentColor"/><circle cx="6" cy="18" r="2.4" fill="currentColor"/><circle cx="18" cy="18" r="2.4" fill="currentColor"/>'),
   world: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'),
   // an open room seen from above-front: two back walls (filled) and the floor outline
+  zone: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5" stroke-dasharray="3 2.5"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" fill-opacity="0.3"/>'),
   walls: svg('<path d="M3 7.5 12 4v9l-9 3.5z" fill="currentColor" fill-opacity="0.28"/><path d="M12 4l9 3.5v9L12 13z" fill="currentColor" fill-opacity="0.28"/><path d="M3 16.5 12 20l9-3.5"/>'),
   gaps: svg('<path d="M4 5v14M20 5v14M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3"/>'),
   note: svg('<path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>'),
@@ -901,7 +907,7 @@ export function createEditorUi(h: EditorHandlers) {
     return b;
   };
   const sep = () => el('div', '', 'ed-sep');
-  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, fade: false, canUndo: false, canRedo: false };
+  let state: ToolbarState = { build: null, gizmo: 'translate', ortho: false, grid: true, vertex: true, local: false, annot: null, annotStep: '', measures: 'off', gaps: false, fade: false, zones: true, canUndo: false, canRedo: false };
   const bFloor = ib(ICON.floor, 'Pavimento: trascina sul pavimento per disegnarlo', () => h.onBuild(state.build === 'floor' ? null : 'floor'));
   const bWall = ib(ICON.wall, 'Parete: trascina sul pavimento per disegnarla', () => h.onBuild(state.build === 'wall' ? null : 'wall'));
   const bMove = ib(ICON.move, 'Sposta (W)', () => h.onGizmo('translate'));
@@ -913,6 +919,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bLocal = ib(ICON.world, 'Pivot: mondo / relativo all\'oggetto', () => h.onLocal(!state.local));
   const bMeasure = ib(ICON.ruler, 'Misure dell\'oggetto selezionato (acceso / spento)', () => h.onMeasures(state.measures === 'off' ? 'sel' : 'off'));
   const bGaps = ib(ICON.gaps, 'Distanze dell\'oggetto selezionato dalle pareti', () => h.onGaps(!state.gaps));
+  const bZones = ib(ICON.zone, 'Zone di rispetto: mostra / nascondi', () => h.onZones(!state.zones));
   const bFade = ib(ICON.walls, 'Pareti: nascondi i piani (resta il contorno) / mostra i piani', () => h.onWallsFade(!state.fade));
   const bNote = ib(ICON.note, 'Nota: clic su un punto per lasciare un commento', () => h.onAnnot(state.annot === 'note' ? null : 'note'));
   const bTape = ib(ICON.tape, 'Metro: clic su due punti per misurare e lasciare la misura', () => h.onAnnot(state.annot === 'ruler' ? null : 'ruler'));
@@ -920,7 +927,7 @@ export function createEditorUi(h: EditorHandlers) {
   const bRedo = ib(ICON.redo, 'Ripeti (Ctrl+Y)', h.onRedo);
   const save = el('button', 'Salva', 'ed-save');
   save.onclick = h.onSave;
-  tools.append(bOrtho, bFade, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, sep(), bNote, bTape, sep(), bUndo, bRedo, save);
+  tools.append(bOrtho, bFade, sep(), bFloor, bWall, sep(), bMove, bRotate, bScale, sep(), bGrid, bVertex, bLocal, bMeasure, bGaps, bZones, sep(), bNote, bTape, sep(), bUndo, bRedo, save);
   const hint = el('div', '', 'ed-hint');
   top.append(tools, hint);
 
@@ -1135,6 +1142,40 @@ export function createEditorUi(h: EditorHandlers) {
     // A refresh that arrived during a drag is applied now.
     setTimeout(() => pending !== undefined && api.setDetails(pending), 0);
   });
+  // Zona di rispetto: the free space asked around the model (cm); on = a zone exists. All sides at once, or each by itself.
+  function zoneBlock(z: Extract<Details, { kind: 'model' }>['zone']): HTMLElement[] {
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = z.on;
+    box.onchange = () => h.onModelZone({ on: box.checked }, true);
+    const on = el('label', '', 'ed-check');
+    on.append(box, el('span', 'Zona di rispetto attorno al modello'));
+    const side = (label: string, key: 'f' | 'b' | 'l' | 'r') => row(el('span', label), numberField(z[key], '10', '0', (v, c) => h.onModelZone({ side: key, cm: Math.max(0, v) }, c)));
+    return [
+      el('div', 'Zona di rispetto', 'ed-h'),
+      card(
+        on,
+        ...(z.on
+          ? [
+              row(el('span', 'Tutti i lati (cm)'), numberField(Math.round((z.f + z.b + z.l + z.r) / 4), '10', '0', (v, c) => {
+                h.onModelZone({ side: 'all', cm: Math.max(0, v) }, c);
+                if (c) {
+                  // the four sides show the new value: leave the field so that the panel is redrawn
+                  (document.activeElement as HTMLElement | null)?.blur();
+                  setTimeout(() => pending !== undefined && api.setDetails(pending), 0);
+                }
+              })),
+              side('Davanti (cm)', 'f'),
+              side('Dietro (cm)', 'b'),
+              side('Sinistra (cm)', 'l'),
+              side('Destra (cm)', 'r'),
+              ...(z.invaders.length ? [el('div', `⚠ Invasa da: ${z.invaders.join(', ')}`, 'ed-meta warn')] : [el('div', 'Libera: nessun altro oggetto ci entra.', 'ed-meta')]),
+            ]
+          : [el('div', 'Lo spazio che deve restare libero (manutenzione, sicurezza). Si vede in giallo, e in rosso se un altro oggetto ci entra.', 'ed-meta')]),
+      ),
+    ];
+  }
+
   // The file's own animations: which clip (and the ones that follow), delay, speed, repeat, start with the project, and a preview.
   function animationBlock(an: NonNullable<Extract<Details, { kind: 'model' }>['animation']>): HTMLElement[] {
     const clipSelect = (value: string | null, none: string, onPick: (name: string | null) => void) => {
@@ -1296,6 +1337,7 @@ export function createEditorUi(h: EditorHandlers) {
           size,
         ),
         ...(d.animation ? animationBlock(d.animation) : []),
+        ...zoneBlock(d.zone),
         el('div', 'Colore e materiali', 'ed-h'),
         el('div', '', 'ed-list-mini'),
         ...targets,
@@ -2323,6 +2365,7 @@ export function createEditorUi(h: EditorHandlers) {
       on(bMeasure, s.measures !== 'off');
       on(bGaps, s.gaps);
       on(bFade, s.fade);
+      on(bZones, s.zones);
       on(bNote, s.annot === 'note');
       on(bTape, s.annot === 'ruler');
       bMeasure.title = `Misure dell'oggetto selezionato: ${s.measures === 'off' ? 'spente' : 'accese'} (clic per cambiare)`;
@@ -2340,6 +2383,7 @@ export function createEditorUi(h: EditorHandlers) {
               const b = el('button', '', `ed-item${selected.has(it.key) ? ' on' : ''}`);
               b.innerHTML = `${it.kind === 'model' ? ICON.cube : it.kind === 'note' ? ICON.note : it.kind === 'ruler' ? ICON.tape : ICON[it.kind]}<span></span>`;
               b.querySelector('span')!.textContent = it.name;
+              if (it.warn) b.querySelector('span')!.append(el('small', `⚠ ${it.warn}`, 'ed-note warn'));
               b.onclick = (e) => h.onPick(it.key, e.shiftKey || e.ctrlKey || e.metaKey);
               return b;
             })
