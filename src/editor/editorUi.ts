@@ -70,6 +70,7 @@ export interface EditorHandlers {
   onRoomPlace(id: string): void;
   onRoomRefs(id: string): void;
   onRoomContour(id: string): void;
+  onConfirmLink(id: string): void; // the link between the open room and this one is right: it becomes confirmed
   onRestoreLinks(): void; // links of the open room back to what the headset measured, before any move by hand
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
@@ -189,7 +190,7 @@ export interface ToolbarState {
   canRedo: boolean;
 }
 
-export type Option = { id: string; name: string; byPoints?: boolean; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean };
+export type Option = { id: string; name: string; byPoints?: boolean; sub?: string; hidden?: boolean; tone?: number; uses?: string[]; place?: string; links?: string; note?: string; noteWarn?: boolean; confirmable?: boolean };
 
 const A = AURA;
 const CSS = `
@@ -763,6 +764,15 @@ export function createEditorUi(h: EditorHandlers) {
       const label = wrap.querySelector('span')!;
       label.textContent = r.name;
       if (r.note) label.append(el('small', r.note, `ed-note${r.noteWarn ? ' warn' : ''}`));
+      if (r.confirmable) {
+        const ok = pill('Conferma', () => undefined);
+        ok.onclick = (e) => {
+          e.stopPropagation();
+          h.onConfirmLink(r.id);
+        };
+        ok.style.cssText = 'margin-top:6px;padding:4px 12px;font-size:12px';
+        label.append(ok);
+      }
       (wrap.querySelector('.ed-eye') as HTMLElement).onclick = (e) => {
         e.stopPropagation();
         h.onRoomVisible(r.id);

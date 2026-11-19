@@ -51,7 +51,7 @@ import { listMaterials, modelBox, modelSize as localModelSize } from '../room/se
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
 import type { Annotation, PartEdit, Project, Room, RoomLink, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
-import { IDENTITY, apply, invertLink, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
+import { IDENTITY, apply, invertLink, linkBetween, linkState, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
 import { WALL_HEIGHT as DEFAULT_WALL_HEIGHT, scanFromPoints } from '../room/byPoints';
 import { bestAxis, buildPlanPdf, DEFAULT_OPTIONS, planLayout, type PlanData, type SheetOptions } from './planPdf';
@@ -845,7 +845,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       project?.name ?? '',
       projectRoomsList().map((r) => {
         const st = roomStates.get(r.id);
-        return { id: r.id, name: r.name, hidden: hiddenRooms.has(r.id), note: st === 'tentative' ? 'collegamento da confermare' : st === 'unknown' ? unknownWhy(r) : undefined, noteWarn: st === 'tentative' || st === 'unknown' };
+        return { id: r.id, name: r.name, hidden: hiddenRooms.has(r.id), note: st === 'tentative' ? 'collegamento da confermare' : st === 'unknown' ? unknownWhy(r) : undefined, noteWarn: st === 'tentative' || st === 'unknown', confirmable: st === 'tentative' && !!room && r.id !== room.id && !!linkBetween(room, r) && linkState(linkBetween(room, r)!.link) === 'tentative' };
       }),
       room?.id ?? null,
       // only rooms of the project's place can be added (a project uses one place)
@@ -1693,6 +1693,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       linkUndone = [];
       refreshToolbar();
       ui.setStatus('Collegamenti ripristinati.');
+    },
+    // "collegamento da confermare": the person has looked at the rooms in the overview and says the position is right.
+    async onConfirmLink(id) {
+      const cur = room;
+      const other = rooms.find((x) => x.id === id);
+      if (!cur || !other) return;
+      if (!(await ui.askConfirm(`Hai controllato nella vista d'insieme che «${other.name}» sia nella posizione giusta rispetto a «${cur.name}»?\nSe confermi, il collegamento viene usato per piazzare le stanze; se è sbagliato, le stanze possono finire nel posto sbagliato.`, 'Sì, è giusta', 'Conferma il collegamento'))) return;
+      const sure = (l?: RoomLink): RoomLink | undefined => (l && linkState(l) === 'tentative' ? { ...l, n: 2, sess: 'pc', cand: undefined } : l);
+      const op: LinkOp = { a: cur.id, b: id, before: [cur.scan.links?.[id], other.scan.links?.[cur.id]], after: [sure(cur.scan.links?.[id]), sure(other.scan.links?.[cur.id])], hiAt: hi };
+      await applyLinkOp(op, 'after');
+      linkDone.push(op);
+      linkUndone = [];
+      refreshToolbar();
+      ui.setStatus(`Collegamento con «${other.name}» confermato.`);
     },
     async onOpenProject(id) {
       if (!(await confirmLeave())) return;
