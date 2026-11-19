@@ -498,6 +498,7 @@ export function createEditorUi(h: EditorHandlers) {
       back('Indietro', goHome),
       el('div', 'Apri progetto', 'ed-h'),
       fromFile,
+      ...(list.length ? [el('div', '', 'ed-divider')] : []),
       ...(list.length ? list : [el('div', 'Nessun progetto: creane uno con "Nuovo progetto".', 'ed-title')]),
     );
   }
