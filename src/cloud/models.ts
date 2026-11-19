@@ -78,6 +78,18 @@ export async function pruneModels(used: Set<string>, minAgeMs = 24 * 3600 * 1000
   }
 }
 
+// Like uploadModel, but a file the account already has (same content = same path) is not sent again. `known` = the paths in the bucket,
+// read once by the caller (listModels) and kept up to date here.
+export async function uploadModelOnce(file: File, known: Set<string>): Promise<{ path: string; skipped: boolean }> {
+  const { data: auth } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  const uid = auth.session?.user.id;
+  const hash = uid ? await fileHash(file) : null;
+  if (uid && hash && known.has(`${uid}/${hash}.glb`)) return { path: `${uid}/${hash}.glb`, skipped: true };
+  const { path } = await uploadModel(file);
+  known.add(path);
+  return { path, skipped: false };
+}
+
 export interface StoredModel {
   path: string;
   size: number; // bytes

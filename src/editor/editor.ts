@@ -34,7 +34,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
 import { BACKUP_EXT, buildBackup, parseBackup, remapProject, remapScan, selectForBackup, uniqueName, type BackupFile, type BackupRoom } from './backup';
-import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
+import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, uploadModelOnce, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
 import { boxSolid, dimsOfSolid, dimsOfStructure, formatLength, gapsOfSolid, modelSolid, planeSeg, roomAxes, wallSegs, type Measure, type Seg, type Solid } from '../room/measure';
@@ -1332,6 +1332,13 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     return map;
   }
 
+  // A project opened from a file is not in the cloud yet: what needs it (rename, duplicate) saves it first. false = it did not get saved.
+  async function saveIfFromFile(): Promise<boolean> {
+    if (!isFileProject(project)) return true;
+    await save();
+    return !isFileProject(project);
+  }
+
   // Apri progetto da file: the project opens in the editor; it joins the list of the projects when it is saved.
   async function openFromFile(file: File) {
     if (!(await confirmLeave())) return;
@@ -1394,14 +1401,20 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     await withLoading('Importo il backup', file.name, async (progress) => {
       progress('Stanze');
       const idMap = await placeRooms(backup.rooms);
-      const pathMap = new Map<string, string>(); // uploaded now, one by one (same content = one file in the cloud)
+      const pathMap = new Map<string, string>(); // uploaded now, one by one; what the cloud already has (same content) is not sent again
       const entries = Object.entries(backup.files);
+      const known = new Set((await listModels().catch(() => [])).map((m) => m.path));
       let n = 0;
+      let reused = 0;
       for (const [oldPath, entry] of entries) {
         progress(`Modelli ${++n}/${entries.length}`);
         const bytes = files[entry];
-        if (bytes) pathMap.set(oldPath, (await uploadModel(new File([bytes.buffer as ArrayBuffer], 'modello.glb', { type: 'model/gltf-binary' }))).path);
+        if (!bytes) continue;
+        const up = await uploadModelOnce(new File([bytes.buffer as ArrayBuffer], 'modello.glb', { type: 'model/gltf-binary' }), known);
+        pathMap.set(oldPath, up.path);
+        if (up.skipped) reused++;
       }
+      if (reused) ui.setStatus(`${reused} modelli erano già nel cloud: non li ho ricaricati.`);
       let added = 0;
       let replaced = 0;
       let skipped = 0;
@@ -1937,6 +1950,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onRenameProject: () =>
       run(async () => {
         if (!project) return;
+        if (!(await saveIfFromFile())) return;
         const pid = project.id;
         const current = project.name;
         const name = await ui.askText('Nome del progetto', current, { ok: 'Rinomina', validate: (v) => (!v ? 'Scrivi un nome.' : v === current ? '' : projectNameError(v, pid)) });
@@ -1976,6 +1990,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onDuplicateProject: () =>
       run(async () => {
         if (!project) return;
+        if (!(await saveIfFromFile())) return;
         const saved = (await backend.listProjects()).find((x) => x.id === project!.id);
         if (!saved) return ui.setStatus('Salva prima il progetto: non è ancora sul cloud.');
         if (dirty && !(await ui.askConfirm("Ci sono modifiche non salvate: la copia parte dall'ultima versione salvata.", 'Duplica', 'Duplica progetto'))) return;
@@ -1999,7 +2014,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     onDeleteProject: () =>
       run(async () => {
         if (!project || !(await ui.askConfirm(`Eliminare il progetto "${project.name}"?`, 'Elimina', 'Elimina progetto'))) return;
-        await backend.deleteProject(project.id);
+        if (!isFileProject(project)) await backend.deleteProject(project.id); // opened from a file and never saved: nothing in the cloud
         void prune();
         projects = projects.filter((p) => p !== project);
         showProject(null);
