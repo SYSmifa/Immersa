@@ -33,7 +33,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { Backend } from '../cloud/backend';
-import { BACKUP_EXT, buildBackup, parseBackup, remapProject, remapScan, selectForBackup, uniqueName } from './backup';
+import { BACKUP_EXT, buildBackup, parseBackup, remapProject, remapScan, selectForBackup, uniqueName, type BackupFile, type BackupRoom } from './backup';
 import { isPendingModel, modelUrl, listModels, pendingModelFile, pruneModels, registerPendingModel, removeModels, uploadModel, type PruneReport, type StoredModel } from '../cloud/models';
 import { createSupabaseBackend } from '../cloud/repo';
 import { drawBoxes, drawPlanes } from '../room/draw';
@@ -1242,17 +1242,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   // ---- backup: export to / import from a .immersa file (editor/backup.ts) ----
   const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'immersa';
-  async function exportBackup(onlyOpen: boolean) {
-    const open = onlyOpen ? project : null;
-    if (onlyOpen && !open) return;
-    // what is in the cloud (unsaved changes are not in the file)
-    const [freshRooms, freshProjects] = await Promise.all([backend.listRooms(), backend.listProjects()]);
-    const saved = open ? freshProjects.find((p) => p.id === open.id) : undefined;
-    if (open && !saved) return ui.setStatus('Salva prima il progetto: non è ancora sul cloud.');
-    if (open && dirty && !(await ui.askConfirm("Ci sono modifiche non salvate: il file parte dall'ultima versione salvata.", 'Esporta', 'Esporta il progetto'))) return;
-    const sel = selectForBackup(freshRooms, freshProjects, saved);
-    if (!sel.projects.length && !sel.rooms.length) return ui.setStatus('Niente da esportare.');
-    await withLoading('Preparo il backup', undefined, async (progress) => {
+  const todayStamp = () => new Date().toISOString().slice(0, 10);
+  const isFileProject = (p: Project | null) => !!p && p.id.startsWith('file:'); // opened from a file, not in the cloud yet
+
+  function download(bytes: Uint8Array, name: string) {
+    const url = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/zip' }));
+    Object.assign(document.createElement('a'), { href: url, download: name }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+  async function writeBackup(sel: ReturnType<typeof selectForBackup>, fileName: string) {
+    await withLoading('Preparo il file', undefined, async (progress) => {
       const { bytes, missing } = await buildBackup(
         sel,
         async (path) => {
@@ -1261,57 +1260,190 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
         },
         (d, t) => progress(`Modelli ${d + 1}/${t}`),
       );
-      const stamp = new Date().toISOString().slice(0, 10);
-      const name = `${fileSafe(saved?.name ?? 'Immersa - backup')} ${stamp}${BACKUP_EXT}`;
-      const url = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/zip' }));
-      Object.assign(document.createElement('a'), { href: url, download: name }).click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      ui.setStatus(`Backup pronto: ${name} (${sel.projects.length} progetti, ${sel.rooms.length} stanze${missing.length ? `; ${missing.length} modelli non letti` : ''}).`);
+      download(bytes, fileName);
+      ui.setStatus(`File pronto: ${fileName} (${sel.projects.length} ${sel.projects.length === 1 ? 'progetto' : 'progetti'}, ${sel.rooms.length} stanze${missing.length ? `; ${missing.length} modelli non letti` : ''}).`);
     });
   }
+  const withExt = (name: string) => `${fileSafe(name.replace(/\.immersa$/i, ''))}${BACKUP_EXT}`;
 
+  // "Esporta…" in the project page: the PDF plan, or the project as a file. The project is saved first, then the name of the file is asked.
+  async function exportCard() {
+    if (!project) return;
+    const pick = await ui.askChoice('Esporta', 'Cosa vuoi esportare?', [
+      { label: 'Il progetto, come file .immersa', value: 'file' },
+      { label: 'La pianta in scala, in PDF', value: 'pdf' },
+    ]);
+    if (!pick) return;
+    if (pick.value === 'pdf') return exportPdf();
+    if (dirty || isFileProject(project)) {
+      await save();
+      if (dirty || isFileProject(project)) return; // cancelled or failed: the message is already there
+    }
+    const name = await ui.askText('Nome del file', project.name, { ok: 'Esporta', validate: (v) => (v.trim() ? '' : 'Scrivi un nome.') });
+    if (!name) return;
+    const [freshRooms, freshProjects] = await Promise.all([backend.listRooms(), backend.listProjects()]);
+    const saved = freshProjects.find((p) => p.id === project!.id);
+    if (!saved) return ui.setStatus('Il progetto non è sul cloud: salvalo e riprova.');
+    await writeBackup(selectForBackup(freshRooms, freshProjects, saved), withExt(name));
+  }
+
+  async function backupCard() {
+    const pick = await ui.askChoice('Backup', 'Tutte le stanze e i progetti del tuo account in un solo file.', [
+      { label: 'Esporta il backup', value: 'export' },
+      { label: 'Importa un backup', value: 'import' },
+    ]);
+    if (!pick) return;
+    if (pick.value === 'import') return ui.pickFile('backup');
+    const name = await ui.askText('Nome del file', `Immersa - backup ${todayStamp()}`, { ok: 'Esporta', validate: (v) => (v.trim() ? '' : 'Scrivi un nome.') });
+    if (!name) return;
+    const [freshRooms, freshProjects] = await Promise.all([backend.listRooms(), backend.listProjects()]);
+    const sel = selectForBackup(freshRooms, freshProjects);
+    if (!sel.projects.length && !sel.rooms.length) return ui.setStatus('Niente da esportare.');
+    await writeBackup(sel, withExt(name));
+  }
+
+  // The rooms of a file in this account: one that is already here (same name and same scan) is used as it is, another is made as a copy
+  // with a name nobody has. Links between them are re-addressed. Returns old id → id in this account.
+  async function placeRooms(wanted: BackupRoom[]): Promise<Map<string, string>> {
+    const idMap = new Map<string, string>();
+    const made: { from: BackupRoom; room: Room }[] = [];
+    const names = rooms.map((r) => r.name);
+    for (const r of wanted) {
+      const same = rooms.find((x) => x.name.trim().toLowerCase() === r.name.trim().toLowerCase() && x.scan.savedAt === r.scan.savedAt && x.scan.planes.length === r.scan.planes.length);
+      if (same) {
+        idMap.set(r.id, same.id);
+        continue;
+      }
+      const name = uniqueName(r.name, names);
+      names.push(name);
+      const room = await backend.createRoom(name, { ...r.scan, links: undefined }, r.place);
+      idMap.set(r.id, room.id);
+      made.push({ from: r, room });
+      rooms.unshift(room);
+    }
+    for (const { from, room } of made) {
+      room.scan = remapScan(from.scan, idMap);
+      if (room.scan.links) await backend.saveRoomData(room.id, room.scan);
+    }
+    return idMap;
+  }
+
+  // The model files of a file become "pending" models (in memory, uploaded when the project is saved), like imported ones.
+  function pendingPaths(backup: BackupFile, files: Record<string, Uint8Array>): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const [oldPath, entry] of Object.entries(backup.files)) {
+      const bytes = files[entry];
+      if (bytes) map.set(oldPath, registerPendingModel(new File([bytes.buffer as ArrayBuffer], 'modello.glb', { type: 'model/gltf-binary' })));
+    }
+    return map;
+  }
+
+  // Apri progetto da file: the project opens in the editor; it joins the list of the projects when it is saved.
+  async function openFromFile(file: File) {
+    if (!(await confirmLeave())) return;
+    const { backup, files } = parseBackup(new Uint8Array(await file.arrayBuffer()));
+    if (!backup.projects.length) return ui.setStatus('Il file non contiene progetti.');
+    let chosen = backup.projects[0];
+    if (backup.projects.length > 1) {
+      const pick = await ui.askChoice('Quale progetto?', `Il file contiene ${backup.projects.length} progetti.`, backup.projects.map((p) => ({ label: p.name, value: p.id })));
+      if (!pick) return;
+      chosen = backup.projects.find((p) => p.id === pick.value)!;
+    }
+    await withLoading('Apro il file', file.name, async () => {
+      const used = new Set([...chosen.roomIds, ...chosen.models.map((m) => m.roomId), ...chosen.structures.map((s) => s.roomId), ...chosen.annotations.map((a) => a.roomId)].filter(Boolean));
+      const idMap = await placeRooms(backup.rooms.filter((r) => used.has(r.id)));
+      const c = remapProject(chosen, idMap, pendingPaths(backup, files));
+      const p: Project = { id: `file:${newId()}`, name: c.name, updatedAt: '', roomIds: c.roomIds, models: c.models, structures: c.structures, annotations: c.annotations, tone: c.tone };
+      showProject(p);
+      markDirty(true);
+      ui.setView('project');
+      refreshLists();
+    });
+    ui.setStatus(`"${chosen.name}" aperto dal file. Salvalo per aggiungerlo ai tuoi progetti.`);
+  }
+
+  // Saving a project opened from a file: it becomes a project of the account. A project with that name already there can be replaced.
+  async function placeFileProject(): Promise<boolean> {
+    const p = project;
+    if (!p) return false;
+    const taken = projects.find((x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+    let replace: Project | null = null;
+    if (taken) {
+      const pick = await ui.askChoice('Esiste già un progetto con questo nome', `«${p.name}» c'è già nei tuoi progetti.`, [
+        { label: 'Tieni entrambi (questo prende un numero)', value: 'both' },
+        { label: 'Sostituisci quello che c\'è', value: 'replace' },
+      ]);
+      if (!pick) return false;
+      if (pick.value === 'replace') replace = taken;
+      else p.name = uniqueName(p.name, projects.map((x) => x.name));
+    }
+    if (replace) {
+      await backend.saveProject(replace.id, { models: p.models, roomIds: p.roomIds, structures: p.structures, annotations: p.annotations });
+      p.id = replace.id;
+      p.tone = replace.tone;
+      projects[projects.indexOf(replace)] = p;
+    } else {
+      const made = await backend.createProject(p.name, p.roomIds, p.models, p.structures, p.tone ?? newTone(projects), p.annotations);
+      p.id = made.id;
+      p.tone = made.tone;
+      projects.unshift(p);
+    }
+    refreshLists();
+    return true;
+  }
+
+  // Importing a whole backup: every project of the file. One with a name already taken asks: keep both (default), replace, or skip.
   async function importBackup(file: File) {
     const { backup, files } = parseBackup(new Uint8Array(await file.arrayBuffer()));
-    const text = `Il file contiene ${backup.projects.length} progetti e ${backup.rooms.length} stanze.\nSi importano come COPIE nuove (con un numero nel nome se il nome c'è già): quello che hai già non cambia.`;
-    if (!(await ui.askConfirm(text, 'Importa', 'Importa un backup'))) return;
+    if (!(await ui.askConfirm(`Il file contiene ${backup.projects.length} progetti e ${backup.rooms.length} stanze.\nLe stanze che hai già (stessa scansione) restano com'è, le altre si aggiungono; per i progetti con un nome già usato ti chiedo cosa fare.`, 'Importa', 'Importa un backup'))) return;
+    let always: string | null = null;
     await withLoading('Importo il backup', file.name, async (progress) => {
-      // rooms first (their ids are made by the cloud), then the links between them with the new ids
-      const idMap = new Map<string, string>();
-      const created: Room[] = [];
-      const roomNames = rooms.map((r) => r.name);
-      for (const r of backup.rooms) {
-        progress(`Stanza ${r.name}`);
-        const name = uniqueName(r.name, roomNames);
-        roomNames.push(name);
-        const made = await backend.createRoom(name, { ...r.scan, links: undefined }, r.place);
-        idMap.set(r.id, made.id);
-        created.push(made);
-      }
-      backup.rooms.forEach((r, i) => created[i] && (created[i].scan = remapScan(r.scan, idMap)));
-      for (const r of created) if (r.scan.links) await backend.saveRoomData(r.id, r.scan);
-      // model files: uploaded once each (same content = same file in the cloud)
-      const pathMap = new Map<string, string>();
+      progress('Stanze');
+      const idMap = await placeRooms(backup.rooms);
+      const pathMap = new Map<string, string>(); // uploaded now, one by one (same content = one file in the cloud)
       const entries = Object.entries(backup.files);
       let n = 0;
       for (const [oldPath, entry] of entries) {
         progress(`Modelli ${++n}/${entries.length}`);
         const bytes = files[entry];
-        if (!bytes) continue;
-        pathMap.set(oldPath, (await uploadModel(new File([bytes.buffer as ArrayBuffer], 'modello.glb', { type: 'model/gltf-binary' }))).path);
+        if (bytes) pathMap.set(oldPath, (await uploadModel(new File([bytes.buffer as ArrayBuffer], 'modello.glb', { type: 'model/gltf-binary' }))).path);
       }
-      const projectNames = projects.map((p) => p.name);
-      let made = 0;
-      for (const p of backup.projects) {
-        progress(`Progetto ${p.name}`);
-        const c = remapProject(p, idMap, pathMap);
-        const name = uniqueName(p.name, projectNames);
-        projectNames.push(name);
-        projects.unshift(await backend.createProject(name, c.roomIds, c.models, c.structures, c.tone, c.annotations));
-        made++;
+      let added = 0;
+      let replaced = 0;
+      let skipped = 0;
+      for (const bp of backup.projects) {
+        const c = remapProject(bp, idMap, pathMap);
+        const taken = projects.find((x) => x.name.trim().toLowerCase() === bp.name.trim().toLowerCase());
+        let how = 'both';
+        if (taken) {
+          how =
+            always ??
+            (await ui.askChoice('Esiste già un progetto con questo nome', `«${bp.name}» c'è già nei tuoi progetti.`, [
+              { label: 'Tieni entrambi (la copia prende un numero)', value: 'both' },
+              { label: 'Sostituisci quello che c\'è', value: 'replace' },
+              { label: 'Salta questo', value: 'skip' },
+            ], 'Fai lo stesso per tutti gli altri')
+              .then((r) => {
+                if (r?.all) always = r.value;
+                return r?.value ?? 'skip';
+              }));
+        }
+        if (how === 'skip') {
+          skipped++;
+          continue;
+        }
+        progress(`Progetto ${bp.name}`);
+        if (how === 'replace' && taken) {
+          await backend.saveProject(taken.id, { models: c.models, roomIds: c.roomIds, structures: c.structures, annotations: c.annotations });
+          Object.assign(taken, { models: c.models, roomIds: c.roomIds, structures: c.structures, annotations: c.annotations });
+          replaced++;
+        } else {
+          projects.unshift(await backend.createProject(taken ? uniqueName(bp.name, projects.map((x) => x.name)) : bp.name, c.roomIds, c.models, c.structures, c.tone, c.annotations));
+          added++;
+        }
       }
-      rooms.unshift(...created);
       refreshLists();
-      ui.setStatus(`Backup importato: ${made} progetti, ${created.length} stanze.`);
+      ui.setStatus(`Backup importato: ${added} aggiunti${replaced ? `, ${replaced} sostituiti` : ''}${skipped ? `, ${skipped} saltati` : ''}.`);
     });
   }
 
@@ -1556,6 +1688,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     try {
       if (!(await resolveRoomChanges())) return ui.setStatus('Salvataggio annullato.');
       if (!(await uploadPending())) return ui.setStatus('Salvataggio annullato.');
+      if (isFileProject(project) && !(await placeFileProject())) return ui.setStatus('Salvataggio annullato.');
       const res = await withLoading('Salvo il progetto', project.name, () => backend.saveProject(project!.id, { models: project!.models, roomIds: project!.roomIds, structures: project!.structures, annotations: project!.annotations }));
       markDirty(false);
       // An older cloud schema cannot keep the notes and rulers: say so instead of letting them vanish silently.
@@ -1821,9 +1954,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     // A copy of the project as it is saved in the cloud: the same rooms, models (the same files, nothing is uploaded again) and
     // walls / floors, each with a new id. The copy opens, unless there are unsaved edits here: then it only appears in the list.
     onExportPdf: () => run(exportPdf),
-    onExportProject: () => run(() => exportBackup(true)),
-    onExportAll: () => run(() => exportBackup(false)),
+    onExport: () => run(exportCard),
+    onBackup: () => run(backupCard),
     onImportBackup: (f) => run(() => importBackup(f)),
+    onOpenFromFile: (f) => run(() => openFromFile(f)),
     // Reports: the ones sent from the headset (and the automatic ones) to complete with a keyboard, and new ones written here.
     onReports: () =>
       run(async () => {

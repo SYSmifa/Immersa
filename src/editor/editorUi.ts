@@ -58,9 +58,10 @@ export interface EditorHandlers {
   onRenameProject(): void;
   onDuplicateProject(): void;
   onExportPdf(): void;
-  onExportProject(): void; // the open project (with its rooms and models) as one .immersa file
-  onExportAll(): void; // every room and project of the account
-  onImportBackup(file: File): void;
+  onExport(): void; // a card: the PDF plan, or the project as a .immersa file
+  onBackup(): void; // a card: export or import the whole account
+  onImportBackup(file: File): void; // a .immersa file with the whole account (or several projects)
+  onOpenFromFile(file: File): void; // open one project of a .immersa file (it joins the list when saved)
   onReports(): void;
   onDeleteProject(): void;
   onProjectRoom(id: string): void;
@@ -443,7 +444,10 @@ export function createEditorUi(h: EditorHandlers) {
   const reportBtn = el('button', '', 'ed-pill ed-link');
   reportBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.note}</span>Segnalazioni`;
   reportBtn.onclick = () => h.onReports();
-  footer.append(linkBtn, reportBtn);
+  const backupBtn = el('button', '', 'ed-pill ed-link');
+  backupBtn.innerHTML = `<span style="width:16px;height:16px;display:inline-flex">${ICON.folder}</span>Backup`;
+  backupBtn.onclick = () => h.onBackup();
+  footer.append(backupBtn, linkBtn, reportBtn);
   const version = el('div', `Versione ${__BUILD_ID__}`, 'ed-ver'); // to tell which build is online
   side.append(brand, body, footer, version);
 
@@ -470,8 +474,6 @@ export function createEditorUi(h: EditorHandlers) {
         setView('models');
         h.onOpenModels();
       }),
-      big(ICON.folder, 'Backup completo', 'Tutte le stanze e i progetti in un file', h.onExportAll),
-      big(ICON.plus, 'Importa un backup', 'Da un file .immersa', () => backupInput.click()),
     );
   }
 
@@ -488,9 +490,11 @@ export function createEditorUi(h: EditorHandlers) {
       b.onclick = () => h.onOpenProject(p.id);
       return b;
     });
+    const fromFile = big(ICON.folder, 'Apri progetto da file', 'Un file .immersa', () => openFileInput.click());
     body.replaceChildren(
       back('Indietro', goHome),
       el('div', 'Apri progetto', 'ed-h'),
+      fromFile,
       ...(list.length ? list : [el('div', 'Nessun progetto: creane uno con "Nuovo progetto".', 'ed-title')]),
     );
   }
@@ -749,14 +753,19 @@ export function createEditorUi(h: EditorHandlers) {
     return [warn, row(pick, pill('Usa questo', () => pick.value && h.onMissingFromLibrary(pick.value), 'acc')), row(pill('Da file…', () => missingInput.click()))];
   }
 
-  const backupInput = el('input', '', 'ed-file');
-  backupInput.type = 'file';
-  backupInput.accept = '.immersa,.zip';
-  backupInput.style.display = 'none';
-  backupInput.onchange = () => {
-    if (backupInput.files?.length) h.onImportBackup(backupInput.files[0]);
-    backupInput.value = '';
+  const fileInput2 = (use: (f: File) => void) => {
+    const i = el('input', '', 'ed-file');
+    i.type = 'file';
+    i.accept = '.immersa,.zip';
+    i.style.display = 'none';
+    i.onchange = () => {
+      if (i.files?.length) use(i.files[0]);
+      i.value = '';
+    };
+    return i;
   };
+  const backupInput = fileInput2((f) => h.onImportBackup(f));
+  const openFileInput = fileInput2((f) => h.onOpenFromFile(f));
 
   const planInput = el('input', '', 'ed-file');
   planInput.type = 'file';
@@ -813,6 +822,15 @@ export function createEditorUi(h: EditorHandlers) {
     });
   }
 
+  // Exporting does not change the project: a small button of its own, apart from the ones that edit it.
+  function exportRow(): HTMLElement {
+    const r = row(pill('Esporta…', h.onExport));
+    r.style.marginTop = '8px';
+    r.style.paddingTop = '10px';
+    r.style.borderTop = '1px solid rgba(255,255,255,.12)';
+    return r;
+  }
+
   function renderProject() {
     const name = el('div', projectName);
     name.style.cssText = 'font-weight:700;font-size:16px';
@@ -823,8 +841,7 @@ export function createEditorUi(h: EditorHandlers) {
       ...projectRoomsBlock(),
       big(ICON.plus, 'Aggiungi un modello', 'GLB, FBX, OBJ, STL, STEP, ZIP…', () => fileInput.click()),
       big(ICON.wall, 'Pianta CAD', 'Pareti e pavimenti da un file DXF', () => planInput.click()),
-      big(ICON.ortho, 'Esporta PDF', 'Pianta in scala, da stampare', h.onExportPdf),
-      big(ICON.folder, 'Esporta il progetto', 'Un file .immersa con stanze e modelli', h.onExportProject),
+      exportRow(),
     );
   }
 
@@ -2063,6 +2080,33 @@ export function createEditorUi(h: EditorHandlers) {
         root.append(overlay);
       });
     },
+    // A card with several buttons (the first is the suggested one); `all`: a box that says the choice holds for the rest too.
+    askChoice(title: string, text: string, options: { label: string; value: string }[], all?: string) {
+      return new Promise<{ value: string; all: boolean } | null>((resolve) => {
+        const overlay = el('div', '', 'ed-modal');
+        const panel = el('div', '', 'ed-panel');
+        let every = false;
+        const done = (v: string | null) => {
+          window.removeEventListener('keydown', key, true);
+          overlay.remove();
+          resolve(v === null ? null : { value: v, all: every });
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') done(null);
+          e.stopPropagation();
+        };
+        window.addEventListener('keydown', key, true);
+        const lines = text.split('\n').map((t) => el('div', t, 'ed-meta'));
+        const box = el('input');
+        box.type = 'checkbox';
+        box.onchange = () => (every = box.checked);
+        const allRow = el('label', '', 'ed-check');
+        allRow.append(box, document.createTextNode(all ?? ''));
+        panel.append(el('h3', title), ...lines, ...(all ? [allRow] : []), ...options.map((o, i) => pill(o.label, () => done(o.value), i === 0 ? 'acc' : undefined)), pill('Annulla', () => done(null)));
+        overlay.append(panel);
+        root.append(overlay);
+      });
+    },
     // In-app replacement for confirm(): resolves true on OK.
     askConfirm(text: string, ok = 'Continua', title = 'Conferma') {
       return new Promise<boolean>((resolve) => {
@@ -2168,6 +2212,9 @@ export function createEditorUi(h: EditorHandlers) {
     },
     setView,
     getView: () => view,
+    pickFile(kind: 'backup') {
+      if (kind === 'backup') backupInput.click();
+    },
     setProjects(items: Option[], selected: string | null) {
       projectItems = items;
       openId = selected;
