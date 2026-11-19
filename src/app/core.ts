@@ -351,6 +351,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     info: '',
     refsInfo: null,
     roomByPoints: false,
+    projectRoom: null,
     resid: null,
     liveReady: false,
     captureAvailable: false,
@@ -536,6 +537,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     view.changedRoom = changed?.room.name ?? null;
     // A room made from points is placed on its points (never by hand); one from the headset's scan only has the manual alignment.
     view.roomByPoints = !!recognised && byPoints(recognised.room);
+    const pr = realignTarget();
+    view.projectRoom = pr ? { name: pr.name, byPoints: byPoints(pr) } : null;
     view.refsInfo = recognised && byPoints(recognised.room) ? `${recognised.room.scan.refs?.length ?? 0} punti` : null;
     view.resid = recognised?.alignment.resid ?? null;
     view.liveReady = live.length >= MIN_PLANES;
@@ -1242,6 +1245,13 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   const roomStable = (now: number) => !!recognised && !gap && modelsPending() === 0 && now - recognisedSince > 10000;
   const hasRefs = (r: Room) => (r.scan.refs?.length ?? 0) >= MIN_REFS; // optional: the user decides to use reference points (any room)
   // The room of the open project to place by hand: the first one the headset has not placed, else the one you are in.
+  // The room of the open project that "Riallinea" works on: the one recognised, else one not placed yet, else the first.
+  function realignTarget(): Room | null {
+    if (!current) return null;
+    const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r);
+    if (!rs.length) return null;
+    return rs.find((r) => r.id === recognised?.room.id) ?? rs.find((r) => !aligns.has(r.id)) ?? rs[0];
+  }
   function alignableRoom(): Room | null {
     if (!current) return null;
     const rs = current.roomIds.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => !!r && !byPoints(r) && !!suggestCorners(r.scan.planes));
@@ -3424,6 +3434,16 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
       syncHouses();
       refreshView();
     },
+    // The first alignment of the project's room again: its points (a room made from points) or two corners (a scanned one).
+    async realign() {
+      const room = realignTarget();
+      if (!room) return;
+      if (byPoints(room)) {
+        refsDone.delete(room.id);
+        await alignRoomOnRefs(room);
+        openMenu();
+      } else void startAlign(room);
+    },
     toggleOccluders() {
       view.showOccluders = !view.showOccluders;
       showOccluders(occluderMaterial, view.showOccluders);
@@ -5189,6 +5209,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     selected: () => selectedId,
     selectedStruct: () => selectedStructId,
     selectedPart: () => selectedPart,
+    openProjectById: (id: string) => actions.selectProject(id), // test hook
     openObject: () => openObjectMenu(), // test hook
     sendReport: () => actions.sendReport(), // test hook
     startAlign: () => startAlign(), // test hook

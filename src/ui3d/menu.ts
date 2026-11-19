@@ -64,6 +64,7 @@ export interface MenuView {
   changedRoom: string | null; // saved room that only partly fits the live scan: probably this room, with a moved or changed scan
   refsInfo: string | null; // recognised room made from points: how many reference points it has (null = not made from points)
   roomByPoints: boolean; // the recognised room was made from points: no manual alignment, no scan again
+  projectRoom: { name: string; byPoints: boolean } | null; // the open project has rooms: the one that "Riallinea" redoes the first alignment of
   resid: number | null; // alignment error of that room, metres
   liveReady: boolean; // the headset currently exposes a scanned room
   captureAvailable: boolean; // the page may start a scan itself
@@ -151,6 +152,7 @@ export interface MenuActions {
   toggleSnap(): void;
   toggleLayers(): void;
   toggleFps(): void;
+  realign(): void;
   cycleReal(): void;
   toggleDepthFix(): void;
   toggleAutoReports(): void;
@@ -407,7 +409,9 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
   if (v.object) return objectPage(v.object, out, a);
 
   const project = v.projectName ? ` · ${v.projectName}` : '';
-  const where = v.roomName
+  const where = v.projectRoom
+    ? `Stanza: ${v.projectRoom.name}${project}`
+    : v.roomName
     ? `Stanza aperta${project}`
     : v.candidate
       ? 'Stanza non confermata'
@@ -475,17 +479,23 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push({ kind: 'scroll', rect: { x: M + W - 30, y: listTop, w: 30, h }, text: '', value: first / (list.length - PER_PAGE), span: PER_PAGE / list.length, onPoint: (_fx, fy) => a.setScroll(fy) });
       }
     }
+  } else if (v.tab === 'scan' && v.projectRoom) {
+    // A project with rooms is open: one button, to do the room's first alignment again.
+    out.push(surface(M, top, W, 190));
+    const inner = M + 28;
+    const iw = W - 56;
+    out.push(text(`${v.projectRoom.name}\n${v.projectRoom.byPoints ? 'Rifai l\'allineamento toccando i suoi punti di riferimento.' : 'Rifai l\'allineamento toccando due angoli della stanza.'}`, inner, top + 16, iw, 80, 24, T.text2, { wrap: true }));
+    out.push({ kind: 'pill', primary: true, icon: 'room', rect: { x: inner, y: top + 112, w: iw, h: 56 }, text: 'Riallinea', size: 26, onClick: a.realign });
   } else if (v.tab === 'scan') {
     out.push(surface(M, top, W, 340));
     const inner = M + 28;
     const iw = W - 56;
-    // The buttons stack from `y`; the last one is always "Allineamento manuale" (place the room by touching two corners).
+    // The buttons stack from `y` (no project with rooms open: scan, save, create a room from points...).
     let y = top;
     const add = (label: string, onClick: () => void, o: Partial<Widget> = {}) => {
       out.push({ kind: 'pill', rect: { x: inner, y, w: iw, h: 50 }, text: label, size: 23, onClick, ...o });
       y += 58;
     };
-    const manual = () => add('Allineamento manuale', a.alignRoom, { disabled: !v.alignRoom, icon: 'room' });
     if (v.roomName) {
       const err = v.resid === null ? '' : ` (scarto ${(v.resid * 100).toFixed(1)} cm)`;
       out.push(text(`Stanza riconosciuta: ${v.roomName}${err}.\n${v.roomPlace ? `Luogo: ${v.roomPlace}` : 'Senza luogo: assegnalo dal PC (Le mie stanze).'}`, inner, top + 14, iw, 70, 24, T.text2, { wrap: true }));
@@ -493,10 +503,7 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
       add('Rinomina stanza', a.renameRoom);
       add('Non è questa stanza', a.notThisRoom);
       if (v.roomByPoints) add(`Punti di riferimento (${v.refsInfo})`, a.changeRefs);
-      else {
-        if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
-        manual();
-      }
+      else if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { primary: true, icon: 'scan' });
     } else if (v.candidate) {
       out.push(text(`Il visore ha la scansione di "${v.candidate}", ma non sembri essere dentro quella stanza.`, inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
       y = top + 114;
@@ -506,33 +513,28 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
         out.push(text('Altrimenti fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, y, iw, 60, 21, T.dim, { wrap: true }));
         y += 66;
       }
-      manual();
     } else if (v.changedRoom) {
       out.push(text(`Sembra la stanza "${v.changedRoom}", ma la scansione del visore è cambiata. Aggiorno quella salvata: i modelli restano al loro posto.`, inner, top + 18, iw, 96, 24, T.text2, { wrap: true }));
       y = top + 118;
       add(`Aggiorna "${v.changedRoom}"`, a.updateChanged, { primary: true });
       add('Salva come stanza nuova', a.saveRoom);
       if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
-      manual();
     } else if (v.liveReady) {
       out.push(text('Questa stanza è già scansionata nel visore, ma non è salvata nel tuo account.', inner, top + 20, iw, 90, 25, T.text2, { wrap: true }));
       y = top + 114;
       add('Salva stanza', a.saveRoom, { primary: true });
       if (v.captureAvailable) add('Scansiona di nuovo', a.scan, { icon: 'scan' });
-      manual();
     } else if (v.captureAvailable) {
       out.push(text('Nessuna scansione trovata in questa stanza.', inner, top + 20, iw, 50, 25, T.text2, { wrap: true }));
       y = top + 84;
       add('Scansiona la stanza', a.scan, { primary: true, icon: 'scan' });
       add('Rileggi', a.reread);
       add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
-      manual();
     } else {
       out.push(text('Nessuna scansione trovata. Questo browser non può avviare la scansione: fai la configurazione dello spazio dalle impostazioni del visore, poi torna qui.', inner, top + 20, iw, 130, 23, T.text2, { wrap: true }));
       y = top + 156;
       add('Rileggi', a.reread, { primary: true });
       add('Crea stanza con punti', a.createByPoints, { icon: 'pin' });
-      manual();
     }
   } else if (v.tab === 'tools') {
     out.push(surface(M, top, W, 380));
