@@ -49,7 +49,7 @@ import { createModelLayer, modelsPending } from '../room/modelLayer';
 import { nodeByPath, partFromMesh, partName, pivotWorld } from '../room/parts';
 import { listMaterials, modelBox, modelSize as localModelSize } from '../room/selection';
 import { bakeXf, createStructureLayer, floorPoints, placeStructure, polygonArea, structMeasure, structPoints } from '../room/structures';
-import type { Annotation, PartEdit, Project, Room, RoomModel, Structure, Vec3 } from '../room/types';
+import type { Annotation, PartEdit, Project, Room, RoomLink, RoomModel, Structure, Vec3 } from '../room/types';
 import { addRoomError, knownPlaces, normPlace, placeChangeConflict, samePlace } from '../room/places';
 import { IDENTITY, apply, invertLink, linkSummary, planModelMoves, placeAround, type Pose } from '../room/layout';
 import { createOtherRooms } from './otherRooms';
@@ -413,7 +413,54 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
   let hist: string[] = [];
   let hi = -1;
   const snapshot = () => JSON.stringify({ m: project?.models ?? [], s: project?.structures ?? [], n: project?.annotations ?? [] });
+  // Moving another room in the overview saves a link at once (not part of the project), so it has its own undo/redo steps:
+  // each one is valid while the project history stands where it did when the move was made.
+  type LinkOp = { a: string; b: string; before: [RoomLink | undefined, RoomLink | undefined]; after: [RoomLink | undefined, RoomLink | undefined]; hiAt: number };
+  let linkDone: LinkOp[] = [];
+  let linkUndone: LinkOp[] = [];
+  const linkUndoable = () => linkDone.length > 0 && linkDone[linkDone.length - 1].hiAt === hi;
+  const linkRedoable = () => linkUndone.length > 0 && linkUndone[linkUndone.length - 1].hiAt === hi;
+  async function applyLinkOp(op: LinkOp, to: 'before' | 'after') {
+    const ra = rooms.find((x) => x.id === op.a);
+    const rb = rooms.find((x) => x.id === op.b);
+    if (!ra || !rb) return;
+    const [la, lb] = op[to];
+    const put = (r: Room, id: string, l: RoomLink | undefined) => {
+      const links = { ...r.scan.links };
+      if (l) links[id] = l;
+      else delete links[id];
+      r.scan = { ...r.scan, links };
+    };
+    put(ra, op.b, la);
+    put(rb, op.a, lb);
+    try {
+      await backend.saveRoomData(ra.id, ra.scan);
+      await backend.saveRoomData(rb.id, rb.scan);
+      ui.setStatus(to === 'before' ? `Spostamento di "${rb.name}" annullato.` : `Spostamento di "${rb.name}" rifatto.`);
+    } catch (err) {
+      ui.setStatus(`Non riesco a salvare il collegamento: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    refreshOthers();
+    refreshLists();
+    refreshToolbar();
+  }
+  function undoStep() {
+    if (linkUndoable()) {
+      const op = linkDone.pop()!;
+      linkUndone.push(op);
+      void applyLinkOp(op, 'before');
+    } else jump(hi - 1);
+  }
+  function redoStep() {
+    if (linkRedoable()) {
+      const op = linkUndone.pop()!;
+      linkDone.push(op);
+      void applyLinkOp(op, 'after');
+    } else jump(hi + 1);
+  }
   function resetHistory() {
+    linkDone = [];
+    linkUndone = [];
     hist = project ? [snapshot()] : [];
     hi = hist.length - 1;
     refreshToolbar();
@@ -423,6 +470,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const s = snapshot();
     if (s === hist[hi]) return;
     hist = hist.slice(0, hi + 1);
+    linkUndone = [];
     hist.push(s);
     if (hist.length > 100) hist.shift();
     hi = hist.length - 1;
@@ -771,7 +819,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   const annotStepText = () => (annotMode === 'note' ? 'Nota: clic su un punto di un modello, di una parete o del pavimento' : annotMode === 'ruler' ? (annotFirst ? 'Metro: clic sul secondo punto' : 'Metro: clic sul primo punto') : '');
   function refreshToolbar() {
-    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, fade: wallsHidden, canUndo: hi > 0, canRedo: hi < hist.length - 1 });
+    ui.setToolbar({ build, gizmo, ortho, grid: snapGrid, vertex: snapVertex, local, annot: annotMode, annotStep: annotStepText(), measures: measureMode, gaps: gapsOn, fade: wallsHidden, canUndo: hi > 0 || linkUndoable(), canRedo: hi < hist.length - 1 || linkRedoable() });
   }
 
   // How a room stands with the others of its place: "Cucina ✓, Sala (da confermare)" (a link only seen once is a guess).
@@ -2006,8 +2054,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       applyGizmo();
       refreshToolbar();
     },
-    onUndo: () => jump(hi - 1),
-    onRedo: () => jump(hi + 1),
+    onUndo: undoStep,
+    onRedo: redoStep,
     onPick: pick,
     onModelScale(value, doCommit) {
       const m = selModels()[0];
@@ -2612,12 +2660,16 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     void (async () => {
       try {
         const link = { yaw: pose.yaw, tx: pose.tx, ty: pose.ty, tz: pose.tz, at: Date.now(), src: 'manual' as const, n: 2, sess: 'pc' };
+        const op: LinkOp = { a: current.id, b: other.id, before: [current.scan.links?.[other.id], other.scan.links?.[current.id]], after: [link, invertLink(link)], hiAt: hi };
         current.scan = { ...current.scan, links: { ...current.scan.links, [other.id]: link } };
         other.scan = { ...other.scan, links: { ...other.scan.links, [current.id]: invertLink(link) } };
         await backend.saveRoomData(current.id, current.scan);
         await backend.saveRoomData(other.id, other.scan);
+        linkDone.push(op);
+        linkUndone = [];
         refreshOthers();
         refreshLists();
+        refreshToolbar();
         ui.setStatus(`"${other.name}" collegata a mano a "${current.name}".`);
       } catch (err) {
         refreshOthers(); // back to the saved place
@@ -2663,10 +2715,11 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       void save();
     } else if (mod && k === 'z') {
       e.preventDefault();
-      jump(e.shiftKey ? hi + 1 : hi - 1);
+      if (e.shiftKey) redoStep();
+      else undoStep();
     } else if (mod && k === 'y') {
       e.preventDefault();
-      jump(hi + 1);
+      redoStep();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (!partSel) deleteSelection();
     } else if (e.key === 'Escape') {
