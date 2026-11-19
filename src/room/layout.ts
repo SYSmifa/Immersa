@@ -97,6 +97,18 @@ export interface Learned {
 // - by hand, or with both rooms scanned in this very session (`together`, no restart between): trusted at once. A hand
 //   measure replaces anything; the headset's never replaces one made by hand.
 // null: nothing to say or write.
+// A link made by hand is never replaced by the headset's measure, but the measure is kept in `base` ("Ripristina collegamenti"
+// puts it back), with the same trust rules: a guess is replaced by the newest, a confirmed one (n >= 2) stays.
+function keepBase(old: RoomLink, bInA: Pose, fresh: RoomLink, sess: string): Learned | null {
+  const base = old.base;
+  let next: RoomLink | null = null;
+  if (!base || !isConfirmed(base) && !agree(base, bInA)) next = fresh;
+  else if (agree(base, bInA) && !isConfirmed(base) && base.sess !== sess) next = { ...base, n: (base.n ?? 1) + 1, sess, at: fresh.at };
+  if (!next) return null;
+  const link = { ...old, base: { ...next, base: undefined, cand: undefined } };
+  return { links: [link, invertLink(link)], note: 'misura del visore tenuta da parte (il collegamento è a mano)' };
+}
+
 export function learnedLinks(a: Room, b: Room, pa: Pose, pb: Pose, src: RoomLink['src'], sess: string, together = false): Learned | null {
   const bInA = relative(pa, pb);
   if (!linkable(a, b, bInA)) return null;
@@ -108,11 +120,11 @@ export function learnedLinks(a: Room, b: Room, pa: Pose, pb: Pose, src: RoomLink
   if (!old) return { links: pair(fresh), note: trusted ? (src === 'manual' ? 'a mano' : 'scansionate insieme: confermata') : 'misura provvisoria: serve una seconda sessione' };
   const same = agree(old, bInA);
   if (trusted) {
-    if (src !== 'manual' && old.src === 'manual') return null; // the headset's measure never replaces a hand one
+    if (src !== 'manual' && old.src === 'manual') return keepBase(old, bInA, fresh, sess);
     if (same && isConfirmed(old)) return null; // nothing changes
     return { links: pair(fresh), note: src === 'manual' ? 'a mano: sostituisce la misura precedente' : 'scansionate insieme: confermata' };
   }
-  if (old.src === 'manual') return null;
+  if (old.src === 'manual') return keepBase(old, bInA, fresh, sess);
   if (same) {
     if (old.sess === sess || isConfirmed(old)) return null; // nothing new
     return { links: pair({ ...old, n: (old.n ?? 1) + 1, sess, at: now, cand: undefined }), note: 'confermata da una seconda sessione' };

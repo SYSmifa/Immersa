@@ -82,7 +82,17 @@ A = withLinks(A, l.links, 'B', false);
 B = withLinks(B, l.links, 'A', true);
 assert.equal(linkState(A.scan.links!.B), 'manual');
 assert.ok(near(A.scan.links!.B.tx, 7, 1e-6));
-assert.equal(learnedLinks(A, B, sessionA, sessionB, 'meta', 's5'), null, 'the headset does not replace a hand link');
+// ... but its measure is kept aside in `base` (the hand link itself is untouched)
+l = learnedLinks(A, B, sessionA, sessionB, 'meta', 's5');
+assert.ok(l && l.links, 'the headset measure is kept');
+assert.equal(l.links[0].src, 'manual');
+assert.ok(near(l.links[0].tx, 7, 1e-6), 'the hand position stays');
+assert.equal(l.links[0].base?.src, 'meta');
+A = withLinks(A, l.links, 'B', false);
+B = withLinks(B, l.links, 'A', true);
+assert.equal(learnedLinks(A, B, sessionA, sessionB, 'meta', 's5'), null, 'the same session again: nothing new');
+l = learnedLinks(A, B, sessionA, sessionB, 'meta', 's6');
+assert.equal(l?.links?.[0].base?.n, 2, 'a second session confirms the kept measure');
 
 // 7. summaries for the lists
 const sum = linkSummary(A, [A, B, C, room('Z', 'Altrove')]);
