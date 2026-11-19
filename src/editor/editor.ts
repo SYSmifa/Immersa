@@ -851,6 +851,7 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       // only rooms of the project's place can be added (a project uses one place)
       rooms.filter((r) => !project?.roomIds.includes(r.id) && !addRoomError(projectRoomsList(), r)).map((r) => ({ id: r.id, name: r.place ? `${r.name} · ${r.place}` : r.name })),
     );
+    ui.setRestoreLinks(!!room && Object.values(room.scan.links ?? {}).some((l) => l.src === 'manual'));
     ui.setState(!!project, !!room);
   }
 
@@ -1672,6 +1673,26 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       } catch {
         /* offline or signed out: the lists already shown stay */
       }
+    },
+    // The links of the open room go back to the headset's measures (kept in `base` at the first move by hand); a link that never had
+    // one is dropped, and the headset measures it again. Each is a step of undo.
+    async onRestoreLinks() {
+      const cur = room;
+      if (!cur) return;
+      const ids = Object.entries(cur.scan.links ?? {}).filter(([, l]) => l.src === 'manual').map(([k]) => k);
+      if (!ids.length) return;
+      if (!(await ui.askConfirm('Rimettere i collegamenti di questa stanza come li avevano misurati i dati di Meta, prima degli spostamenti a mano?\nSe un collegamento non ne aveva uno, viene tolto e il visore lo rimisura.', 'Ripristina', 'Ripristina collegamenti'))) return;
+      for (const k of ids) {
+        const l = cur.scan.links![k];
+        const other = rooms.find((x) => x.id === k);
+        if (!other) continue;
+        const op: LinkOp = { a: cur.id, b: k, before: [l, other.scan.links?.[cur.id]], after: [l.base, l.base && invertLink(l.base)], hiAt: hi };
+        await applyLinkOp(op, 'after');
+        linkDone.push(op);
+      }
+      linkUndone = [];
+      refreshToolbar();
+      ui.setStatus('Collegamenti ripristinati.');
     },
     async onOpenProject(id) {
       if (!(await confirmLeave())) return;
@@ -2659,7 +2680,9 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     const current = room;
     void (async () => {
       try {
-        const link = { yaw: pose.yaw, tx: pose.tx, ty: pose.ty, tz: pose.tz, at: Date.now(), src: 'manual' as const, n: 2, sess: 'pc' };
+        const old = current.scan.links?.[other.id];
+        const base = old?.src === 'manual' ? old.base : old; // the first move by hand keeps the headset's measure
+        const link: RoomLink = { yaw: pose.yaw, tx: pose.tx, ty: pose.ty, tz: pose.tz, at: Date.now(), src: 'manual', n: 2, sess: 'pc', ...(base ? { base: { ...base, cand: undefined, base: undefined } } : {}) };
         const op: LinkOp = { a: current.id, b: other.id, before: [current.scan.links?.[other.id], other.scan.links?.[current.id]], after: [link, invertLink(link)], hiAt: hi };
         current.scan = { ...current.scan, links: { ...current.scan.links, [other.id]: link } };
         other.scan = { ...other.scan, links: { ...other.scan.links, [current.id]: invertLink(link) } };

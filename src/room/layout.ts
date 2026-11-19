@@ -61,7 +61,8 @@ export const isConfirmed = (l: RoomLink) => linkState(l) !== 'tentative';
 // The same link seen from the other room (its candidate too).
 export function invertLink(l: RoomLink): RoomLink {
   const inv = (p: Pose): Pose => invert(p);
-  return { ...l, ...inv(l), cand: l.cand && { ...l.cand, ...inv(l.cand) } };
+  const { base, ...rest } = l;
+  return { ...rest, ...inv(l), cand: l.cand && { ...l.cand, ...inv(l.cand) }, ...(base ? { base: invertLink(base) } : {}) };
 }
 
 // What room `from` knows about `to`: the link with `to` placed in `from`'s frame, from its own links or from the other room's (inverted).

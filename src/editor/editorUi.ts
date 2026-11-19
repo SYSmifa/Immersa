@@ -70,6 +70,7 @@ export interface EditorHandlers {
   onRoomPlace(id: string): void;
   onRoomRefs(id: string): void;
   onRoomContour(id: string): void;
+  onRestoreLinks(): void; // links of the open room back to what the headset measured, before any move by hand
   onDeleteRoom(id: string): void;
   onOpenModels(): void;
   onLinkVisor(code: string): void;
@@ -451,6 +452,7 @@ export function createEditorUi(h: EditorHandlers) {
   let addableItems: Option[] = [];
   let projectName = '';
   let hasRoom = false;
+  let canRestoreLinks = false; // the open room has links set by hand
   let hasProject = false;
 
   const goHome = () => setView('home');
@@ -779,6 +781,7 @@ export function createEditorUi(h: EditorHandlers) {
       el('div', 'Stanze del progetto', 'ed-h'),
       // a long list scrolls inside its own box, so the buttons under it (add a model, CAD plan) stay in view
       ...(rooms.length ? [el('div', '', 'ed-roomlist')] : [el('div', 'Nessuna stanza: carica i modelli nello spazio libero, o aggiungine una.', 'ed-meta')]),
+      ...(canRestoreLinks ? [pill('Ripristina collegamenti', h.onRestoreLinks)] : []),
       card(row(addable, add), remove),
     ].map((node) => {
       if (node.classList.contains('ed-roomlist')) node.append(...rooms);
@@ -2166,6 +2169,11 @@ export function createEditorUi(h: EditorHandlers) {
       projectRoomItems = rooms;
       currentRoomId = currentId;
       addableItems = addable;
+      if (view === 'project') renderProject();
+    },
+    setRestoreLinks(on: boolean) {
+      if (on === canRestoreLinks) return;
+      canRestoreLinks = on;
       if (view === 'project') renderProject();
     },
     setState,

@@ -2528,7 +2528,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     // The room's frame becomes the session's: the links to the other rooms are carried over (a point of the old frame is, in the
     // new one, `a` of it): its own links go through `a`, the links the others have to it through the inverse.
     const ownLinks: Record<string, RoomLink> = {};
-    for (const [id, l] of Object.entries(room.scan.links ?? {})) ownLinks[id] = { ...l, ...compose(a, l), cand: l.cand && { ...l.cand, ...compose(a, l.cand) } };
+    for (const [id, l] of Object.entries(room.scan.links ?? {})) ownLinks[id] = { ...l, ...compose(a, l), cand: l.cand && { ...l.cand, ...compose(a, l.cand) }, ...(l.base ? { base: { ...l.base, ...compose(a, l.base) } } : {}) };
     const scan = { version: 1 as const, savedAt: Date.now(), planes, boxes, ...(Object.keys(ownLinks).length ? { links: ownLinks } : {}) };
     const others = rooms.filter((x) => x.id !== room.id && x.scan.links?.[room.id]);
     const affected = allProjects.filter((p) => p.models.some((x) => x.roomId === room.id));
@@ -2545,7 +2545,7 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
     fixes.delete(room.id); // the scan is now the live planes themselves
     for (const x of others) {
       const l = x.scan.links![room.id];
-      x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)), cand: l.cand && { ...l.cand, ...compose(l.cand, invert(a)) } } } };
+      x.scan = { ...x.scan, links: { ...x.scan.links, [room.id]: { ...l, ...compose(l, invert(a)), cand: l.cand && { ...l.cand, ...compose(l.cand, invert(a)) }, ...(l.base ? { base: { ...l.base, ...compose(l.base, invert(a)) } } : {}) } } };
       void backend.saveRoomData(x.id, x.scan).catch((e) => logEvent(`posizione relativa non salvata: ${errText(e)}`));
     }
     for (const p of affected) p.models = p.models.map(convert);

@@ -80,6 +80,7 @@ export interface RoomLink {
   n?: number; // absent = 1
   sess?: string; // the session of the last measure (a session counts once)
   cand?: { yaw: number; tx: number; ty: number; tz: number; at: number; n: number; sess: string }; // a different measure of a link not confirmed yet
+  base?: RoomLink; // a link set by hand keeps what was there before the first hand move (the headset's measure): "Ripristina collegamenti" puts it back
 }
 
 export interface Room {
