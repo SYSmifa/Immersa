@@ -2460,8 +2460,8 @@ export function createAppCore({ scene, backend, signOut, onLayers, onFps, onFove
   }
 
   async function renameRoom() {
-    if (!recognised) return;
-    const room = recognised.room;
+    const room = (current ? realignTarget() : null) ?? recognised?.room; // the open project's room (it may not be recognised), else the one recognised
+    if (!room) return;
     const name = await askNameCard('Rinomina la stanza', 'Come vuoi chiamarla?', room.name, room.id);
     if (!name || name === room.name) return;
     try {

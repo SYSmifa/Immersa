@@ -481,11 +481,12 @@ export function buildMenu(v: MenuView, a: MenuActions): Widget[] {
     }
   } else if (v.tab === 'scan' && v.projectRoom?.byPoints) {
     // A project with a room made from points is open: one button, to do its alignment again (its points).
-    out.push(surface(M, top, W, 190));
+    out.push(surface(M, top, W, 250));
     const inner = M + 28;
     const iw = W - 56;
     out.push(text(`${v.projectRoom.name}\n$Rifai l\'allineamento toccando i suoi punti di riferimento.`, inner, top + 16, iw, 80, 24, T.text2, { wrap: true }));
-    out.push({ kind: 'pill', primary: true, icon: 'room', rect: { x: inner, y: top + 112, w: iw, h: 56 }, text: 'Riallinea', size: 26, onClick: a.realign });
+    out.push({ kind: 'pill', rect: { x: inner, y: top + 100, w: iw, h: 50 }, text: 'Rinomina stanza', size: 23, onClick: a.renameRoom });
+    out.push({ kind: 'pill', primary: true, icon: 'room', rect: { x: inner, y: top + 160, w: iw, h: 56 }, text: 'Riallinea', size: 26, onClick: a.realign });
   } else if (v.tab === 'scan') {
     out.push(surface(M, top, W, 340));
     const inner = M + 28;
