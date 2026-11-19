@@ -51,6 +51,7 @@ export interface StructureEdit {
 
 export interface EditorHandlers {
   onOpenProject(id: string): void;
+  onViewOpened?(v: View): void; // a list view was opened: the editor re-reads rooms and projects from the cloud
   onCreateProject(name: string, roomIds: string[]): void;
   projectNameError(name: string, exceptId?: string): string; // '' when the name is free (names are unique, caps and edge spaces ignored)
   onCloseProject(): void;
@@ -806,6 +807,7 @@ export function createEditorUi(h: EditorHandlers) {
     view = v;
     render();
     syncChrome();
+    if (v === 'projects' || v === 'new' || v === 'rooms') h.onViewOpened?.(v);
   }
 
   // ---- toolbar ----
@@ -2156,6 +2158,7 @@ export function createEditorUi(h: EditorHandlers) {
     setRooms(items: Option[]) {
       roomItems = items;
       if (view === 'rooms') renderRooms();
+      else if (view === 'new') renderNew();
     },
     // The project being edited: its name, rooms, the open room, and the account rooms it could still use.
     setProject(name: string, rooms: Option[], currentId: string | null, addable: Option[]) {

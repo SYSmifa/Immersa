@@ -1605,6 +1605,26 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
 
   // ---- the UI ----
   const ui = createEditorUi({
+    // Opening Apri progetto / Nuovo progetto / Le mie stanze: rooms and projects made elsewhere (headset, another tab) show up.
+    // Objects already in memory are kept (the open project and room may have unsaved changes); only new ones are added and gone ones removed.
+    async onViewOpened() {
+      try {
+        const [fr, fp] = await Promise.all([backend.listRooms(), backend.listProjects()]);
+        const merge = <T extends { id: string }>(mine: T[], fresh: T[], keep?: string | null): T[] => {
+          const have = new Map(mine.map((x) => [x.id, x]));
+          return fresh.map((x) => have.get(x.id) ?? x).concat(mine.filter((x) => x.id === keep && !fresh.some((f) => f.id === x.id)));
+        };
+        const nr = merge(rooms, fr, room?.id);
+        const np = merge(projects, fp, project?.id);
+        if (nr.length === rooms.length && np.length === projects.length && nr.every((x, i) => x === rooms[i]) && np.every((x, i) => x === projects[i])) return;
+        for (const p of np) if (!projects.includes(p)) adoptOrphans(p, nr);
+        rooms = nr;
+        projects = np;
+        refreshLists();
+      } catch {
+        /* offline or signed out: the lists already shown stay */
+      }
+    },
     async onOpenProject(id) {
       if (!(await confirmLeave())) return;
       showProject(projects.find((p) => p.id === id) ?? null);
