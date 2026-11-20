@@ -44,6 +44,19 @@ export function createHands(renderer: WebGLRenderer, scene: Scene, surface: () =
     group.add(hand);
     hands.push({ hand, model });
   }
+  // The hand mesh loads asynchronously: if the hand is lost and found again meanwhile (or loses tracking before the file arrives), an
+  // older load can finish after the newer one (or after the hand model was cleared) and leave a second mesh in the hand model that
+  // nothing updates: a motionless hand in its bind pose near the origin (the head, at the start of the session). Only the mesh
+  // whose bones the current motion controller drives is kept.
+  const verified = new WeakSet<Object3D>(); // meshes known to be the driven one (checked once)
+  const sweep = (model: Object3D) => {
+    const mc = (model as unknown as { motionController?: { bones?: (Object3D | undefined)[] } | null }).motionController;
+    for (const c of [...model.children]) {
+      if (verified.has(c)) continue;
+      if (mc?.bones?.some((b) => b && c.getObjectById(b.id))) verified.add(c);
+      else model.remove(c);
+    }
+  };
   // A mesh whose joints were never tracked (or are lost) sits at the origin in its bind pose: draw it only while the wrist is tracked.
   const lift = new Map<Object3D, number>(); // how far each virtual hand is lifted now (smoothed)
   const local = new Vector3();
@@ -56,6 +69,7 @@ export function createHands(renderer: WebGLRenderer, scene: Scene, surface: () =
     }
     const g = plane ? (((plane as Mesh).geometry as PlaneGeometry).parameters ?? null) : null;
     for (const h of hands) {
+      sweep(h.model);
       const joints = (h.hand as unknown as { joints?: Record<string, Object3D & { jointRadius?: number }> }).joints;
       h.model.visible = !!joints?.wrist?.visible;
       let depth = 0;
