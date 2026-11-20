@@ -205,7 +205,23 @@ function drawSheet(page: PdfPage, d: PlanData, L: PlanLayout, o: SheetOptions, p
   // the zone di rispetto: a pale amber area (red when invaded) with its outline and name
   for (const z of d.zones) {
     const pts = z.poly.map((p) => toPage(p[0], p[1]));
-    page.polygon(pts, { fill: z.bad ? '#fecaca' : '#fde9b8', stroke: z.bad ? '#dc2626' : '#d97706', width: 0.35 });
+    // hatched, not filled: what is drawn under it (the models seen from above) must stay visible
+    const col = z.bad ? '#dc2626' : '#d97706';
+    page.polygon(pts, { stroke: col, width: 0.35 });
+    const sums = pts.map((q) => q[0] + q[1]);
+    for (let c = Math.ceil(Math.min(...sums) / 3) * 3; c < Math.max(...sums); c += 3) {
+      // the line x + y = c against the polygon's edges: the stretches inside are drawn
+      const xs: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        const f1 = x1 + y1 - c;
+        const f2 = x2 + y2 - c;
+        if (f1 * f2 < 0) xs.push(x1 + ((x2 - x1) * f1) / (f1 - f2));
+      }
+      xs.sort((u, v) => u - v);
+      for (let i = 0; i + 1 < xs.length; i += 2) page.line(xs[i], c - xs[i], xs[i + 1], c - xs[i + 1], 0.15, col);
+    }
     const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
     const cy = Math.min(...pts.map((p) => p[1])) + 3;
     if (clip([cx, cy])) page.text(z.label, cx, cy, { size: 6, align: 'center', color: z.bad ? '#b91c1c' : '#92400e', halo });
