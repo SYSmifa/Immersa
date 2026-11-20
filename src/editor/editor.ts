@@ -1063,8 +1063,8 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
       return false;
     }
   })();
-  function prepareFade(shell: Group) {
-    fades = (shell.children as (Object3D & { material?: MeshBasicMaterial })[]).filter((o): o is Object3D & { material: MeshBasicMaterial } => o instanceof Mesh);
+  function prepareFade(shell: Group, volumeFills: Mesh[] = []) {
+    fades = [...(shell.children as (Object3D & { material?: MeshBasicMaterial })[]).filter((o): o is Object3D & { material: MeshBasicMaterial } => o instanceof Mesh), ...(volumeFills as (Mesh & { material: MeshBasicMaterial })[])];
     updateFade();
   }
   function updateFade() {
@@ -1311,8 +1311,10 @@ export async function createEditor({ renderer, scene, camera, controls, backend,
     }
     planesGroup.visible = !hiddenRooms.has(r.id);
     const plan = drawPlanes(r.scan.planes, planesGroup, true, r.scan.boxes ?? [], false, 0, true);
+    const firstBox = planesGroup.children.length;
     const volumes = drawBoxes(r.scan.boxes ?? [], planesGroup, true, 0, true);
-    prepareFade(plan.shell);
+    // the "Pareti" button hides the translucent fill of the furniture volumes (ingombri) too, and leaves their edges
+    prepareFade(plan.shell, planesGroup.children.slice(firstBox).filter((o): o is Mesh => o instanceof Mesh));
     const spot = floorCentre(r.scan.planes);
     gridGroup.add(new GridHelper(8, 16, 0x335566, 0x223344).translateX(spot[0]).translateY(spot[1]).translateZ(spot[2]));
     const bounds = new Box3().setFromObject(planesGroup);
